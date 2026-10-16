@@ -1,8 +1,15 @@
-
-# CodeRabbit Configuration
-language: ko-KR
-
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# CodeRabbit AI 리뷰 설정 — 한국어로 리뷰
+language: "ko-KR"
+tone_instructions: "한국어로, 처음 백엔드를 하는 팀원도 이해할 수 있게 쉽고 짧게 설명해 주세요."
 reviews:
+  profile: "chill"
+  high_level_summary: true
+  poem: false
   auto_review:
     enabled: true
-    drafts: false
+    base_branches:
+      - develop
+      - main
+chat:
+  auto_reply: true
