@@ -1,3 +1,21 @@
 spring:
   application:
     name: dangdang-be
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/dangdang}
+    username: ${DB_USER:dangdang}
+    password: ${DB_PASSWORD:dangdang}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: none
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
