@@ -36,6 +36,6 @@ public class GlobalExceptionHandler {
     public ResponseEntity<BaseResponse<Void>> handleException(Exception e) {
         log.error("예상 못 한 에러", e);
         GlobalErrorCode code = GlobalErrorCode.INTERNAL_SERVER_ERROR;
-        return ResponseEntity.status(code.getStatus()).body(BaseResponse.fail(code));
+        return ResponseEntity.status(code.getStatus()).body(BaseResponse.fail(code,e.getMessage()));
     }
 }
