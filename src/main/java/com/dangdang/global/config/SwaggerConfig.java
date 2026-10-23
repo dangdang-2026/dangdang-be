@@ -15,10 +15,11 @@ public class SwaggerConfig {
 		return new OpenAPI()
 				.info(new Info()
 						.title("당당 API")
+						.title("당당 API")
 						.description("임신성 당뇨 기록·알림 서비스 당당의 백엔드 API")
 						.version("v1"))
 				.servers(List.of(
-						new Server().url("https://dang-dang.site").description("운영"),
-						new Server().url("http://localhost:8080").description("로컬")));
+                        new Server().url("http://localhost:8080").description("로컬"),
+						new Server().url("https://dang-dang.site").description("운영")));
 	}
 }
