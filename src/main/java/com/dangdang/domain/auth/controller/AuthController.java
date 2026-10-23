@@ -1,5 +1,14 @@
 package com.dangdang.domain.auth.controller;
 
+import com.dangdang.domain.auth.dto.request.LoginRequest;
+import com.dangdang.domain.auth.dto.response.TokenResponse;
+import com.dangdang.domain.auth.service.LoginService;
+import com.dangdang.domain.auth.service.TokenService;
+import com.dangdang.global.security.jwt.JwtCookieWriter;
+import com.dangdang.global.security.jwt.JwtProvider;
+import com.dangdang.global.security.jwt.TokenType;
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.http.HttpHeaders;
 import com.dangdang.domain.auth.dto.request.EmailCodeRequest;
 import com.dangdang.domain.auth.dto.request.EmailVerifyRequest;
 import com.dangdang.domain.auth.dto.request.SignupRequest;
@@ -25,6 +34,10 @@ public class AuthController {
 
     private final EmailVerificationService emailVerificationService;
     private final SignupService signupService;
+    private final LoginService loginService;
+    private final TokenService tokenService;
+    private final JwtProvider jwtProvider;
+    private final JwtCookieWriter jwtCookieWriter;
 
     @Operation(
             summary = "[ 사용자 | 토큰 X | 인증번호 받기 ]",
@@ -67,5 +80,60 @@ public class AuthController {
         SignupResponse response = new SignupResponse(signupService.signup(request));
         return ResponseEntity.status(201)
                 .body(BaseResponse.success(201, "회원가입에 성공했습니다.", response));
+    }
+
+    @Operation(
+            summary = "[ 사용자 | 토큰 X | 로그인 ]",
+            description =
+                    """
+                    **Parameters** email, password
+                    **Returns (쿠키)** ACCESS_TOKEN, REFRESH_TOKEN. 틀리면 AUTH_40004(남은 횟수), 5번 틀리면 AUTH_42902(5분 잠금), 카카오 계정이면 AUTH_40005
+                    """)
+    @PostMapping("/login")
+    public ResponseEntity<BaseResponse<Void>> login(@Valid @RequestBody LoginRequest request) {
+        TokenResponse tokens = loginService.login(request);
+        return ResponseEntity.ok()
+                .headers(tokenCookies(tokens))
+                .body(BaseResponse.success(200, "로그인에 성공했습니다.", null));
+    }
+
+    @Operation(
+            summary = "[ 사용자 | Refresh 쿠키 | 토큰 재발급 ]",
+            description =
+                    """
+                    **Parameters** 없음 (REFRESH_TOKEN 쿠키를 읽음)
+                    **Returns (쿠키)** 새 ACCESS_TOKEN, 새 REFRESH_TOKEN. 이미 쓴·만료·로그아웃한 Refresh 면 AUTH_40103
+                    """)
+    @PostMapping("/refresh")
+    public ResponseEntity<BaseResponse<Void>> refresh(HttpServletRequest request) {
+        TokenResponse tokens = tokenService.reissue(jwtProvider.resolveRefreshToken(request));
+        return ResponseEntity.ok()
+                .headers(tokenCookies(tokens))
+                .body(BaseResponse.success(200, "토큰 재발급에 성공했습니다.", null));
+    }
+
+    @Operation(
+            summary = "[ 사용자 | Refresh 쿠키 | 로그아웃 ]",
+            description =
+                    """
+                    **Parameters** 없음
+                    **Returns (쿠키)** 0초짜리 쿠키 두 개 → 브라우저에서 지워짐. 토큰이 없어도 200
+                    """)
+    @PostMapping("/logout")
+    public ResponseEntity<BaseResponse<Void>> logout(HttpServletRequest request) {
+        tokenService.revoke(jwtProvider.resolveRefreshToken(request));
+        HttpHeaders headers = new HttpHeaders();
+        headers.add(HttpHeaders.SET_COOKIE, jwtCookieWriter.expire(TokenType.ACCESS_TOKEN).toString());
+        headers.add(HttpHeaders.SET_COOKIE, jwtCookieWriter.expire(TokenType.REFRESH_TOKEN).toString());
+        return ResponseEntity.ok()
+                .headers(headers)
+                .body(BaseResponse.success(200, "로그아웃에 성공했습니다.", null));
+    }
+
+    private HttpHeaders tokenCookies(TokenResponse tokens) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.add(HttpHeaders.SET_COOKIE, jwtCookieWriter.accessCookie(tokens.accessToken()).toString());
+        headers.add(HttpHeaders.SET_COOKIE, jwtCookieWriter.refreshCookie(tokens.refreshToken()).toString());
+        return headers;
     }
 }
