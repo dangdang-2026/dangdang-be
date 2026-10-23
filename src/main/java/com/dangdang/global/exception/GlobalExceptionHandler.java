@@ -18,7 +18,7 @@ public class GlobalExceptionHandler {
     public ResponseEntity<BaseResponse<Void>> handleCustomException(CustomException e){
         BaseErrorCode code = e.getErrorCode();
         log.warn("CustomException 발생: {} - {}", code.getCode(), code.getMessage());
-        return ResponseEntity.status(code.getStatus()).body(BaseResponse.fail(code));
+        return ResponseEntity.status(code.getStatus()).body(BaseResponse.fail(code,e.getMessage()));
     }
 
     //@Valid 검증 실패 -> 첫 번째로 틀린 칸의 문구 보여주기
