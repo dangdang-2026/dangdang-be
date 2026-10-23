@@ -5,6 +5,7 @@ import com.dangdang.domain.user.exception.UserErrorCode;
 import com.dangdang.domain.user.repository.UserRepository;
 import com.dangdang.global.exception.CustomException;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -13,11 +14,12 @@ import org.springframework.transaction.annotation.Transactional;
 public class UserService {
 
     private final UserRepository userRepository;
+    private final ConsentService consentService;
 
     @Transactional(readOnly = true)
     public MeResponse getMe(Long userId) {
         return userRepository.findById(userId)
-                .map(MeResponse::from)
+                .map(user -> MeResponse.from(user, consentService.isCompleted(userId)))
                 .orElseThrow(()->new CustomException(UserErrorCode.USER_NOT_FOUND));
     }
 }
