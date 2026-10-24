@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -29,6 +30,14 @@ public class GlobalExceptionHandler {
         log.warn("입력 검증 실패: {}", e.getBindingResult().getFieldErrors());
         GlobalErrorCode code = GlobalErrorCode.INVALID_INPUT;
         return ResponseEntity.status(code.getStatus()).body(BaseResponse.fail(code, first.getDefaultMessage()));
+    }
+
+    //JSON 모양이 틀림 (모르는 동의 항목 이름, 숫자 칸에 글자 등) -> 500 말고 400
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<BaseResponse<Void>> handleNotReadable(HttpMessageNotReadableException e) {
+        log.warn("요청 본문을 읽을 수 없음: {}", e.getMessage());
+        GlobalErrorCode code = GlobalErrorCode.INVALID_INPUT;
+        return ResponseEntity.status(code.getStatus()).body(BaseResponse.fail(code));
     }
 
     // 에상 못한 에러라면? (내부 내용 숨기고, 고정 문구만)
