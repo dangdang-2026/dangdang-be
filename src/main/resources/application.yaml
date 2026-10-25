@@ -1,6 +1,8 @@
 spring:
   application:
     name: dangdang-be
+  config:
+    import: optional:file:.env[.properties]
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/dangdang}
     username: ${DB_USER:dangdang}
@@ -47,4 +49,11 @@ jwt:
   refresh-token-validity-in-seconds: 1209600    # 14일 = 60*60*24*14
   secure: ${JWT_COOKIE_SECURE:false}            # 로컬은 http라 false
   same-site: Lax
+
+kakao:
+  client-id: ${KAKAO_REST_API_KEY:}             # 카카오 REST API 키 (.env에 있는 이름 그대로)
+  client-secret: ${KAKAO_CLIENT_SECRET:}        # 카카오 클라이언트 시크릿
+  redirect-uris:                                # 카카오 콘솔에 등록한 주소와 똑같이
+    - http://localhost:5173/auth/kakao/callback
+    - https://dang-dang.site/auth/kakao/callback
 
