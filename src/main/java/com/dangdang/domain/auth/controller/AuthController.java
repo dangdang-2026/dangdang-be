@@ -12,6 +12,8 @@ import com.dangdang.domain.auth.dto.request.EmailCodeRequest;
 import com.dangdang.domain.auth.dto.request.EmailVerifyRequest;
 import com.dangdang.domain.auth.dto.request.SignupRequest;
 import com.dangdang.domain.auth.dto.response.SignupResponse;
+import com.dangdang.domain.auth.dto.request.EmailAvailabilityRequest;
+import com.dangdang.domain.auth.dto.response.EmailAvailabilityResponse;
 import com.dangdang.domain.auth.dto.request.KakaoLoginRequest;
 import com.dangdang.domain.auth.dto.response.KakaoLoginResponse;
 import com.dangdang.global.common.BaseResponse;
@@ -38,6 +40,20 @@ public class AuthController {
     private final TokenService tokenService;
     private final JwtProvider jwtProvider;
     private final JwtCookieWriter jwtCookieWriter;
+
+    @Operation(
+            summary = "[ 사용자 | 토큰 X | 이메일 중복 확인 ]",
+            description =
+                    """
+                    **Parameters** email: 가입하려는 이메일
+                    **Returns** available(쓸 수 있으면 true), authProvider(이미 가입이면 EMAIL 또는 KAKAO, 아니면 null)
+                    """)
+    @PostMapping("/email/availability")
+    public ResponseEntity<BaseResponse<EmailAvailabilityResponse>> checkEmail(
+            @Valid @RequestBody EmailAvailabilityRequest request) {
+        EmailAvailabilityResponse response = signupService.checkEmail(request.email());
+        return ResponseEntity.ok(BaseResponse.success(200, "이메일 확인에 성공했습니다.", response));
+    }
 
     @Operation(
             summary = "[ 사용자 | 토큰 X | 인증번호 받기 ]",
