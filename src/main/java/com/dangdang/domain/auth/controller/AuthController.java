@@ -2,8 +2,7 @@ package com.dangdang.domain.auth.controller;
 
 import com.dangdang.domain.auth.dto.request.LoginRequest;
 import com.dangdang.domain.auth.dto.response.TokenResponse;
-import com.dangdang.domain.auth.service.LoginService;
-import com.dangdang.domain.auth.service.TokenService;
+import com.dangdang.domain.auth.service.*;
 import com.dangdang.global.security.jwt.JwtCookieWriter;
 import com.dangdang.global.security.jwt.JwtProvider;
 import com.dangdang.global.security.jwt.TokenType;
@@ -13,8 +12,8 @@ import com.dangdang.domain.auth.dto.request.EmailCodeRequest;
 import com.dangdang.domain.auth.dto.request.EmailVerifyRequest;
 import com.dangdang.domain.auth.dto.request.SignupRequest;
 import com.dangdang.domain.auth.dto.response.SignupResponse;
-import com.dangdang.domain.auth.service.EmailVerificationService;
-import com.dangdang.domain.auth.service.SignupService;
+import com.dangdang.domain.auth.dto.request.KakaoLoginRequest;
+import com.dangdang.domain.auth.dto.response.KakaoLoginResponse;
 import com.dangdang.global.common.BaseResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -35,6 +34,7 @@ public class AuthController {
     private final EmailVerificationService emailVerificationService;
     private final SignupService signupService;
     private final LoginService loginService;
+    private final KakaoLoginService kakaoLoginService;
     private final TokenService tokenService;
     private final JwtProvider jwtProvider;
     private final JwtCookieWriter jwtCookieWriter;
@@ -95,6 +95,24 @@ public class AuthController {
         return ResponseEntity.ok()
                 .headers(tokenCookies(tokens))
                 .body(BaseResponse.success(200, "로그인에 성공했습니다.", null));
+    }
+
+    @Operation(
+            summary = "[ 사용자 | 토큰 X | 카카오 로그인 ]",
+            description =
+                    """
+                    **Parameters** code(카카오가 준 인가 코드), redirectUri(코드를 받을 때 쓴 주소)
+                    **Returns (쿠키)** ACCESS_TOKEN, REFRESH_TOKEN + newUser(처음 가입이면 true).
+                    코드가 틀렸거나 이미 썼으면 AUTH_40006, 허용 안 된 주소면 AUTH_40007,
+                    같은 이메일의 이메일 계정이 있으면 AUTH_40902, 카카오 장애면 AUTH_50201
+                    """)
+    @PostMapping("/kakao")
+    public ResponseEntity<BaseResponse<KakaoLoginResponse>> kakaoLogin(
+            @Valid @RequestBody KakaoLoginRequest request) {
+        KakaoLoginService.Result result = kakaoLoginService.login(request.code(), request.redirectUri());
+        return ResponseEntity.ok()
+                .headers(tokenCookies(result.tokens()))
+                .body(BaseResponse.success(200, "카카오 로그인에 성공했습니다.", new KakaoLoginResponse(result.newUser())));
     }
 
     @Operation(
