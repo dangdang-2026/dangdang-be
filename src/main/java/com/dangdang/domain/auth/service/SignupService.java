@@ -1,6 +1,7 @@
 package com.dangdang.domain.auth.service;
 
 import com.dangdang.domain.auth.dto.request.SignupRequest;
+import com.dangdang.domain.auth.dto.response.EmailAvailabilityResponse;
 import com.dangdang.domain.auth.exception.AuthErrorCode;
 import com.dangdang.domain.auth.infra.EmailVerificationStore;
 import com.dangdang.domain.user.entity.NotificationPreference;
@@ -26,6 +27,15 @@ public class SignupService {
     private final NotificationPreferenceRepository notificationPreferenceRepository;
     private final EmailVerificationStore verificationStore;
     private final PasswordEncoder passwordEncoder;
+
+    // 가입 화면에서 이메일을 다 쓰면 바로 확인 (AUTH-02 실시간 중복 확인 · J-06, J-07)
+    @Transactional(readOnly = true)
+    public EmailAvailabilityResponse checkEmail(String rawEmail) {
+        String email = User.normalize(rawEmail);
+        return userRepository.findByEmail(email)
+                .map(user -> EmailAvailabilityResponse.usedBy(user.getAuthProvider()))
+                .orElseGet(EmailAvailabilityResponse::ok);
+    }
 
     @Transactional
     public Long signup(SignupRequest request) {
