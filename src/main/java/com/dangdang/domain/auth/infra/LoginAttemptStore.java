@@ -37,4 +37,10 @@ public class LoginAttemptStore {
     public void clear(String email) {
         redis.delete(FAILS + email);
     }
+
+    //비밀번호를 새로 정하면 잠금도 풀어 준다.
+    public void unlock(String email){
+        redis.delete(FAILS + email);
+        redis.delete(LOCK+email);
+    }
 }
