@@ -49,7 +49,8 @@ jwt:
   refresh-token-validity-in-seconds: 1209600    # 14일 = 60*60*24*14
   secure: ${JWT_COOKIE_SECURE:false}            # 로컬은 http라 false
   same-site: Lax
-
+front:
+  base-url: ${FRONT_BASE_URL:http://localhost:5173}   # 메일 속 링크가 열 프론트 주소
 kakao:
   client-id: ${KAKAO_REST_API_KEY:}             # 카카오 REST API 키 (.env에 있는 이름 그대로)
   client-secret: ${KAKAO_CLIENT_SECRET:}        # 카카오 클라이언트 시크릿
