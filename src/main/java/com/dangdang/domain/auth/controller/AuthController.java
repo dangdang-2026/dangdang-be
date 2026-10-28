@@ -16,6 +16,9 @@ import com.dangdang.domain.auth.dto.request.EmailAvailabilityRequest;
 import com.dangdang.domain.auth.dto.response.EmailAvailabilityResponse;
 import com.dangdang.domain.auth.dto.request.KakaoLoginRequest;
 import com.dangdang.domain.auth.dto.response.KakaoLoginResponse;
+import com.dangdang.domain.auth.dto.request.PasswordResetConfirmRequest;
+import com.dangdang.domain.auth.dto.request.PasswordResetMailRequest;
+import com.dangdang.domain.auth.service.PasswordResetService;
 import com.dangdang.global.common.BaseResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -37,6 +40,7 @@ public class AuthController {
     private final SignupService signupService;
     private final LoginService loginService;
     private final KakaoLoginService kakaoLoginService;
+    private final PasswordResetService passwordResetService;
     private final TokenService tokenService;
     private final JwtProvider jwtProvider;
     private final JwtCookieWriter jwtCookieWriter;
@@ -129,6 +133,35 @@ public class AuthController {
         return ResponseEntity.ok()
                 .headers(tokenCookies(result.tokens()))
                 .body(BaseResponse.success(200, "카카오 로그인에 성공했습니다.", new KakaoLoginResponse(result.newUser())));
+    }
+
+    @Operation(
+            summary = "[ 사용자 | 토큰 X | 비밀번호 찾기 (링크 보내기) ]",
+            description =
+                    """
+                    **Parameters** email
+                    **Returns** 가입 여부와 관계없이 항상 200 (계정이 있는지 알려 주지 않음). 링크는 30분, 한 번만.
+                    같은 이메일로 하루 5번 넘으면 AUTH_42903
+                    """)
+    @PostMapping("/password/reset/request")
+    public ResponseEntity<BaseResponse<Void>> sendResetLink(
+            @Valid @RequestBody PasswordResetMailRequest request) {
+        passwordResetService.sendLink(request.email());
+        return ResponseEntity.ok(BaseResponse.success(200, "가입된 이메일이면 재설정 링크를 보냈어요.", null));
+    }
+
+    @Operation(
+            summary = "[ 사용자 | 토큰 X | 비밀번호 재설정 ]",
+            description =
+                    """
+                    **Parameters** token(메일 링크의 ?token= 값), newPassword
+                    **Returns** 성공 시 data 없음 + 모든 기기 로그아웃. 링크 만료·이미 씀이면 AUTH_40008, 이전과 같으면 AUTH_40009
+                    """)
+    @PostMapping("/password/reset/confirm")
+    public ResponseEntity<BaseResponse<Void>> resetPassword(
+            @Valid @RequestBody PasswordResetConfirmRequest request) {
+        passwordResetService.confirm(request.token(), request.newPassword());
+        return ResponseEntity.ok(BaseResponse.success(200, "비밀번호 재설정에 성공했습니다.", null));
     }
 
     @Operation(
