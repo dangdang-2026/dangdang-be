@@ -4,3 +4,6 @@ jwt:
 
 front:
   base-url: https://dang-dang.site
+
+mail:
+  sender: smtp
