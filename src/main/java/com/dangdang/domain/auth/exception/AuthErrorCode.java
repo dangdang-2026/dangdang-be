@@ -26,7 +26,8 @@ public enum AuthErrorCode implements BaseErrorCode {
     EMAIL_SEND_LIMIT("AUTH_42901", "오늘은 인증번호를 더 보낼 수 없어요. 내일 다시 시도해 주세요.", HttpStatus.TOO_MANY_REQUESTS),
     LOGIN_LOCKED("AUTH_42902", "비밀번호를 5번 틀려서 5분 동안 로그인할 수 없어요.", HttpStatus.TOO_MANY_REQUESTS),
     RESET_SEND_LIMIT("AUTH_42903", "오늘은 재설정 메일을 더 보낼 수 없어요. 내일 다시 시도해 주세요.",HttpStatus.TOO_MANY_REQUESTS),
-    KAKAO_UNAVAILABLE("AUTH_50201", "카카오에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.", HttpStatus.BAD_GATEWAY);
+    KAKAO_UNAVAILABLE("AUTH_50201", "카카오에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.", HttpStatus.BAD_GATEWAY),
+    MAIL_SEND_FAILED("AUTH_50202", "메일을 보내지 못했어요. 잠시 후 다시 시도해 주세요.", HttpStatus.BAD_GATEWAY);
 
     private final String code;
     private final String message;
