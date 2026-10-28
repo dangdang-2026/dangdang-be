@@ -35,7 +35,15 @@ class SignupFlowTest {
         @Primary
             // LogEmailSender 대신 이걸 쓰게 한다
         EmailSender capturingSender() {
-            return SENT::put;
+            return new EmailSender() {
+                @Override
+                public void sendVerificationCode(String email, String code) {
+                    SENT.put(email, code);
+                }
+
+                @Override
+                public void sendPasswordResetLink(String email, String link) {}
+            };
         }
     }
 
