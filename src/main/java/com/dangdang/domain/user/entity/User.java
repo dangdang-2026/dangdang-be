@@ -75,6 +75,11 @@ public class User extends BaseTimeEntity {
         return user;
     }
 
+    // 비밀번호 재설정 (AUTH-06). 해시만 받는다
+    public void changePassword(String newPasswordHash) {
+        this.passwordHash = newPasswordHash;
+    }
+
     // 앞뒤 공백 제거 + 소문자. 저장할 때도 찾을 때도 항상 거친다
     public static String normalize(String email) {
         return email.trim().toLowerCase(Locale.ROOT);
