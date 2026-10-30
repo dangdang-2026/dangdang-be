@@ -1,3 +1,77 @@
 spring:
   application:
     name: dangdang-be
+  config:
+    import: optional:file:.env[.properties]
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/dangdang}
+    username: ${DB_USER:dangdang}
+    password: ${DB_PASSWORD:dangdang}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        default_batch_fetch_size: 100
+        jdbc:
+          time_zone: UTC
+
+  flyway:
+    locations: classpath:db/migration
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+  mail:                                          # ← data 와 같은 2칸
+    host: smtp.gmail.com
+    port: 587
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
+      mail.smtp.connectiontimeout: 5000
+      mail.smtp.timeout: 5000
+      mail.smtp.writetimeout: 5000
+
+management:
+  health:
+    mail:
+      enabled: false
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha
+    operations-sorter: alpha
+  api-docs:
+    path: /v3/api-docs
+
+jwt:
+  secret: ${JWT_SECRET:local-only-secret-dangdang-change-in-prod-0123456789}
+  access-token-validity-in-seconds: 1800        # 30분
+  refresh-token-validity-in-seconds: 1209600    # 14일 = 60*60*24*14
+  secure: ${JWT_COOKIE_SECURE:false}            # 로컬은 http라 false
+  same-site: Lax
+
+mail:                                            # ← 맨 앞 0칸
+  sender: ${MAIL_SENDER:log}                    # log = 콘솔에 찍기(로컬) / smtp = 진짜 메일
+
+front:
+  base-url: ${FRONT_BASE_URL:http://localhost:5173}   # 메일 속 링크가 열 프론트 주소
+kakao:
+  client-id: ${KAKAO_REST_API_KEY:}             # 카카오 REST API 키 (.env에 있는 이름 그대로)
+  client-secret: ${KAKAO_CLIENT_SECRET:}        # 카카오 클라이언트 시크릿
+  redirect-uris:                                # 카카오 콘솔에 등록한 주소와 똑같이
+    - http://localhost:5173/auth/kakao/callback
+    - https://dang-dang.site/auth/kakao/callback

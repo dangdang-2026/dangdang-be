@@ -1,0 +1,9 @@
+jwt:
+  secret: ${JWT_SECRET}
+  secure: true
+
+front:
+  base-url: https://dang-dang.site
+
+mail:
+  sender: smtp
