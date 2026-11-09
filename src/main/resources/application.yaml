@@ -67,6 +67,14 @@ jwt:
 mail:                                            # ← 맨 앞 0칸
   sender: ${MAIL_SENDER:log}                    # log = 콘솔에 찍기(로컬) / smtp = 진짜 메일
 
+push:
+  sender: ${PUSH_SENDER:log}                    # log = 콘솔에 찍기(로컬·테스트) / webpush = 진짜 발송
+
+vapid:
+  public-key: ${VAPID_PUBLIC_KEY:}
+  private-key: ${VAPID_PRIVATE_KEY:}
+  subject: ${VAPID_SUBJECT:}
+
 front:
   base-url: ${FRONT_BASE_URL:http://localhost:5173}   # 메일 속 링크가 열 프론트 주소
 cors:
