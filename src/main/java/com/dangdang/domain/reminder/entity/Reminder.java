@@ -66,4 +66,10 @@ public class Reminder {
     public void cancel() {
         this.status = ReminderStatus.CANCELED;
     }
+
+    // 이 알림의 혈당을 쟀음 → 끝 처리하고 어느 혈당인지 연결함 (이후 스케줄러가 안 보냄)
+    public void complete(Long readingId) {
+        this.status = ReminderStatus.DONE;
+        this.readingId = readingId;
+    }
 }

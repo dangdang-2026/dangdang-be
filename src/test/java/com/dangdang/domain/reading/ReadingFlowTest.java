@@ -22,6 +22,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -343,6 +344,66 @@ class ReadingFlowTest {
                         .content("{\"mealId\":" + othersMeal + "}"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.errorCode").value("MEAL_40401"));
+    }
+
+    // ---------- 식후 알림 끝 처리 ----------
+
+    // 병원 기준(식후 60분, 점심 식후만) 넣고, 지금 점심 시작 → 1시간 뒤 알림이 예약된 식사 id
+    private long lunchWithReminder() throws Exception {
+        mvc.perform(post("/api/criteria-versions").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"postMealMinutes\":60,\"measureSlots\":[\"LUNCH_AFTER\"]}"))
+                .andExpect(status().isCreated());
+        String body = mvc.perform(post("/api/meals").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mealSlot\":\"LUNCH\",\"startedAt\":\"" + Instant.now() + "\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return ((Number) JsonPath.read(body, "$.data.mealId")).longValue();
+    }
+
+    private Map<String, Object> reminderOf(long mealId) {
+        return jdbc.queryForMap("SELECT status, reading_id FROM reminders WHERE meal_id = ?", mealId);
+    }
+
+    @Test
+    void 알림_전에_식후_혈당을_적으면_알림이_DONE이_되고_혈당이_붙는다() throws Exception {
+        long mealId = lunchWithReminder();
+        assertThat(reminderOf(mealId).get("status")).isEqualTo("SCHEDULED");
+
+        String body = mvc.perform(post("/api/readings").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content(postMealJson(mealId)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        long readingId = ((Number) JsonPath.read(body, "$.data.readingId")).longValue();
+
+        Map<String, Object> reminder = reminderOf(mealId);
+        assertThat(reminder.get("status")).isEqualTo("DONE");
+        assertThat(((Number) reminder.get("reading_id")).longValue()).isEqualTo(readingId);
+    }
+
+    @Test
+    void 알림을_받은_뒤에_적어도_DONE이_된다() throws Exception {
+        long mealId = lunchWithReminder();
+        jdbc.update("UPDATE reminders SET status = 'SENT' WHERE meal_id = ?", mealId);   // 이미 보냈다고 침
+
+        mvc.perform(post("/api/readings").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content(postMealJson(mealId)))
+                .andExpect(status().isCreated());
+
+        assertThat(reminderOf(mealId).get("status")).isEqualTo("DONE");
+    }
+
+    @Test
+    void 수정으로_식사를_붙여도_알림이_DONE이_된다() throws Exception {
+        long mealId = lunchWithReminder();
+        long id = create(150, Instant.now());   // 식사 없이 먼저 적음
+
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mealId\":" + mealId + "}"))
+                .andExpect(status().isOk());
+
+        Map<String, Object> reminder = reminderOf(mealId);
+        assertThat(reminder.get("status")).isEqualTo("DONE");
+        assertThat(((Number) reminder.get("reading_id")).longValue()).isEqualTo(id);
     }
 
     @Test

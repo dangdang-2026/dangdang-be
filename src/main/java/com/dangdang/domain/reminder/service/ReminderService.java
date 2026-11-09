@@ -75,6 +75,21 @@ public class ReminderService {
                 .forEach(Reminder::cancel);   // 변경 감지로 트랜잭션 끝날 때 반영됨
     }
 
+    // 이 식사의 식후 혈당을 저장했을 때: 아직 안 끝난 알림(예약됨·보냄·열어 봄)을 DONE으로 바꾸고 혈당 id를 붙임
+    // 이미 쟀는데 "재세요" 알림이 가는 걸 막음. reading_id는 알림 하나에만 붙을 수 있어서(유니크) 첫 번째에만 붙이고 나머지는 취소함
+    @Transactional
+    public void completeForMeal(Long mealId, Long readingId) {
+        if (reminderRepository.existsByReadingId(readingId)) {
+            return;             // 이 혈당은 이미 다른 알림을 끝낸 적 있음 (수정으로 식사를 바꾼 경우 등)
+        }
+        List<Reminder> pending = reminderRepository.findByMealIdAndStatusInOrderByIdAsc(
+                mealId, List.of(ReminderStatus.SCHEDULED, ReminderStatus.SENT, ReminderStatus.OPENED));
+        for (int i = 0; i < pending.size(); i++) {
+            if (i == 0) pending.get(i).complete(readingId);
+            else pending.get(i).cancel();
+        }
+    }
+
     private static MeasureSlot afterSlotOf(final MealSlot mealSlot) {
         return switch (mealSlot) {
             case BREAKFAST -> MeasureSlot.BREAKFAST_AFTER;

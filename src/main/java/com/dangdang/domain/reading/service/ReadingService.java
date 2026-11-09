@@ -4,6 +4,7 @@ import com.dangdang.domain.criteria.entity.CriteriaVersion;
 import com.dangdang.domain.criteria.service.CriteriaService;
 import com.dangdang.domain.meal.exception.MealErrorCode;
 import com.dangdang.domain.meal.repository.MealRepository;
+import com.dangdang.domain.reminder.service.ReminderService;
 import com.dangdang.domain.reading.dto.request.ReadingCreateRequest;
 import com.dangdang.domain.reading.dto.request.ReadingUpdateRequest;
 import com.dangdang.domain.reading.dto.response.ReadingPageResponse;
@@ -34,6 +35,7 @@ public class ReadingService {
     private final UserRepository userRepository;
     private final CriteriaService criteriaService;
     private final MealRepository mealRepository;
+    private final ReminderService reminderService;
     private final Clock clock;
 
     private static final int MAX_PAGE_SIZE = 100;
@@ -48,6 +50,9 @@ public class ReadingService {
         Reading saved = readingRepository.save(Reading.of(
                 user, criteria, req.readingType(), req.slot(), req.measuredAt(), req.value(),
                 req.mealId(), clock.instant()));
+        if (saved.getMealId() != null) {   // 식후 혈당을 쟀으니 그 식사의 "재세요" 알림은 끝 처리
+            reminderService.completeForMeal(saved.getMealId(), saved.getId());
+        }
         return ReadingResponse.from(saved);
     }
 
@@ -92,6 +97,9 @@ public class ReadingService {
                 : null;   // 잰 시각을 안 바꾸면 기준도 그대로
 
         reading.update(req.value(), req.measuredAt(), criteria, req.readingType(), req.slot(), req.mealId());
+        if (req.mealId() != null) {   // 수정으로 식사를 붙였으면 그 식사의 알림도 끝 처리
+            reminderService.completeForMeal(req.mealId(), reading.getId());
+        }
         // save 안 불러도 트랜잭션 끝날 때 바뀐 칸이 DB에 반영됨(변경 감지).
         // 다만 updatedAt은 DB에 쓸 때 채워져서, 응답에 새 값을 담으려고 여기서 먼저 반영함
         readingRepository.flush();
