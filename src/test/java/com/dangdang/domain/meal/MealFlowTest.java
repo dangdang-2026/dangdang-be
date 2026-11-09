@@ -17,11 +17,14 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -281,6 +284,111 @@ class MealFlowTest {
                 .andExpect(status().isNotFound());
         mvc.perform(get("/api/meals/" + id).cookie(access))
                 .andExpect(status().isOk());   // 주인 쪽에서는 그대로 있음
+    }
+
+    // ---------- 식후 측정 알림 연결 ----------
+
+    // 병원 기준: 식후 60분, 점심 식후만 잼
+    private void saveLunchCriteria() throws Exception {
+        mvc.perform(post("/api/criteria-versions").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"postMealMinutes\":60,\"measureSlots\":[\"LUNCH_AFTER\"]}"))
+                .andExpect(status().isCreated());
+    }
+
+    private List<Map<String, Object>> remindersOf(long mealId) {
+        return jdbc.queryForList(
+                "SELECT status, slot, scheduled_at FROM reminders WHERE meal_id = ? ORDER BY id", mealId);
+    }
+
+    private static Instant at(Map<String, Object> row) {
+        return ((Timestamp) row.get("scheduled_at")).toInstant();
+    }
+
+    @Test
+    void 점심을_등록하면_식후_60분_뒤로_알림이_예약된다() throws Exception {
+        saveLunchCriteria();
+        Instant startedAt = Instant.now().truncatedTo(ChronoUnit.SECONDS);
+        long id = create("LUNCH", startedAt);
+
+        List<Map<String, Object>> rows = remindersOf(id);
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0).get("status")).isEqualTo("SCHEDULED");
+        assertThat(rows.get(0).get("slot")).isEqualTo("LUNCH_AFTER");
+        assertThat(at(rows.get(0))).isEqualTo(startedAt.plus(Duration.ofMinutes(60)));
+    }
+
+    @Test
+    void 병원에서_안_재라고_한_끼니나_기준이_없으면_알림_없음() throws Exception {
+        long noCriteria = create("LUNCH", Instant.now());   // 기준 등록 전
+        saveLunchCriteria();
+        long dinner = create("DINNER", Instant.now());      // 저녁 식후는 안 잼
+        long snack = create("SNACK", Instant.now());
+
+        assertThat(remindersOf(noCriteria)).isEmpty();
+        assertThat(remindersOf(dinner)).isEmpty();
+        assertThat(remindersOf(snack)).isEmpty();
+    }
+
+    @Test
+    void 시작_시각을_바꾸면_예전_알림은_취소되고_새로_예약된다() throws Exception {
+        saveLunchCriteria();
+        long id = create("LUNCH", Instant.now());
+        Instant newStart = Instant.now().minus(Duration.ofMinutes(20)).truncatedTo(ChronoUnit.SECONDS);
+
+        mvc.perform(patch("/api/meals/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"startedAt\":\"" + newStart + "\"}"))
+                .andExpect(status().isOk());
+
+        List<Map<String, Object>> rows = remindersOf(id);
+        assertThat(rows).extracting(r -> r.get("status")).containsExactly("CANCELED", "SCHEDULED");
+        assertThat(at(rows.get(1))).isEqualTo(newStart.plus(Duration.ofMinutes(60)));
+    }
+
+    @Test
+    void 끼니를_안_재는_끼니로_바꾸면_알림만_취소된다() throws Exception {
+        saveLunchCriteria();
+        long id = create("LUNCH", Instant.now());
+
+        mvc.perform(patch("/api/meals/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mealSlot\":\"SNACK\"}"))
+                .andExpect(status().isOk());
+
+        assertThat(remindersOf(id)).extracting(r -> r.get("status")).containsExactly("CANCELED");
+    }
+
+    @Test
+    void 메모만_바꾸면_알림은_그대로() throws Exception {
+        saveLunchCriteria();
+        long id = create("LUNCH", Instant.now());
+
+        mvc.perform(patch("/api/meals/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"note\":\"비빔밥\"}"))
+                .andExpect(status().isOk());
+
+        assertThat(remindersOf(id)).extracting(r -> r.get("status")).containsExactly("SCHEDULED");
+    }
+
+    @Test
+    void 이미_보낸_알림이_있으면_시각을_바꿔도_다시_예약하지_않는다() throws Exception {
+        saveLunchCriteria();
+        long id = create("LUNCH", Instant.now());
+        jdbc.update("UPDATE reminders SET status = 'SENT' WHERE meal_id = ?", id);   // 스케줄러가 보냈다고 침
+
+        mvc.perform(patch("/api/meals/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"startedAt\":\"" + Instant.now().minus(Duration.ofMinutes(10)) + "\"}"))
+                .andExpect(status().isOk());
+
+        assertThat(remindersOf(id)).extracting(r -> r.get("status")).containsExactly("SENT");
+    }
+
+    @Test
+    void 식사를_지우면_예약된_알림이_취소된다() throws Exception {
+        saveLunchCriteria();
+        long id = create("LUNCH", Instant.now());
+
+        mvc.perform(delete("/api/meals/" + id).cookie(access)).andExpect(status().isOk());
+
+        assertThat(remindersOf(id)).extracting(r -> r.get("status")).containsExactly("CANCELED");
     }
 
     // ---------- 인증 ----------

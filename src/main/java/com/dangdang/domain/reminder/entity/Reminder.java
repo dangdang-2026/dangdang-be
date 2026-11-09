@@ -61,4 +61,9 @@ public class Reminder {
         r.createdAt = now;
         return r;
     }
+
+    // 예약 취소 (식사를 지우거나 시각·끼니를 바꿨을 때). 아직 안 보낸 알림만 부름
+    public void cancel() {
+        this.status = ReminderStatus.CANCELED;
+    }
 }
