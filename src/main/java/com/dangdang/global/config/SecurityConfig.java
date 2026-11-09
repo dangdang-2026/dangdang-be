@@ -6,6 +6,7 @@ import com.dangdang.global.security.AuthErrorWriter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -23,7 +24,8 @@ public class SecurityConfig {
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
-        http.csrf(AbstractHttpConfigurer::disable) // 쿠키 SameSite + JSON API 라 끈다
+        http.cors(Customizer.withDefaults()) // CorsConfig 의 허락 목록 사용
+                .csrf(AbstractHttpConfigurer::disable) // 쿠키 SameSite + JSON API 라 끈다
                 .formLogin(AbstractHttpConfigurer::disable) // 기본 로그인 화면 X
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .logout(AbstractHttpConfigurer::disable) // 로그아웃은 우리 API 로
