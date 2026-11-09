@@ -47,7 +47,7 @@ public class ReadingController {
                     """
                     **Parameters** from·to(한국 날짜 yyyy-MM-dd, 필수, 둘 다 포함), size(기본 20, 1~100), cursorAt·cursorId(다음 페이지일 때만, 둘 다 같이)
                     **Returns** 잰 시각 최신순 기록 + hasNext. 다음 페이지는 받은 nextCursorAt·nextCursorId를 cursorAt·cursorId로 그대로 보냄.
-                    from이 to보다 늦거나 커서를 하나만 보내면 GLOBAL_40001
+                    from이 to보다 늦으면 READING_40001, 커서를 하나만 보내면 READING_40002
                     """)
     @GetMapping
     public ResponseEntity<BaseResponse<ReadingPageResponse>> list(

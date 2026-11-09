@@ -12,7 +12,6 @@ import com.dangdang.domain.user.entity.User;
 import com.dangdang.domain.user.exception.UserErrorCode;
 import com.dangdang.domain.user.repository.UserRepository;
 import com.dangdang.global.exception.CustomException;
-import com.dangdang.global.exception.GlobalErrorCode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Service;
@@ -55,10 +54,10 @@ public class ReadingService {
     public ReadingPageResponse list(Long userId, LocalDate from, LocalDate to,
                                     Instant cursorAt, Long cursorId, int size) {
         if (from.isAfter(to)) {
-            throw new CustomException(GlobalErrorCode.INVALID_INPUT, "시작 날짜가 끝 날짜보다 늦어요.");
+            throw new CustomException(ReadingErrorCode.INVALID_DATE_RANGE);
         }
         if ((cursorAt == null) != (cursorId == null)) {
-            throw new CustomException(GlobalErrorCode.INVALID_INPUT, "cursorAt과 cursorId는 같이 보내 주세요.");
+            throw new CustomException(ReadingErrorCode.INVALID_CURSOR);
         }
         int pageSize = Math.clamp(size, 1, MAX_PAGE_SIZE);   // 0이나 10000이 와도 1~100 사이로 맞춤
 
