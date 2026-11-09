@@ -5,6 +5,7 @@ import com.dangdang.domain.criteria.service.CriteriaService;
 import com.dangdang.domain.reading.dto.request.ReadingCreateRequest;
 import com.dangdang.domain.reading.dto.response.ReadingResponse;
 import com.dangdang.domain.reading.entity.Reading;
+import com.dangdang.domain.reading.exception.ReadingErrorCode;
 import com.dangdang.domain.reading.repository.ReadingRepository;
 import com.dangdang.domain.user.entity.User;
 import com.dangdang.domain.user.exception.UserErrorCode;
@@ -37,6 +38,17 @@ public class ReadingService {
         Reading saved = readingRepository.save(Reading.of(
                 user, criteria, req.readingType(), req.slot(), req.measuredAt(), req.value(), clock.instant()));
         return ReadingResponse.from(saved);
+    }
+
+    // 상세
+    public ReadingResponse get(Long userId, Long readingId) {
+        return ReadingResponse.from(findMine(userId, readingId));
+    }
+
+    // 내 것 + 삭제 안 된 것만. 없음·삭제됨·남의 것은 전부 404 (상세·수정·삭제가 같이 쓴다)
+    private Reading findMine(Long userId, Long readingId) {
+        return readingRepository.findByIdAndUserIdAndDeletedAtIsNull(readingId, userId)
+                .orElseThrow(() -> new CustomException(ReadingErrorCode.READING_NOT_FOUND));
     }
 
     // 세계 공통 시각 -> 한국 날짜 (한국 새벽 1시는 UTC로 전날이라서)

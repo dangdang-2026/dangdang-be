@@ -36,4 +36,18 @@ public class ReadingController {
                 .body(BaseResponse.success(201, "혈당 기록을 저장했습니다.",
                         readingService.create(principal.userId(), request)));
     }
+
+    @Operation(
+            summary = "[ 사용자 | 토큰 O | 혈당 기록 상세 ]",
+            description =
+                    """
+                    **Parameters** readingId
+                    **Returns** 기록 하나. 없거나 삭제됐거나 남의 기록이면 READING_40401
+                    """)
+    @GetMapping("/{readingId}")
+    public ResponseEntity<BaseResponse<ReadingResponse>> get(
+            @AuthenticationPrincipal AuthPrincipal principal, @PathVariable Long readingId) {
+        return ResponseEntity.ok(BaseResponse.success(200, "혈당 기록 조회에 성공했습니다.",
+                readingService.get(principal.userId(), readingId)));
+    }
 }
