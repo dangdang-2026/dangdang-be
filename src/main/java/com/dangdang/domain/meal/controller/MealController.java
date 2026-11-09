@@ -1,6 +1,7 @@
 package com.dangdang.domain.meal.controller;
 
 import com.dangdang.domain.meal.dto.request.MealCreateRequest;
+import com.dangdang.domain.meal.dto.request.MealUpdateRequest;
 import com.dangdang.domain.meal.dto.response.MealPageResponse;
 import com.dangdang.domain.meal.dto.response.MealResponse;
 import com.dangdang.domain.meal.service.MealService;
@@ -73,5 +74,35 @@ public class MealController {
             @AuthenticationPrincipal AuthPrincipal principal, @PathVariable Long mealId) {
         return ResponseEntity.ok(BaseResponse.success(200, "식사 기록 조회에 성공했습니다.",
                 mealService.get(principal.userId(), mealId)));
+    }
+
+    @Operation(
+            summary = "[ 사용자 | 토큰 O | 식사 기록 수정 ]",
+            description =
+                    """
+                    **Parameters** mealId + 바꿀 칸만: mealSlot, startedAt(지금 이전), note(255자, 비우려면 "")
+                    **Returns** 수정된 식사. startedOffline은 바꿀 수 없음.
+                    바꿀 값이 없으면 MEAL_40003, 없거나 삭제됐거나 남의 기록이면 MEAL_40401
+                    """)
+    @PatchMapping("/{mealId}")
+    public ResponseEntity<BaseResponse<MealResponse>> update(
+            @AuthenticationPrincipal AuthPrincipal principal, @PathVariable Long mealId,
+            @Valid @RequestBody MealUpdateRequest request) {
+        return ResponseEntity.ok(BaseResponse.success(200, "식사 기록을 수정했습니다.",
+                mealService.update(principal.userId(), mealId, request)));
+    }
+
+    @Operation(
+            summary = "[ 사용자 | 토큰 O | 식사 기록 삭제 ]",
+            description =
+                    """
+                    **Parameters** mealId
+                    **Returns** 성공 시 data 없음. 이후 상세·목록에서 안 보임. 없거나 이미 삭제됐거나 남의 기록이면 MEAL_40401
+                    """)
+    @DeleteMapping("/{mealId}")
+    public ResponseEntity<BaseResponse<Void>> delete(
+            @AuthenticationPrincipal AuthPrincipal principal, @PathVariable Long mealId) {
+        mealService.delete(principal.userId(), mealId);
+        return ResponseEntity.ok(BaseResponse.success(200, "식사 기록을 삭제했습니다.", null));
     }
 }

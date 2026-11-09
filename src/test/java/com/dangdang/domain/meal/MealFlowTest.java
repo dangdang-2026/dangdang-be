@@ -218,6 +218,71 @@ class MealFlowTest {
                 .andExpect(jsonPath("$.errorCode").value("MEAL_40002"));
     }
 
+    // ---------- 수정 ----------
+
+    @Test
+    void 보낸_칸만_바뀌고_나머지는_그대로() throws Exception {
+        long id = create("LUNCH", Instant.now());
+        mvc.perform(patch("/api/meals/" + id).cookie(access)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"note\":\"비빔밥\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.note").value("비빔밥"))
+                .andExpect(jsonPath("$.data.mealSlot").value("LUNCH"));
+        mvc.perform(patch("/api/meals/" + id).cookie(access)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"mealSlot\":\"DINNER\"}"))
+                .andExpect(jsonPath("$.data.mealSlot").value("DINNER"))
+                .andExpect(jsonPath("$.data.note").value("비빔밥"));
+    }
+
+    @Test
+    void 바꿀_값이_없거나_미래_시각이면_400() throws Exception {
+        long id = create("LUNCH", Instant.now());
+        mvc.perform(patch("/api/meals/" + id).cookie(access)
+                        .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("MEAL_40003"));
+        mvc.perform(patch("/api/meals/" + id).cookie(access)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"startedAt\":\"" + Instant.now().plus(Duration.ofDays(1)) + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("GLOBAL_40001"));
+    }
+
+    @Test
+    void 남의_식사는_수정할_수_없다() throws Exception {
+        long id = create("LUNCH", Instant.now());
+        mvc.perform(patch("/api/meals/" + id).cookie(other)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"note\":\"x\"}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("MEAL_40401"));
+    }
+
+    // ---------- 삭제 ----------
+
+    @Test
+    void 삭제하면_상세와_목록에서_사라지고_다시_지우면_404() throws Exception {
+        long id = create("LUNCH", Instant.now());
+        mvc.perform(delete("/api/meals/" + id).cookie(access))
+                .andExpect(status().isOk());
+
+        mvc.perform(get("/api/meals/" + id).cookie(access))
+                .andExpect(status().isNotFound());
+        mvc.perform(get("/api/meals").cookie(access)
+                        .param("from", today().toString()).param("to", today().toString()))
+                .andExpect(jsonPath("$.data.items.length()").value(0));
+        mvc.perform(delete("/api/meals/" + id).cookie(access))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void 남의_식사는_삭제할_수_없다() throws Exception {
+        long id = create("LUNCH", Instant.now());
+        mvc.perform(delete("/api/meals/" + id).cookie(other))
+                .andExpect(status().isNotFound());
+        mvc.perform(get("/api/meals/" + id).cookie(access))
+                .andExpect(status().isOk());   // 주인 쪽에서는 그대로 있음
+    }
+
     // ---------- 인증 ----------
 
     @Test

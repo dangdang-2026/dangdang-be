@@ -1,6 +1,7 @@
 package com.dangdang.domain.meal.service;
 
 import com.dangdang.domain.meal.dto.request.MealCreateRequest;
+import com.dangdang.domain.meal.dto.request.MealUpdateRequest;
 import com.dangdang.domain.meal.dto.response.MealPageResponse;
 import com.dangdang.domain.meal.dto.response.MealResponse;
 import com.dangdang.domain.meal.entity.Meal;
@@ -66,6 +67,25 @@ public class MealService {
         List<Meal> fetched = mealRepository.findPage(
                 userId, fromAt, afterAt, afterId, Limit.of(pageSize + 1));
         return MealPageResponse.of(fetched, pageSize);
+    }
+
+    // 수정 (보낸 칸만)
+    @Transactional
+    public MealResponse update(Long userId, Long mealId, MealUpdateRequest req) {
+        if (req.isEmpty()) {
+            throw new CustomException(MealErrorCode.NOTHING_TO_UPDATE);
+        }
+        Meal meal = findMine(userId, mealId);
+        meal.update(req.mealSlot(), req.startedAt(), req.note());
+        // 변경 감지로 트랜잭션 끝날 때 반영되지만, 응답에 새 updatedAt을 담으려고 먼저 DB에 씀
+        mealRepository.flush();
+        return MealResponse.from(meal);
+    }
+
+    // 삭제 (soft delete). 이미 지운 식사를 또 지우면 findMine에서 404
+    @Transactional
+    public void delete(Long userId, Long mealId) {
+        findMine(userId, mealId).delete(clock.instant());   // 변경 감지로 트랜잭션 끝날 때 반영됨
     }
 
     // 내 것 + 삭제 안 된 것만. 없음·삭제됨·남의 것은 전부 404
