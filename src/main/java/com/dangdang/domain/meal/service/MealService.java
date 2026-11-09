@@ -1,6 +1,7 @@
 package com.dangdang.domain.meal.service;
 
 import com.dangdang.domain.meal.dto.request.MealCreateRequest;
+import com.dangdang.domain.meal.dto.response.MealPageResponse;
 import com.dangdang.domain.meal.dto.response.MealResponse;
 import com.dangdang.domain.meal.entity.Meal;
 import com.dangdang.domain.meal.exception.MealErrorCode;
@@ -10,8 +11,14 @@ import com.dangdang.domain.user.exception.UserErrorCode;
 import com.dangdang.domain.user.repository.UserRepository;
 import com.dangdang.global.exception.CustomException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -20,6 +27,9 @@ public class MealService {
 
     private final MealRepository mealRepository;
     private final UserRepository userRepository;
+    private final Clock clock;
+
+    private static final int MAX_PAGE_SIZE = 100;
 
     // 식사 시작 기록
     @Transactional
@@ -36,9 +46,36 @@ public class MealService {
         return MealResponse.from(findMine(userId, mealId));
     }
 
+    // 목록 (기간 + 커서). from·to는 한국 날짜, 둘 다 포함. 첫 페이지는 cursorAt·cursorId 없이 부름
+    public MealPageResponse list(Long userId, LocalDate from, LocalDate to,
+                                 Instant cursorAt, Long cursorId, int size) {
+        if (from.isAfter(to)) {
+            throw new CustomException(MealErrorCode.INVALID_DATE_RANGE);
+        }
+        if ((cursorAt == null) != (cursorId == null)) {
+            throw new CustomException(MealErrorCode.INVALID_CURSOR);
+        }
+        int pageSize = Math.clamp(size, 1, MAX_PAGE_SIZE);   // 0이나 10000이 와도 1~100 사이로 맞춤
+
+        Instant fromAt = startOfKoreanDay(from);
+        // 첫 페이지: 커서 = 기간 끝(to 다음 날 0시), id = 0 → 기간 끝 시각과 딱 같은 식사는 안 걸림
+        Instant afterAt = cursorAt != null ? cursorAt : startOfKoreanDay(to.plusDays(1));
+        Long afterId = cursorId != null ? cursorId : 0L;
+
+        // 하나 더 받아서 다음 페이지가 있는지 확인함 (count 쿼리 안 씀)
+        List<Meal> fetched = mealRepository.findPage(
+                userId, fromAt, afterAt, afterId, Limit.of(pageSize + 1));
+        return MealPageResponse.of(fetched, pageSize);
+    }
+
     // 내 것 + 삭제 안 된 것만. 없음·삭제됨·남의 것은 전부 404
     private Meal findMine(Long userId, Long mealId) {
         return mealRepository.findByIdAndUserIdAndDeletedAtIsNull(mealId, userId)
                 .orElseThrow(() -> new CustomException(MealErrorCode.MEAL_NOT_FOUND));
+    }
+
+    // 한국 날짜 -> 그날 0시(한국)의 세계 공통 시각
+    private Instant startOfKoreanDay(LocalDate date) {
+        return date.atStartOfDay(clock.getZone()).toInstant();
     }
 }

@@ -1,6 +1,7 @@
 package com.dangdang.domain.meal.controller;
 
 import com.dangdang.domain.meal.dto.request.MealCreateRequest;
+import com.dangdang.domain.meal.dto.response.MealPageResponse;
 import com.dangdang.domain.meal.dto.response.MealResponse;
 import com.dangdang.domain.meal.service.MealService;
 import com.dangdang.global.common.BaseResponse;
@@ -13,6 +14,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+
+import java.time.Instant;
+import java.time.LocalDate;
 
 @Tag(name = "Meal", description = "식사 기록 API")
 @RestController
@@ -35,6 +39,26 @@ public class MealController {
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(BaseResponse.success(201, "식사 기록을 저장했습니다.",
                         mealService.create(principal.userId(), request)));
+    }
+
+    @Operation(
+            summary = "[ 사용자 | 토큰 O | 식사 기록 목록 ]",
+            description =
+                    """
+                    **Parameters** from·to(한국 날짜 yyyy-MM-dd, 필수, 둘 다 포함), size(기본 20, 1~100), cursorAt·cursorId(다음 페이지일 때만, 둘 다 같이)
+                    **Returns** 식사 시작 시각 최신순 + hasNext. 다음 페이지는 받은 nextCursorAt·nextCursorId를 cursorAt·cursorId로 그대로 보냄.
+                    from이 to보다 늦으면 MEAL_40001, 커서를 하나만 보내면 MEAL_40002
+                    """)
+    @GetMapping
+    public ResponseEntity<BaseResponse<MealPageResponse>> list(
+            @AuthenticationPrincipal AuthPrincipal principal,
+            @RequestParam LocalDate from,
+            @RequestParam LocalDate to,
+            @RequestParam(required = false) Instant cursorAt,   // 첫 페이지면 안 보냄
+            @RequestParam(required = false) Long cursorId,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(BaseResponse.success(200, "식사 기록 목록 조회에 성공했습니다.",
+                mealService.list(principal.userId(), from, to, cursorAt, cursorId, size)));
     }
 
     @Operation(
