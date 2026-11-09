@@ -61,4 +61,15 @@ public class Reminder {
         r.createdAt = now;
         return r;
     }
+
+    // 예약 취소 (식사를 지우거나 시각·끼니를 바꿨을 때). 아직 안 보낸 알림만 부름
+    public void cancel() {
+        this.status = ReminderStatus.CANCELED;
+    }
+
+    // 이 알림의 혈당을 쟀음 → 끝 처리하고 어느 혈당인지 연결함 (이후 스케줄러가 안 보냄)
+    public void complete(Long readingId) {
+        this.status = ReminderStatus.DONE;
+        this.readingId = readingId;
+    }
 }

@@ -6,6 +6,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -40,11 +42,29 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(code.getStatus()).body(BaseResponse.fail(code));
     }
 
-    // 에상 못한 에러라면? (내부 내용 숨기고, 고정 문구만)
+    //필수 쿼리 파라미터가 없음 (예: 목록에 from 안 보냄) -> 500 말고 400
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<BaseResponse<Void>> handleMissingParam(MissingServletRequestParameterException e) {
+        log.warn("필수 파라미터 없음: {}", e.getParameterName());
+        GlobalErrorCode code = GlobalErrorCode.INVALID_INPUT;
+        return ResponseEntity.status(code.getStatus())
+                .body(BaseResponse.fail(code, e.getParameterName() + " 값을 보내 주세요."));
+    }
+
+    //파라미터·경로 값 형식이 틀림 (예: from=abc, /api/meals/abc) -> 500 말고 400
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<BaseResponse<Void>> handleTypeMismatch(MethodArgumentTypeMismatchException e) {
+        log.warn("파라미터 형식 틀림: {}={}", e.getName(), e.getValue());
+        GlobalErrorCode code = GlobalErrorCode.INVALID_INPUT;
+        return ResponseEntity.status(code.getStatus())
+                .body(BaseResponse.fail(code, e.getName() + " 값의 형식이 맞지 않아요."));
+    }
+
+    // 에상 못한 에러라면? (내부 내용 숨기고, 고정 문구만. 자세한 건 로그에만 남김)
     @ExceptionHandler(Exception.class)
     public ResponseEntity<BaseResponse<Void>> handleException(Exception e) {
         log.error("예상 못 한 에러", e);
         GlobalErrorCode code = GlobalErrorCode.INTERNAL_SERVER_ERROR;
-        return ResponseEntity.status(code.getStatus()).body(BaseResponse.fail(code,e.getMessage()));
+        return ResponseEntity.status(code.getStatus()).body(BaseResponse.fail(code));
     }
 }
