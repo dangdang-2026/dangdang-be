@@ -221,6 +221,20 @@ class MealFlowTest {
                 .andExpect(jsonPath("$.errorCode").value("MEAL_40002"));
     }
 
+    @Test
+    void 파라미터가_없거나_형식이_틀리면_500이_아니라_400() throws Exception {
+        mvc.perform(get("/api/meals").cookie(access).param("to", today().toString()))   // from 없음
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("GLOBAL_40001"));
+        mvc.perform(get("/api/meals").cookie(access).param("from", "abc").param("to", today().toString()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("GLOBAL_40001"));
+        mvc.perform(get("/api/meals/abc").cookie(access))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("GLOBAL_40001"))
+                .andExpect(jsonPath("$.message").value("mealId 값의 형식이 맞지 않아요."));   // 서버 내부 문구 안 나감
+    }
+
     // ---------- 수정 ----------
 
     @Test
