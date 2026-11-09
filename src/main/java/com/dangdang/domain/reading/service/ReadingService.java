@@ -65,7 +65,8 @@ public class ReadingService {
         Instant fromAt = startOfKoreanDay(from);
         // 첫 페이지: 커서 = 기간 끝(to 다음 날 0시) → 쿼리의 "커서보다 과거" 조건이 기간 끝 역할도 함
         Instant afterAt = cursorAt != null ? cursorAt : startOfKoreanDay(to.plusDays(1));
-        Long afterId = cursorId != null ? cursorId : Long.MAX_VALUE;
+        // id는 1부터라 0이면 "기간 끝과 같은 시각" 기록이 안 걸림 (MAX_VALUE면 다음 날 0시 기록이 섞여 들어옴)
+        Long afterId = cursorId != null ? cursorId : 0L;
 
         // 하나 더 받아서 다음 페이지가 있는지 확인함 (count 쿼리 안 씀)
         List<Reading> fetched = readingRepository.findPage(
