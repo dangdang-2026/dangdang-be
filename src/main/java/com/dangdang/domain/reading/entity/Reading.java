@@ -88,4 +88,9 @@ public class Reading extends BaseTimeEntity {
             this.enteredLate = Duration.between(measuredAt, getCreatedAt()).compareTo(LATE_AFTER) > 0;
         }
     }
+
+    // 삭제 (soft delete). 줄을 지우지 않고 지운 시각만 적어 둠 → 조회 쿼리들이 deletedAt is null 로 걸러냄
+    public void delete(Instant now) {
+        this.deletedAt = now;
+    }
 }

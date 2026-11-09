@@ -91,4 +91,18 @@ public class ReadingController {
         return ResponseEntity.ok(BaseResponse.success(200, "혈당 기록을 수정했습니다.",
                 readingService.update(principal.userId(), readingId, request)));
     }
+
+    @Operation(
+            summary = "[ 사용자 | 토큰 O | 혈당 기록 삭제 ]",
+            description =
+                    """
+                    **Parameters** readingId
+                    **Returns** 성공 시 data 없음. 이후 상세·목록에서 안 보임. 없거나 이미 삭제됐거나 남의 기록이면 READING_40401
+                    """)
+    @DeleteMapping("/{readingId}")
+    public ResponseEntity<BaseResponse<Void>> delete(
+            @AuthenticationPrincipal AuthPrincipal principal, @PathVariable Long readingId) {
+        readingService.delete(principal.userId(), readingId);
+        return ResponseEntity.ok(BaseResponse.success(200, "혈당 기록을 삭제했습니다.", null));
+    }
 }

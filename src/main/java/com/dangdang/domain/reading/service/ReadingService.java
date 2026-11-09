@@ -91,6 +91,12 @@ public class ReadingService {
         return ReadingResponse.from(reading);
     }
 
+    // 삭제 (soft delete). 이미 지운 기록을 또 지우면 findMine에서 404
+    @Transactional
+    public void delete(Long userId, Long readingId) {
+        findMine(userId, readingId).delete(clock.instant());   // 변경 감지로 트랜잭션 끝날 때 반영됨
+    }
+
     // 내 것 + 삭제 안 된 것만. 없음·삭제됨·남의 것은 전부 404 (상세·수정·삭제가 같이 씀)
     private Reading findMine(Long userId, Long readingId) {
         return readingRepository.findByIdAndUserIdAndDeletedAtIsNull(readingId, userId)
