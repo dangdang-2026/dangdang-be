@@ -11,6 +11,8 @@ public enum ReadingErrorCode implements BaseErrorCode {
     // 목록 조회 입력 오류
     INVALID_DATE_RANGE("READING_40001", "시작 날짜가 끝 날짜보다 늦어요.", HttpStatus.BAD_REQUEST),
     INVALID_CURSOR("READING_40002", "cursorAt과 cursorId는 같이 보내 주세요.", HttpStatus.BAD_REQUEST),
+    // 수정 입력 오류
+    NOTHING_TO_UPDATE("READING_40003", "바꿀 값을 하나 이상 보내 주세요.", HttpStatus.BAD_REQUEST),
 
     // 없음·삭제됨·남의 기록 모두 같은 404 (남의 기록이 "있다"는 것도 알려주지 않으려고)
     READING_NOT_FOUND("READING_40401", "혈당 기록을 찾을 수 없어요.", HttpStatus.NOT_FOUND);

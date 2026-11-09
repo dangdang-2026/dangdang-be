@@ -1,6 +1,7 @@
 package com.dangdang.domain.reading.controller;
 
 import com.dangdang.domain.reading.dto.request.ReadingCreateRequest;
+import com.dangdang.domain.reading.dto.request.ReadingUpdateRequest;
 import com.dangdang.domain.reading.dto.response.ReadingPageResponse;
 import com.dangdang.domain.reading.dto.response.ReadingResponse;
 import com.dangdang.domain.reading.service.ReadingService;
@@ -73,5 +74,21 @@ public class ReadingController {
             @AuthenticationPrincipal AuthPrincipal principal, @PathVariable Long readingId) {
         return ResponseEntity.ok(BaseResponse.success(200, "혈당 기록 조회에 성공했습니다.",
                 readingService.get(principal.userId(), readingId)));
+    }
+
+    @Operation(
+            summary = "[ 사용자 | 토큰 O | 혈당 기록 수정 ]",
+            description =
+                    """
+                    **Parameters** readingId + 바꿀 칸만: value(20~600), measuredAt(지금 이전), readingType, slot
+                    **Returns** 수정된 기록. 잰 시각을 바꾸면 그 날짜의 병원 기준이 다시 붙고 enteredLate도 다시 계산됨.
+                    바꿀 값이 없으면 READING_40003, 없거나 삭제됐거나 남의 기록이면 READING_40401
+                    """)
+    @PatchMapping("/{readingId}")
+    public ResponseEntity<BaseResponse<ReadingResponse>> update(
+            @AuthenticationPrincipal AuthPrincipal principal, @PathVariable Long readingId,
+            @Valid @RequestBody ReadingUpdateRequest request) {
+        return ResponseEntity.ok(BaseResponse.success(200, "혈당 기록을 수정했습니다.",
+                readingService.update(principal.userId(), readingId, request)));
     }
 }

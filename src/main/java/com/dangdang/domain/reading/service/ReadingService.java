@@ -3,6 +3,7 @@ package com.dangdang.domain.reading.service;
 import com.dangdang.domain.criteria.entity.CriteriaVersion;
 import com.dangdang.domain.criteria.service.CriteriaService;
 import com.dangdang.domain.reading.dto.request.ReadingCreateRequest;
+import com.dangdang.domain.reading.dto.request.ReadingUpdateRequest;
 import com.dangdang.domain.reading.dto.response.ReadingPageResponse;
 import com.dangdang.domain.reading.dto.response.ReadingResponse;
 import com.dangdang.domain.reading.entity.Reading;
@@ -70,6 +71,24 @@ public class ReadingService {
         List<Reading> fetched = readingRepository.findPage(
                 userId, fromAt, afterAt, afterId, Limit.of(pageSize + 1));
         return ReadingPageResponse.of(fetched, pageSize);
+    }
+
+    // 수정 (보낸 칸만). 잰 시각이 바뀌면 바뀐 날짜(한국)의 병원 기준을 다시 붙임
+    @Transactional
+    public ReadingResponse update(Long userId, Long readingId, ReadingUpdateRequest req) {
+        if (req.isEmpty()) {
+            throw new CustomException(ReadingErrorCode.NOTHING_TO_UPDATE);
+        }
+        Reading reading = findMine(userId, readingId);
+        CriteriaVersion criteria = req.measuredAt() != null
+                ? criteriaService.onDateOrEmpty(userId, koreanDate(req.measuredAt()))
+                : null;   // 잰 시각을 안 바꾸면 기준도 그대로
+
+        reading.update(req.value(), req.measuredAt(), criteria, req.readingType(), req.slot());
+        // save 안 불러도 트랜잭션 끝날 때 바뀐 칸이 DB에 반영됨(변경 감지).
+        // 다만 updatedAt은 DB에 쓸 때 채워져서, 응답에 새 값을 담으려고 여기서 먼저 반영함
+        readingRepository.flush();
+        return ReadingResponse.from(reading);
     }
 
     // 내 것 + 삭제 안 된 것만. 없음·삭제됨·남의 것은 전부 404 (상세·수정·삭제가 같이 씀)

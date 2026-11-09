@@ -74,4 +74,18 @@ public class Reading extends BaseTimeEntity {
         r.enteredLate = Duration.between(measuredAt, now).compareTo(LATE_AFTER) > 0;
         return r;
     }
+
+    // 수정. null로 온 칸은 그대로 둠
+    // 잰 시각이 바뀌면 그 날짜의 병원 기준(criteriaVersion)도 같이 받아서 바꾸고, 늦게 적음도 처음 적은 시각 기준으로 다시 계산함
+    public void update(Integer value, Instant measuredAt, CriteriaVersion criteriaVersion,
+                       ReadingType readingType, MeasureSlot slot) {
+        if (value != null) this.value = value;
+        if (readingType != null) this.readingType = readingType;
+        if (slot != null) this.slot = slot;
+        if (measuredAt != null) {
+            this.measuredAt = measuredAt;
+            this.criteriaVersion = criteriaVersion;
+            this.enteredLate = Duration.between(measuredAt, getCreatedAt()).compareTo(LATE_AFTER) > 0;
+        }
+    }
 }
