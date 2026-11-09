@@ -5,7 +5,7 @@ jwt:
 front:
   base-url: https://dang-dang.site
 cors:
-  allowed-origins: ${CORS_ALLOWED_ORIGINS:https://dang-dang.site,https://www.dang-dang.site,https://dang-dang.vercel.app}
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:https://dang-dang.site,https://www.dang-dang.site,https://dang-dang.vercel.app,http://localhost:5173/}
 
 mail:
   sender: smtp
