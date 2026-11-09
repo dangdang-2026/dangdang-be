@@ -31,8 +31,9 @@ public class ReadingController {
             summary = "[ 사용자 | 토큰 O | 혈당 기록 등록 ]",
             description =
                     """
-                    **Parameters** value(20~600, 필수), measuredAt(잰 시각, 필수), readingType(FASTING/POST_MEAL/OTHER, 필수), slot(선택)
-                    **Returns** 저장된 기록. 잰 날짜의 병원 기준이 자동으로 붙고(없으면 빈 기준), 30분 넘게 늦게 적으면 enteredLate=true. 범위 밖이면 GLOBAL_40001
+                    **Parameters** value(20~600, 필수), measuredAt(잰 시각, 필수), readingType(FASTING/POST_MEAL/OTHER, 필수), slot(선택), mealId(어떤 식사의 식후 혈당인지, 선택)
+                    **Returns** 저장된 기록. 잰 날짜의 병원 기준이 자동으로 붙고(없으면 빈 기준), 30분 넘게 늦게 적으면 enteredLate=true. 범위 밖이면 GLOBAL_40001.
+                    mealId가 없거나 삭제됐거나 남의 식사면 MEAL_40401
                     """)
     @PostMapping
     public ResponseEntity<BaseResponse<ReadingResponse>> create(
@@ -80,9 +81,9 @@ public class ReadingController {
             summary = "[ 사용자 | 토큰 O | 혈당 기록 수정 ]",
             description =
                     """
-                    **Parameters** readingId + 바꿀 칸만: value(20~600), measuredAt(지금 이전), readingType, slot
+                    **Parameters** readingId + 바꿀 칸만: value(20~600), measuredAt(지금 이전), readingType, slot, mealId
                     **Returns** 수정된 기록. 잰 시각을 바꾸면 그 날짜의 병원 기준이 다시 붙고 enteredLate도 다시 계산됨.
-                    바꿀 값이 없으면 READING_40003, 없거나 삭제됐거나 남의 기록이면 READING_40401
+                    바꿀 값이 없으면 READING_40003, 없거나 삭제됐거나 남의 기록이면 READING_40401, mealId가 내 식사가 아니면 MEAL_40401
                     """)
     @PatchMapping("/{readingId}")
     public ResponseEntity<BaseResponse<ReadingResponse>> update(

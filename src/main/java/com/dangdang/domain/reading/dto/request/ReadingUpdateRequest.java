@@ -19,10 +19,12 @@ public record ReadingUpdateRequest(
 
         ReadingType readingType,
 
-        MeasureSlot slot) {
+        MeasureSlot slot,
+
+        Long mealId) {               // 다른 식사로 바꿀 때 (연결 끊기는 아직 안 됨)
 
     // 바꿀 값이 하나도 없는 요청인지
     public boolean isEmpty() {
-        return value == null && measuredAt == null && readingType == null && slot == null;
+        return value == null && measuredAt == null && readingType == null && slot == null && mealId == null;
     }
 }
