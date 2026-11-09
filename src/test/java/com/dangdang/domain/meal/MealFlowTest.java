@@ -345,6 +345,19 @@ class MealFlowTest {
     }
 
     @Test
+    void 지난_식사를_적거나_시각을_과거로_고치면_알림을_안_만든다() throws Exception {
+        saveLunchCriteria();
+        long late = create("LUNCH", Instant.now().minus(Duration.ofHours(3)));   // 식후 60분이 이미 지남
+        assertThat(remindersOf(late)).isEmpty();
+
+        long id = create("LUNCH", Instant.now());
+        mvc.perform(patch("/api/meals/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"startedAt\":\"" + Instant.now().minus(Duration.ofHours(3)) + "\"}"))
+                .andExpect(status().isOk());
+        assertThat(remindersOf(id)).extracting(r -> r.get("status")).containsExactly("CANCELED");   // 예전 것만 취소, 새로 안 만듦
+    }
+
+    @Test
     void 끼니를_안_재는_끼니로_바꾸면_알림만_취소된다() throws Exception {
         saveLunchCriteria();
         long id = create("LUNCH", Instant.now());

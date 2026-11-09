@@ -41,11 +41,15 @@ public class ReminderService {
         if (criteria.measureSlots() == null || !criteria.measureSlots().contains(slot)) {
             return null;        // 병원에서 재라고 한 때가 아닐 때
         }
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
         Instant scheduledAt =
                 startedAt.plus(Duration.ofMinutes(criteria.postMealMinutes()));
-        return reminderRepository.save(Reminder.scheduled(user, mealId, slot, scheduledAt, clock.instant()));
+        Instant now = clock.instant();
+        if (!scheduledAt.isAfter(now)) {
+            return null;        // 지난 식사를 늦게 적었거나 시각을 과거로 고친 경우. 이미 지난 알림이라 안 만듦 (스케줄러가 바로 보내 버림)
+        }
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
+        return reminderRepository.save(Reminder.scheduled(user, mealId, slot, scheduledAt, now));
     }
 
     // 식사 시각·끼니가 바뀌었을 때: 아직 안 보낸 알림을 취소하고 새로 예약함

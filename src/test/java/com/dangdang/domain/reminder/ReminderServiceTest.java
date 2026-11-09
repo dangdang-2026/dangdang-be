@@ -19,14 +19,15 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest
 class ReminderServiceTest {
-    // 한국 시각 12:00 (= UTC 03:00)
-    static final Instant NOON = Instant.parse("2026-11-09T03:00:00Z");
+    // 식사 시작 = 지금 (지난 시각이면 알림을 안 만들어서 고정 시각을 못 씀)
+    static final Instant NOON = Instant.now().truncatedTo(ChronoUnit.SECONDS);
 
     @Autowired ReminderService reminderService;
     @Autowired CriteriaService criteriaService;
@@ -118,6 +119,15 @@ class ReminderServiceTest {
         saveCriteria(60, null);
 
         assertThat(reminderService.scheduleAfterMeal(userId, insertMeal(MealSlot.LUNCH), MealSlot.LUNCH, NOON)).isNull();
+        assertThat(reminderCount()).isZero();
+    }
+
+    @Test
+    void 예약_시각이_이미_지났으면_null() {   // 어제 점심을 오늘 적은 경우 등
+        saveCriteria(60, List.of(MeasureSlot.LUNCH_AFTER));
+        Instant yesterdayNoon = NOON.minus(Duration.ofDays(1));
+
+        assertThat(reminderService.scheduleAfterMeal(userId, insertMeal(MealSlot.LUNCH), MealSlot.LUNCH, yesterdayNoon)).isNull();
         assertThat(reminderCount()).isZero();
     }
 
