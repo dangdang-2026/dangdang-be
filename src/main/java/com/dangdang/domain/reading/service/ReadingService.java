@@ -2,6 +2,8 @@ package com.dangdang.domain.reading.service;
 
 import com.dangdang.domain.criteria.entity.CriteriaVersion;
 import com.dangdang.domain.criteria.service.CriteriaService;
+import com.dangdang.domain.meal.exception.MealErrorCode;
+import com.dangdang.domain.meal.repository.MealRepository;
 import com.dangdang.domain.reading.dto.request.ReadingCreateRequest;
 import com.dangdang.domain.reading.dto.request.ReadingUpdateRequest;
 import com.dangdang.domain.reading.dto.response.ReadingPageResponse;
@@ -31,6 +33,7 @@ public class ReadingService {
     private final ReadingRepository readingRepository;
     private final UserRepository userRepository;
     private final CriteriaService criteriaService;
+    private final MealRepository mealRepository;
     private final Clock clock;
 
     private static final int MAX_PAGE_SIZE = 100;
@@ -40,9 +43,11 @@ public class ReadingService {
     public ReadingResponse create(Long userId, ReadingCreateRequest req) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
+        checkMealIsMine(userId, req.mealId());
         CriteriaVersion criteria = criteriaService.onDateOrEmpty(userId, koreanDate(req.measuredAt()));
         Reading saved = readingRepository.save(Reading.of(
-                user, criteria, req.readingType(), req.slot(), req.measuredAt(), req.value(), clock.instant()));
+                user, criteria, req.readingType(), req.slot(), req.measuredAt(), req.value(),
+                req.mealId(), clock.instant()));
         return ReadingResponse.from(saved);
     }
 
@@ -81,11 +86,12 @@ public class ReadingService {
             throw new CustomException(ReadingErrorCode.NOTHING_TO_UPDATE);
         }
         Reading reading = findMine(userId, readingId);
+        checkMealIsMine(userId, req.mealId());
         CriteriaVersion criteria = req.measuredAt() != null
                 ? criteriaService.onDateOrEmpty(userId, koreanDate(req.measuredAt()))
                 : null;   // 잰 시각을 안 바꾸면 기준도 그대로
 
-        reading.update(req.value(), req.measuredAt(), criteria, req.readingType(), req.slot());
+        reading.update(req.value(), req.measuredAt(), criteria, req.readingType(), req.slot(), req.mealId());
         // save 안 불러도 트랜잭션 끝날 때 바뀐 칸이 DB에 반영됨(변경 감지).
         // 다만 updatedAt은 DB에 쓸 때 채워져서, 응답에 새 값을 담으려고 여기서 먼저 반영함
         readingRepository.flush();
@@ -102,6 +108,13 @@ public class ReadingService {
     private Reading findMine(Long userId, Long readingId) {
         return readingRepository.findByIdAndUserIdAndDeletedAtIsNull(readingId, userId)
                 .orElseThrow(() -> new CustomException(ReadingErrorCode.READING_NOT_FOUND));
+    }
+
+    // mealId를 보냈으면 내 식사 + 삭제 안 된 식사인지 확인함. 아니면 404 (남의 식사가 있다는 것도 안 알려줌)
+    private void checkMealIsMine(Long userId, Long mealId) {
+        if (mealId != null && mealRepository.findByIdAndUserIdAndDeletedAtIsNull(mealId, userId).isEmpty()) {
+            throw new CustomException(MealErrorCode.MEAL_NOT_FOUND);
+        }
     }
 
     // 세계 공통 시각 -> 한국 날짜 (한국 새벽 1시는 UTC로 전날이라서)

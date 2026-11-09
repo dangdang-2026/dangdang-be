@@ -33,7 +33,7 @@ public class Reading extends BaseTimeEntity {
     @JoinColumn(name = "user_id")
     private User user;
 
-    private Long mealId;                     // 어떤 식사의 식후 혈당인지 (식사 API가 생기면 연결)
+    private Long mealId;                     // 어떤 식사의 식후 혈당인지 (없을 수 있음)
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "criteria_version_id")
@@ -63,9 +63,10 @@ public class Reading extends BaseTimeEntity {
 
     // 새 기록 만들기. now = 저장하는 순간 (늦게 적음 계산용)
     public static Reading of(User user, CriteriaVersion criteriaVersion, ReadingType readingType,
-                             MeasureSlot slot, Instant measuredAt, Integer value, Instant now) {
+                             MeasureSlot slot, Instant measuredAt, Integer value, Long mealId, Instant now) {
         Reading r = new Reading();
         r.user = user;
+        r.mealId = mealId;
         r.criteriaVersion = criteriaVersion;
         r.readingType = readingType;
         r.slot = slot;
@@ -78,8 +79,9 @@ public class Reading extends BaseTimeEntity {
     // 수정. null로 온 칸은 그대로 둠
     // 잰 시각이 바뀌면 그 날짜의 병원 기준(criteriaVersion)도 같이 받아서 바꾸고, 늦게 적음도 처음 적은 시각 기준으로 다시 계산함
     public void update(Integer value, Instant measuredAt, CriteriaVersion criteriaVersion,
-                       ReadingType readingType, MeasureSlot slot) {
+                       ReadingType readingType, MeasureSlot slot, Long mealId) {
         if (value != null) this.value = value;
+        if (mealId != null) this.mealId = mealId;
         if (readingType != null) this.readingType = readingType;
         if (slot != null) this.slot = slot;
         if (measuredAt != null) {

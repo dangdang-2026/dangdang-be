@@ -290,6 +290,61 @@ class ReadingFlowTest {
                 .andExpect(status().isNotFound());
     }
 
+    // ---------- 식사 연결 (mealId) ----------
+
+    // 식사 하나 등록하고 mealId 돌려줌
+    private long createMeal(Cookie who) throws Exception {
+        String body = mvc.perform(post("/api/meals").cookie(who).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mealSlot\":\"LUNCH\",\"startedAt\":\"" + Instant.now().minus(Duration.ofHours(2)) + "\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return ((Number) JsonPath.read(body, "$.data.mealId")).longValue();
+    }
+
+    private static String postMealJson(long mealId) {
+        return "{\"value\":150,\"measuredAt\":\"" + Instant.now() + "\",\"readingType\":\"POST_MEAL\",\"mealId\":" + mealId + "}";
+    }
+
+    @Test
+    void 내_식사를_mealId로_붙여서_등록할_수_있다() throws Exception {
+        long mealId = createMeal(access);
+        mvc.perform(post("/api/readings").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content(postMealJson(mealId)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.mealId").value(mealId));
+    }
+
+    @Test
+    void 남의_식사나_지운_식사나_없는_식사를_붙이면_404() throws Exception {
+        long othersMeal = createMeal(other);
+        long deletedMeal = createMeal(access);
+        mvc.perform(delete("/api/meals/" + deletedMeal).cookie(access)).andExpect(status().isOk());
+
+        for (long mealId : List.of(othersMeal, deletedMeal, deletedMeal + 999)) {
+            mvc.perform(post("/api/readings").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                            .content(postMealJson(mealId)))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.errorCode").value("MEAL_40401"));
+        }
+    }
+
+    @Test
+    void 수정으로_mealId를_붙이거나_바꿀_수_있다() throws Exception {
+        long id = create(150, Instant.now());
+        long mealId = createMeal(access);
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mealId\":" + mealId + "}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.mealId").value(mealId))
+                .andExpect(jsonPath("$.data.value").value(150));   // 다른 칸은 그대로
+
+        long othersMeal = createMeal(other);
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mealId\":" + othersMeal + "}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("MEAL_40401"));
+    }
+
     @Test
     void 로그인_안_하면_401() throws Exception {
         mvc.perform(get("/api/readings")

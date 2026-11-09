@@ -23,5 +23,7 @@ public record ReadingCreateRequest(
         @NotNull(message = "공복·식후·기타 중 하나를 골라 주세요.")
         ReadingType readingType,
 
-        MeasureSlot slot) {          // 없어도 됨
+        MeasureSlot slot,            // 없어도 됨
+
+        Long mealId) {               // 어떤 식사의 식후 혈당인지 (없어도 됨, 내 식사만)
 }
