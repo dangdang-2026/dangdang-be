@@ -52,15 +52,19 @@ public class CriteriaService {
                 .orElse(null);
     }
 
-    // 혈당 저장에서 부르는 함수
+    // 오늘 기준 (없으면 빈 기준)
     @Transactional
     public CriteriaVersion currentOrEmpty(Long userId) {
-        LocalDate today = LocalDate.now(clock);
-        // 지금 기준이 있으면 그것, 없으면 빈 기준을 저장해서 돌려준다
+        return onDateOrEmpty(userId, LocalDate.now(clock));
+    }
+
+    // 혈당 저장에서 부르는 함수 — 그 날짜에 적용 중이던 기준이 있으면 그것, 없으면 빈 기준을 저장해서 돌려준다
+    @Transactional
+    public CriteriaVersion onDateOrEmpty(Long userId, LocalDate date) {
         return criteriaVersionRepository
-                .findFirstByUserIdAndEffectiveFromLessThanEqualOrderByEffectiveFromDescIdDesc(userId, today)
+                .findFirstByUserIdAndEffectiveFromLessThanEqualOrderByEffectiveFromDescIdDesc(userId, date)
                 .orElseGet(() -> criteriaVersionRepository.save(
-                        CriteriaVersion.empty(findUser(userId), today, clock.instant())));
+                        CriteriaVersion.empty(findUser(userId), date, clock.instant())));
     }
 
     private User findUser(Long userId) {
