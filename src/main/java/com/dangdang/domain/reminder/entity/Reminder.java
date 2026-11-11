@@ -72,4 +72,26 @@ public class Reminder {
         this.status = ReminderStatus.DONE;
         this.readingId = readingId;
     }
+
+    // 보냈다 — 예약 상태일 때만 바뀐다 (보내는 사이 사용자가 먼저 저장했으면 그 상태를 지킨다)
+    public void markSent(Instant now) {
+        if (this.status == ReminderStatus.SCHEDULED) {
+            this.status = ReminderStatus.SENT;
+            this.sentAt = now;
+        }
+    }
+
+    public void markSkipped() {
+        if (this.status == ReminderStatus.SCHEDULED) {
+            this.status = ReminderStatus.SKIPPED;
+        }
+    }
+
+    // 처음 연 시각만 남긴다
+    public void markOpened(Instant now) {
+        this.status = ReminderStatus.OPENED;
+        if (this.openedAt == null) {
+            this.openedAt = now;
+        }
+    }
 }

@@ -4,8 +4,10 @@ import com.dangdang.domain.criteria.dto.response.CriteriaVersionResponse;
 import com.dangdang.domain.criteria.enums.MeasureSlot;
 import com.dangdang.domain.criteria.service.CriteriaService;
 import com.dangdang.domain.meal.enums.MealSlot;
+import com.dangdang.domain.reminder.dto.response.ReminderOpenResponse;
 import com.dangdang.domain.reminder.entity.Reminder;
 import com.dangdang.domain.reminder.enums.ReminderStatus;
+import com.dangdang.domain.reminder.exception.ReminderErrorCode;
 import com.dangdang.domain.reminder.repository.ReminderRepository;
 import com.dangdang.domain.user.entity.User;
 import com.dangdang.domain.user.exception.UserErrorCode;
@@ -19,6 +21,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -27,6 +30,7 @@ public class ReminderService {
     private final CriteriaService criteriaService;
     private final UserRepository userRepository;
     private final Clock clock;
+    private final Optional<LocalDemoDelay> demoDelay;
 
     @Transactional
     public Reminder scheduleAfterMeal(Long userId, Long mealId, MealSlot mealSlot, Instant startedAt) {
@@ -41,8 +45,10 @@ public class ReminderService {
         if (criteria.measureSlots() == null || !criteria.measureSlots().contains(slot)) {
             return null;        // 병원에서 재라고 한 때가 아닐 때
         }
-        Instant scheduledAt =
-                startedAt.plus(Duration.ofMinutes(criteria.postMealMinutes()));
+        //local 시연이면 짧게, 아니면 병원 기준 식후 시간
+        Duration wait = demoDelay.map(LocalDemoDelay::delay)
+                .orElse(Duration.ofMinutes(criteria.postMealMinutes()));
+        Instant scheduledAt = startedAt.plus(wait);
         Instant now = clock.instant();
         if (!scheduledAt.isAfter(now)) {
             return null;        // 지난 식사를 늦게 적었거나 시각을 과거로 고친 경우. 이미 지난 알림이라 안 만듦 (스케줄러가 바로 보내 버림)
@@ -88,6 +94,26 @@ public class ReminderService {
             if (i == 0) pending.get(i).complete(readingId);
             else pending.get(i).cancel();
         }
+    }
+
+    // 알림을 눌러서 들어왔을 때
+    @Transactional
+    public ReminderOpenResponse open(Long userId, Long reminderId) {
+        Reminder reminder = findMine(userId, reminderId);
+        switch (reminder.getStatus()) {
+            case SENT -> reminder.markOpened(clock.instant());
+            case OPENED, DONE -> {
+                // 이미 열었거나 끝난 알림은 그대로 200
+            }
+            default -> throw new CustomException(ReminderErrorCode.CANNOT_OPEN);
+        }
+        return ReminderOpenResponse.from(reminder);
+    }
+
+    // "내 것만". 남의 번호면 404
+    private Reminder findMine(Long userId, Long reminderId) {
+        return reminderRepository.findByIdAndUserId(reminderId, userId)
+                .orElseThrow(() -> new CustomException(ReminderErrorCode.REMINDER_NOT_FOUND));
     }
 
     private static MeasureSlot afterSlotOf(final MealSlot mealSlot) {
