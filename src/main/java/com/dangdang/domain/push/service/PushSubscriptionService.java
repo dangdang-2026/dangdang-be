@@ -47,6 +47,12 @@ public class PushSubscriptionService {
         subscription.revoke(clock.instant());
     }
 
+    //PushReady - 살아 있는 구독이 하나라도 있나
+    @Transactional(readOnly=true)
+    public boolean hasActive(Long userId){
+        return pushSubscriptionRepository.existsByUserIdAndRevokedAtIsNull(userId);
+    }
+
     // 푸시 서버가 "죽은 구독"이라고 할 때 (404,410)
     @Transactional
     public void revokeGone(Long subscriptionId) {

@@ -15,4 +15,6 @@ public interface PushSubscriptionRepository extends JpaRepository<PushSubscripti
 
     // 살아 있는 구독 전부 (revoked_at IS NULL)
     List<PushSubscription> findAllByUserIdAndRevokedAtIsNull(Long userId);
+
+    boolean existsByUserIdAndRevokedAtIsNull(Long userId);
 }

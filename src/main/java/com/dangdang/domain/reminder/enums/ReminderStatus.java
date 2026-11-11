@@ -7,6 +7,6 @@ public enum ReminderStatus {
     OPENED,         //눌러서 열어 봄
     DONE,           //혈당 저장 끝
     SKIPPED,        //안 보내고 건너뜀
-    PAUSED,         //멈춤
+    PAUSED,         //잠시 멈춤
     CANCELED        //취소
 }
