@@ -2,6 +2,7 @@ package com.dangdang.domain.reminder.controller;
 
 import com.dangdang.domain.reminder.dto.response.ReminderOpenResponse;
 import com.dangdang.domain.reminder.dto.response.ReminderPageResponse;
+import com.dangdang.domain.reminder.dto.response.ReminderSnoozeResponse;
 import com.dangdang.domain.reminder.service.ReminderQueryService;
 import com.dangdang.domain.reminder.service.ReminderService;
 import com.dangdang.global.common.BaseResponse;
@@ -57,5 +58,19 @@ public class ReminderController {
             @AuthenticationPrincipal AuthPrincipal principal, @PathVariable Long id) {
         return ResponseEntity.ok(BaseResponse.success(200, "혈당 측정 알림 열람에 성공했습니다.",
                 reminderService.open(principal.userId(), id)));
+    }
+
+    @Operation(
+            summary = "[ 사용자 | 토큰 O | 측정 알림 10분 뒤 다시 ]",
+            description =
+                    """
+                    **Parameters** id (알림 번호), 본문 없음
+                    **Returns** id, status, scheduledAt(원래 예정 시각), snoozedUntil. SENT·OPENED만, 그 외 REMINDER_40902
+                    """)
+    @PostMapping("/{id}/snooze")
+    public ResponseEntity<BaseResponse<ReminderSnoozeResponse>> snooze(
+            @AuthenticationPrincipal AuthPrincipal principal, @PathVariable Long id) {
+        return ResponseEntity.ok(BaseResponse.success(200, "10분 뒤 다시 알려 드릴게요.",
+                reminderService.snooze(principal.userId(), id)));
     }
 }
