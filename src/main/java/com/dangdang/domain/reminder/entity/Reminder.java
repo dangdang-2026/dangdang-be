@@ -94,4 +94,20 @@ public class Reminder {
             this.openedAt = now;
         }
     }
+
+    // 10분 뒤 다시 — 원래 예정 시각(scheduledAt)은 늦게 잼 계산에 쓰니 그대로 둔다
+    public void snooze(Instant until) {
+        this.status = ReminderStatus.SCHEDULED;
+        this.snoozedUntil = until;
+    }
+
+    public void markRenotified() {
+        this.renotified = true;
+    }
+
+    // 실제로 울릴 시각 — 미룬 적이 있으면 미룬 시각
+    public Instant dueAt() {
+        return snoozedUntil != null ? snoozedUntil : scheduledAt;
+    }
+
 }
