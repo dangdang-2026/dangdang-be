@@ -33,6 +33,13 @@ services:
     volumes: ["/var/run/docker.sock:/var/run/docker.sock:ro"]
     ports: ["127.0.0.1:9999:8080"]
     restart: unless-stopped
-  # ai (FastAPI)는 dangdang-ai 이미지가 생기면 추가
+  ai:
+    image: dahyun0423/dangdang-ai:latest
+    environment:
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN}
+    volumes: [ "../ai-models:/app/models:ro" ]
+    mem_limit: 1g
+    restart: unless-stopped
+    logging: { driver: json-file, options: { max-size: "10m", max-file: "3" } }
 volumes:
   pgdata:
