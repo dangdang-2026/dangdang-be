@@ -10,6 +10,7 @@ import com.dangdang.global.config.ClockConfig;
 import com.dangdang.global.exception.CustomException;
 import com.dangdang.global.exception.GlobalErrorCode;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Slice;
 import org.springframework.data.domain.Sort;
@@ -41,9 +42,11 @@ public class ReminderQueryService {
         return new ReminderPageResponse(slice.map(ReminderResponse::from).getContent(), page, size, slice.hasNext());
     }
 
+
     //오늘 API의 nextReminder — 없으면 null
     public NextReminderResponse findNext(Long userId) {
-        return reminderRepository.findFirstByUserIdAndStatusOrderByScheduledAtAsc(userId, ReminderStatus.SCHEDULED)
+        return reminderRepository.findNextByDueTime(userId, ReminderStatus.SCHEDULED, Limit.of(1)).stream()
+                .findFirst()
                 .map(NextReminderResponse::from)
                 .orElse(null);
     }
