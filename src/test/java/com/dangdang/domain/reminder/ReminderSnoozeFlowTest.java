@@ -1,8 +1,11 @@
 package com.dangdang.domain.reminder;
 
+import com.dangdang.domain.meal.enums.MealSlot;
 import com.dangdang.domain.reminder.dto.response.NextReminderResponse;
+import com.dangdang.domain.reminder.entity.Reminder;
 import com.dangdang.domain.reminder.scheduler.ReminderScheduler;
 import com.dangdang.domain.reminder.service.ReminderQueryService;
+import com.dangdang.domain.reminder.service.ReminderService;
 import com.dangdang.support.ReminderTestBase;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.BeforeEach;
@@ -26,6 +29,7 @@ class ReminderSnoozeFlowTest extends ReminderTestBase {
 
     @Autowired ReminderScheduler scheduler;
     @Autowired ReminderQueryService reminderQueryService;
+    @Autowired ReminderService reminderService;
 
     Cookie jisu;
     Long id;
@@ -201,4 +205,23 @@ class ReminderSnoozeFlowTest extends ReminderTestBase {
         assertThat(statusOf(id)).isEqualTo("SKIPPED");
         assertThat(fakeSender.sent).isEmpty();
     }
+    //미룬 알림(SCHEDULED지만 한 번 보냄)이 있는 식사를 고쳐도 취소·새 예약하지 않는다
+    @Test
+    void 미룬_뒤_식사_시각을_고쳐도_미룬_알림은_그대로고_새_알림은_안_생긴다() throws Exception {
+        Long mealId = attachMeal();
+        snooze(jisu, id);
+
+        Reminder created = reminderService.rescheduleAfterMeal(
+                jisuId, mealId, MealSlot.LUNCH, NOW.minus(Duration.ofMinutes(50)));   // 식사 시각을 10분 늦게 고침
+
+        assertThat(created).isNull();                                   // 새 알림을 만들지 않았다
+        assertThat(statusOf(id)).isEqualTo("SCHEDULED");                // 미룬 알림은 취소되지 않았다
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM reminders WHERE meal_id = ?", Integer.class, mealId))
+                .isEqualTo(1);
+
+        clock.set(NOW.plus(TEN));                                       // 미룬 대로 10분 뒤
+        scheduler.run();
+        assertThat(fakeSender.sent).hasSize(1);                         // 딱 한 번 다시 간다
+    }
 }
+
