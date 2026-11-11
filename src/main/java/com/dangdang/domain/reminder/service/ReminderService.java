@@ -5,6 +5,7 @@ import com.dangdang.domain.criteria.enums.MeasureSlot;
 import com.dangdang.domain.criteria.service.CriteriaService;
 import com.dangdang.domain.meal.enums.MealSlot;
 import com.dangdang.domain.reminder.dto.response.ReminderOpenResponse;
+import com.dangdang.domain.reminder.dto.response.ReminderSnoozeResponse;
 import com.dangdang.domain.reminder.entity.Reminder;
 import com.dangdang.domain.reminder.enums.ReminderStatus;
 import com.dangdang.domain.reminder.exception.ReminderErrorCode;
@@ -26,11 +27,12 @@ import java.util.Optional;
 @Service
 @RequiredArgsConstructor
 public class ReminderService {
+    private static final Duration SNOOZE = Duration.ofMinutes(10);
     private final ReminderRepository reminderRepository;
     private final CriteriaService criteriaService;
     private final UserRepository userRepository;
     private final Clock clock;
-    private final Optional<LocalDemoDelay> demoDelay;
+    private final Optional<LocalDemoDelay> demoDelay;   //local 프로필에서만 값이 있다
 
     @Transactional
     public Reminder scheduleAfterMeal(Long userId, Long mealId, MealSlot mealSlot, Instant startedAt) {
@@ -64,7 +66,8 @@ public class ReminderService {
     public Reminder rescheduleAfterMeal(Long userId, Long mealId, MealSlot mealSlot, Instant startedAt) {
         List<Reminder> reminders = reminderRepository.findByMealId(mealId);
         boolean alreadyHandled = reminders.stream()
-                .anyMatch(r -> r.getStatus() != ReminderStatus.SCHEDULED && r.getStatus() != ReminderStatus.CANCELED);
+                .anyMatch(r -> (r.getStatus() != ReminderStatus.SCHEDULED && r.getStatus() != ReminderStatus.CANCELED)
+                        || r.getSentAt() != null);
         if (alreadyHandled) {
             return null;
         }
@@ -108,6 +111,17 @@ public class ReminderService {
             default -> throw new CustomException(ReminderErrorCode.CANNOT_OPEN);
         }
         return ReminderOpenResponse.from(reminder);
+    }
+
+    // 10분 뒤 다시. 받았거나 열어 본 알림만 미룰 수 있다
+    @Transactional
+    public ReminderSnoozeResponse snooze(Long userId, Long reminderId) {
+        Reminder reminder = findMine(userId, reminderId);
+        switch (reminder.getStatus()) {
+            case SENT, OPENED -> reminder.snooze(clock.instant().plus(SNOOZE));
+            default -> throw new CustomException(ReminderErrorCode.CANNOT_SNOOZE);
+        }
+        return ReminderSnoozeResponse.from(reminder);
     }
 
     // "내 것만". 남의 번호면 404

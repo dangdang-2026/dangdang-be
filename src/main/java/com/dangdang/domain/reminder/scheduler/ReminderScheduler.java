@@ -18,5 +18,6 @@ public class ReminderScheduler {
     @Scheduled(initialDelay = 30, fixedDelay = 30, timeUnit = TimeUnit.SECONDS)
     public void run() {
         reminderDispatchService.dispatchDue();
+        reminderDispatchService.renotifyDue();
     }
 }
