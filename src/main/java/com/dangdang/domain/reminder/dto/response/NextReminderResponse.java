@@ -10,6 +10,6 @@ import java.time.Instant;
 public record NextReminderResponse(Long reminderId, MeasureSlot slot, Instant scheduledAt, ReminderStatus status) {
 
     public static NextReminderResponse from(Reminder r) {
-        return new NextReminderResponse(r.getId(), r.getSlot(), r.getScheduledAt(), r.getStatus());
+        return new NextReminderResponse(r.getId(), r.getSlot(), r.dueAt(), r.getStatus());
     }
 }
