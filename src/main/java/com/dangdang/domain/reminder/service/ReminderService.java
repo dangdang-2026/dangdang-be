@@ -66,7 +66,8 @@ public class ReminderService {
     public Reminder rescheduleAfterMeal(Long userId, Long mealId, MealSlot mealSlot, Instant startedAt) {
         List<Reminder> reminders = reminderRepository.findByMealId(mealId);
         boolean alreadyHandled = reminders.stream()
-                .anyMatch(r -> r.getStatus() != ReminderStatus.SCHEDULED && r.getStatus() != ReminderStatus.CANCELED);
+                .anyMatch(r -> (r.getStatus() != ReminderStatus.SCHEDULED && r.getStatus() != ReminderStatus.CANCELED)
+                        || r.getSentAt() != null);
         if (alreadyHandled) {
             return null;
         }
