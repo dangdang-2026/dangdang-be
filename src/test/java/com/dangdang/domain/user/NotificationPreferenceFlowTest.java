@@ -21,7 +21,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class NotificationPreferenceFlowTest extends ReminderTestBase {
 
-    static final String URL = "/api/users/me/notification-preferences";
+    static final String URL = "/api/me/notification-preferences";
 
     @Autowired ReminderScheduler scheduler;
 
