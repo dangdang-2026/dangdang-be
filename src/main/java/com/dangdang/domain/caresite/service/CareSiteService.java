@@ -3,6 +3,9 @@ package com.dangdang.domain.caresite.service;
 import com.dangdang.domain.caresite.dto.request.CareSiteCreateRequest;
 import com.dangdang.domain.caresite.dto.request.CareSiteUpdateRequest;
 import com.dangdang.domain.caresite.dto.response.CareSiteResponse;
+import com.dangdang.domain.caresite.dto.response.HospitalSearchResponse;
+import com.dangdang.domain.caresite.infra.HospitalSearchClient;
+import com.dangdang.domain.caresite.infra.HospitalSearchResult;
 import com.dangdang.domain.caresite.entity.CareSite;
 import com.dangdang.domain.caresite.exception.CareSiteErrorCode;
 import com.dangdang.domain.caresite.repository.CareSiteRepository;
@@ -24,7 +27,12 @@ public class CareSiteService {
 
     private final CareSiteRepository careSiteRepository;
     private final UserRepository userRepository;
+    private final HospitalSearchClient hospitalSearchClient;
     private final Clock clock;
+
+    private static final int MIN_KEYWORD = 2;        // 한 글자면 결과가 너무 많음
+    private static final int MAX_KEYWORD = 50;       // 병원 이름 칸 길이와 같음
+    private static final int MAX_SEARCH_SIZE = 50;
 
     // 병원 등록. 대표로 등록하면 원래 대표 병원은 풀림
     @Transactional
@@ -75,6 +83,18 @@ public class CareSiteService {
     @Transactional
     public void delete(Long userId, Long careSiteId) {
         findMine(userId, careSiteId).delete(clock.instant());   // 변경 감지로 트랜잭션 끝날 때 반영됨
+    }
+
+    // 병원 검색 (심평원). DB는 안 건드림. page는 0부터, size는 1~50으로 맞춤
+    public HospitalSearchResponse search(String keyword, int page, int size) {
+        String trimmed = keyword == null ? "" : keyword.strip();
+        if (trimmed.length() < MIN_KEYWORD || trimmed.length() > MAX_KEYWORD) {
+            throw new CustomException(CareSiteErrorCode.INVALID_KEYWORD);
+        }
+        int pageNo = Math.max(page, 0);
+        int pageSize = Math.clamp(size, 1, MAX_SEARCH_SIZE);
+        HospitalSearchResult result = hospitalSearchClient.search(trimmed, pageNo + 1, pageSize);   // 심평원은 1부터
+        return HospitalSearchResponse.of(result, pageNo, pageSize);
     }
 
     // 지금 대표 병원이 있으면 대표를 풂 (대표는 사용자당 하나만)

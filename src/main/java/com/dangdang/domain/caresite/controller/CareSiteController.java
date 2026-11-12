@@ -3,6 +3,7 @@ package com.dangdang.domain.caresite.controller;
 import com.dangdang.domain.caresite.dto.request.CareSiteCreateRequest;
 import com.dangdang.domain.caresite.dto.request.CareSiteUpdateRequest;
 import com.dangdang.domain.caresite.dto.response.CareSiteResponse;
+import com.dangdang.domain.caresite.dto.response.HospitalSearchResponse;
 import com.dangdang.domain.caresite.service.CareSiteService;
 import com.dangdang.global.common.BaseResponse;
 import com.dangdang.global.security.AuthPrincipal;
@@ -52,6 +53,23 @@ public class CareSiteController {
             @AuthenticationPrincipal AuthPrincipal principal) {
         return ResponseEntity.ok(BaseResponse.success(200, "병원 목록 조회에 성공했습니다.",
                 careSiteService.list(principal.userId())));
+    }
+
+    @Operation(
+            summary = "[ 사용자 | 토큰 O | 병원 검색 (심평원) ]",
+            description =
+                    """
+                    **Parameters** keyword(병원 이름 일부, 필수, 2~50자), page(기본 0, 0부터), size(기본 20, 1~50)
+                    **Returns** 심평원에 등록된 병원 목록 + totalCount·hasNext. 고른 병원의 hiraCode·name·address·phone을 병원 등록에 그대로 보냄 (진료과는 사용자가 고름).
+                    결과가 없으면 items []. 검색어가 짧거나 길면 CARE_SITE_40002, 심평원에 연결이 안 되면 CARE_SITE_50201 (직접 입력으로 안내)
+                    """)
+    @GetMapping("/search")
+    public ResponseEntity<BaseResponse<HospitalSearchResponse>> search(
+            @RequestParam String keyword,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ResponseEntity.ok(BaseResponse.success(200, "병원 검색에 성공했습니다.",
+                careSiteService.search(keyword, page, size)));
     }
 
     @Operation(
