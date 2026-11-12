@@ -4,6 +4,7 @@ import com.dangdang.domain.community.dto.request.CommunityProfileCreateRequest;
 import com.dangdang.domain.community.dto.request.CommunityProfileUpdateRequest;
 import com.dangdang.domain.community.dto.response.CommunityProfileResponse;
 import com.dangdang.domain.community.dto.response.NicknameAvailabilityResponse;
+import com.dangdang.domain.community.dto.response.NicknameSuggestionResponse;
 import com.dangdang.domain.community.entity.CommunityProfile;
 import com.dangdang.domain.community.exception.CommunityErrorCode;
 import com.dangdang.domain.community.repository.CommunityProfileRepository;
@@ -27,10 +28,22 @@ public class CommunityProfileService {
     private final CommunityProfileRepository profileRepository;
     private final UserRepository userRepository;
     private final Clock clock;
+    private static final int SUGGESTION_TRIES = 20;
 
     public NicknameAvailabilityResponse checkNickname(String rawNickname) {
         String nickname = NicknameRule.normalizeAndCheck(rawNickname);
         return new NicknameAvailabilityResponse(!profileRepository.existsByNickname(nickname));
+    }
+
+    // 지금 아무도 안 쓰는 이름 하나 추천 (저장은 안 함)
+    public NicknameSuggestionResponse suggestNickname() {
+        for (int i = 0; i < SUGGESTION_TRIES; i++) {
+            String nickname = NicknameGenerator.next();
+            if (!profileRepository.existsByNickname(nickname)) {
+                return new NicknameSuggestionResponse(nickname);
+            }
+        }
+        throw new CustomException(CommunityErrorCode.NICKNAME_SUGGESTION_FAILED);
     }
 
     @Transactional
