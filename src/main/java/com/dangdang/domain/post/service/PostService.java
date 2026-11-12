@@ -1,5 +1,6 @@
 package com.dangdang.domain.post.service;
 
+import com.dangdang.domain.comment.repository.CommentRepository;
 import com.dangdang.domain.community.entity.CommunityProfile;
 import com.dangdang.domain.community.service.CommunityProfileService;
 import com.dangdang.domain.post.dto.request.PostCreateRequest;
@@ -12,9 +13,11 @@ import com.dangdang.domain.post.entity.Post;
 import com.dangdang.domain.post.enums.PostCategory;
 import com.dangdang.domain.post.exception.PostErrorCode;
 import com.dangdang.domain.post.repository.PostDraftRepository;
+import com.dangdang.domain.post.repository.PostReactionRepository;
 import com.dangdang.domain.post.repository.PostRepository;
 import com.dangdang.domain.post.repository.PostSpecifications;
 import com.dangdang.domain.user.enums.Role;
+import com.dangdang.global.common.IdCount;
 import com.dangdang.global.common.TimeCursor;
 import com.dangdang.global.exception.CustomException;
 import com.dangdang.global.exception.GlobalErrorCode;
@@ -26,6 +29,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -36,6 +42,8 @@ public class PostService {
 
     private final PostRepository postRepository;
     private final PostDraftRepository draftRepository;
+    private final PostReactionRepository reactionRepository;
+    private final CommentRepository commentRepository;
     private final CommunityProfileService profileService;
     private final Clock clock;
 
@@ -55,9 +63,7 @@ public class PostService {
         boolean hasNext = found.size() > size;
         List<Post> page = hasNext ? found.subList(0, size) : found;
 
-        List<PostSummaryResponse> items = page.stream()
-                .map(post -> PostSummaryResponse.of(post, myProfileId, 0, 0, false))  // 공감·댓글 수는 18단계에서
-                .toList();
+        List<PostSummaryResponse> items = toSummaries(page, myProfileId);
         String nextCursor = null;
         if (hasNext) {
             Post last = page.get(page.size() - 1);
@@ -111,15 +117,48 @@ public class PostService {
         findMine(postId, profile.getId()).softDelete(clock.instant());
     }
 
+    // ★ 댓글·공감에서 부른다 — 지운 글·가린 글은 없는 글로 친다
+    public Post findVisiblePost(Long postId) {
+        return postRepository.findByIdAndDeletedAtIsNull(postId)
+                .filter(post -> !post.isHidden())
+                .orElseThrow(() -> new CustomException(PostErrorCode.POST_NOT_FOUND));
+    }
+
     private Post findMine(Long postId, Long profileId) {
         return postRepository.findByIdAndDeletedAtIsNull(postId)
                 .filter(post -> post.isOwnedBy(profileId))      // 남의 글도 "없는 글"과 똑같이 404
                 .orElseThrow(() -> new CustomException(PostErrorCode.POST_NOT_FOUND));
     }
 
+    // 글마다 세지 않고 한 번에 모아 센다 (글 20개면 쿼리 40번 → 3번)
+    private List<PostSummaryResponse> toSummaries(List<Post> posts, Long myProfileId) {
+        if (posts.isEmpty()) {
+            return List.of();
+        }
+        List<Long> ids = posts.stream().map(Post::getId).toList();
+        Map<Long, Long> reactions = toMap(reactionRepository.countByPostIds(ids));
+        Map<Long, Long> comments = toMap(commentRepository.countVisibleByPostIds(ids));
+        Set<Long> reacted = myProfileId == null ? Set.of()
+                : reactionRepository.findReactedPostIds(ids, myProfileId);
+        return posts.stream()
+                .map(post -> PostSummaryResponse.of(post, myProfileId,
+                        reactions.getOrDefault(post.getId(), 0L),
+                        comments.getOrDefault(post.getId(), 0L),
+                        reacted.contains(post.getId())))
+                .toList();
+    }
+
+    private Map<Long, Long> toMap(List<IdCount> counts) {
+        return counts.stream().collect(Collectors.toMap(IdCount::getId, IdCount::getCnt));
+    }
+
     private PostDetailResponse toDetail(Post post, Long myProfileId, int viewCount) {
+        Long postId = post.getId();
+        long reactionCount = reactionRepository.countByPostId(postId);
+        long commentCount = toMap(commentRepository.countVisibleByPostIds(List.of(postId))).getOrDefault(postId, 0L);
+        boolean reacted = myProfileId != null && reactionRepository.existsByPostIdAndProfileId(postId, myProfileId);
         PollResponse poll = post.getPoll() == null ? null : PollResponse.notVoted(post.getPoll());
-        return PostDetailResponse.of(post, myProfileId, viewCount, 0, 0, false, poll);  // 공감·댓글 수는 18단계에서
+        return PostDetailResponse.of(post, myProfileId, viewCount, reactionCount, commentCount, reacted, poll);
     }
 
     private void rejectDeferredFilters(String sort, String period, String audience) {
