@@ -28,6 +28,9 @@ public class NotificationPreference {
     private boolean measurementEnabled = true;
 
     @Column(nullable = false)
+    private boolean scheduleEnabled = true;
+
+    @Column(nullable = false)
     private boolean renotifyEnabled = true;
 
     @Column(nullable = false)
@@ -48,5 +51,28 @@ public class NotificationPreference {
         NotificationPreference pref = new NotificationPreference();
         pref.user = user;
         return pref;
+    }
+
+    // 보낸 칸만 바꾼다 (null이면 그대로)
+    public void update(Boolean measurementEnabled, Boolean scheduleEnabled, Boolean hidePreview, Boolean renotifyEnabled,
+                       LocalTime fastingAlarmTime, LocalTime bedtimeAlarmTime) {
+        if (measurementEnabled != null) {
+            this.measurementEnabled = measurementEnabled;
+        }
+        if (scheduleEnabled != null) {
+            this.scheduleEnabled = scheduleEnabled;
+        }
+        if (hidePreview != null) {
+            this.hidePreview = hidePreview;
+        }
+        if (renotifyEnabled != null) {
+            this.renotifyEnabled = renotifyEnabled;
+        }
+        if (fastingAlarmTime != null) {
+            this.fastingAlarmTime = fastingAlarmTime;
+        }
+        if (bedtimeAlarmTime != null) {
+            this.bedtimeAlarmTime = bedtimeAlarmTime;
+        }
     }
 }

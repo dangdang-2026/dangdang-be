@@ -9,10 +9,12 @@ public record MeResponse(
         @Schema(description = "이메일(카카오는 없을 수 있음)", example = "jisu@example.com") String email,
         @Schema(description = "부를 이름", example = "지수") String displayName,
         @Schema(description = "가입 방식", example = "EMAIL") AuthProvider authProvider,
-        @Schema(description = "필수 동의를 마쳤는지 (false면 A-01로)", example = "true") boolean consentCompleted) {
+        @Schema(description = "필수 동의를 마쳤는지 (false면 A-01로)", example = "true") boolean consentCompleted,
+        @Schema(description = "이름 바꿀 때 그대로 보낼 수정 버전 (BIGINT 문자열)", example = "0") String version) {
 
     public static MeResponse from(User user, boolean consentCompleted)  {
         return new MeResponse(
-                user.getId(), user.getEmail(), user.getDisplayName(), user.getAuthProvider(), consentCompleted);
+                user.getId(), user.getEmail(), user.getDisplayName(), user.getAuthProvider(), consentCompleted,
+                String.valueOf(user.getRowVersion()));
     }
 }

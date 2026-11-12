@@ -86,3 +86,5 @@ kakao:
     - http://localhost:5173/auth/kakao/callback
     - https://dang-dang.site/auth/kakao/callback
     - https://dang-dang.vercel.app/auth/kakao/callback
+hira:
+  service-key: ${HIRA_SERVICE_KEY:}             # 공공데이터포털 심평원 병원정보서비스 일반 인증키 (병원 검색용)
