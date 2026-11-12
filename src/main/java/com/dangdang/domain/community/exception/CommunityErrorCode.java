@@ -12,7 +12,8 @@ public enum CommunityErrorCode implements BaseErrorCode {
     EMPTY_PROFILE_UPDATE("COMMUNITY_40002", "바꿀 내용을 하나 이상 보내 주세요.", HttpStatus.BAD_REQUEST),
     PROFILE_NOT_FOUND("COMMUNITY_40401", "커뮤니티 프로필을 먼저 만들어 주세요.", HttpStatus.NOT_FOUND),
     NICKNAME_DUPLICATED("COMMUNITY_40901", "이미 누가 쓰고 있는 이름이에요.", HttpStatus.CONFLICT),
-    PROFILE_ALREADY_EXISTS("COMMUNITY_40902", "이미 커뮤니티 프로필이 있어요.", HttpStatus.CONFLICT);
+    PROFILE_ALREADY_EXISTS("COMMUNITY_40902", "이미 커뮤니티 프로필이 있어요.", HttpStatus.CONFLICT),
+    NICKNAME_SUGGESTION_FAILED("COMMUNITY_40903", "추천할 이름을 찾지 못했어요. 직접 적어 주세요.", HttpStatus.CONFLICT);
 
     private final String code;
     private final String message;
