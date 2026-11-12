@@ -4,6 +4,7 @@ import com.dangdang.domain.community.dto.request.CommunityProfileCreateRequest;
 import com.dangdang.domain.community.dto.request.CommunityProfileUpdateRequest;
 import com.dangdang.domain.community.dto.response.CommunityProfileResponse;
 import com.dangdang.domain.community.dto.response.NicknameAvailabilityResponse;
+import com.dangdang.domain.community.dto.response.NicknameSuggestionResponse;
 import com.dangdang.domain.community.service.CommunityProfileService;
 import com.dangdang.global.common.BaseResponse;
 import com.dangdang.global.security.AuthPrincipal;
@@ -35,6 +36,20 @@ public class CommunityProfileController {
     public ResponseEntity<BaseResponse<NicknameAvailabilityResponse>> checkNickname(@RequestParam String nickname) {
         return ResponseEntity.ok(BaseResponse.success(200, "커뮤니티 닉네임 중복 확인에 성공했습니다.",
                 profileService.checkNickname(nickname)));
+    }
+
+    @Operation(
+            summary = "[ 사용자 | 토큰 O | 랜덤 닉네임 추천 ]",
+            description =
+                    """
+                    **Parameters** 없음
+                    **Returns** nickname. 지금 아무도 안 쓰는 이름 (예: 포근한 고구마). 저장은 안 함 → 마음에 들면 POST로 생성.
+                    그 사이 남이 가져가면 생성이 COMMUNITY_40901, 추천할 이름을 못 찾으면 COMMUNITY_40903
+                    """)
+    @GetMapping("/nickname-suggestion")
+    public ResponseEntity<BaseResponse<NicknameSuggestionResponse>> suggestNickname() {
+        return ResponseEntity.ok(BaseResponse.success(200, "랜덤 닉네임 추천에 성공했습니다.",
+                profileService.suggestNickname()));
     }
 
     @Operation(
