@@ -11,6 +11,7 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
 
 @Slf4j
 @RestControllerAdvice
@@ -59,6 +60,16 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(code.getStatus())
                 .body(BaseResponse.fail(code, e.getName() + " 값의 형식이 맞지 않아요."));
     }
+
+    //@RequestParam,@PathVariable에 붙인 @Positive·@Max 검사 실패 -> 500 말고 400
+    @ExceptionHandler(HandlerMethodValidationException.class)
+    public ResponseEntity<BaseResponse<Void>> handleMethodValidation(HandlerMethodValidationException e) {
+        log.warn("요청 값 검증 실패: {}", e.getMessage());
+        GlobalErrorCode code = GlobalErrorCode.INVALID_INPUT;
+        return ResponseEntity.status(code.getStatus())
+                .body(BaseResponse.fail(code, e.getAllErrors().get(0).getDefaultMessage()));
+    }
+
 
     // 에상 못한 에러라면? (내부 내용 숨기고, 고정 문구만. 자세한 건 로그에만 남김)
     @ExceptionHandler(Exception.class)
