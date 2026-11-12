@@ -1,5 +1,8 @@
 package com.dangdang.domain.community;
 
+import com.jayway.jsonpath.JsonPath;
+import java.nio.charset.StandardCharsets;
+import static org.assertj.core.api.Assertions.assertThat;
 import com.dangdang.domain.user.entity.User;
 import com.dangdang.domain.user.repository.UserRepository;
 import jakarta.servlet.http.Cookie;
@@ -161,6 +164,32 @@ class CommunityProfileFlowTest {
         mvc.perform(patch(BASE + "/me").cookie(jisu).contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errorCode").value("COMMUNITY_40002"));
+    }
+
+    @Test
+    void 랜덤_닉네임은_규칙에_맞고_아직_아무도_안_쓰는_이름() throws Exception {
+        createProfile(mina, "포근한 고구마");
+        for (int i = 0; i < 20; i++) {
+            String body = mvc.perform(get(BASE + "/nickname-suggestion").cookie(jisu))
+                    .andExpect(status().isOk())
+                    .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+            String nickname = JsonPath.read(body, "$.data.nickname");
+            assertThat(nickname).isNotEqualTo("포근한 고구마");   // 남이 쓰는 이름은 안 나옴
+            mvc.perform(get(BASE + "/nickname-availability").param("nickname", nickname).cookie(jisu))
+                    .andExpect(status().isOk())                    // 규칙에 안 맞으면 여기서 400
+                    .andExpect(jsonPath("$.data.available").value(true));
+        }
+    }
+
+    @Test
+    void 추천받은_이름으로_바로_프로필을_만들_수_있다() throws Exception {
+        String body = mvc.perform(get(BASE + "/nickname-suggestion").cookie(jisu))
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        String nickname = JsonPath.read(body, "$.data.nickname");
+        mvc.perform(post(BASE).cookie(jisu).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nickname\":\"" + nickname + "\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.nickname").value(nickname));
     }
 
     @Test
