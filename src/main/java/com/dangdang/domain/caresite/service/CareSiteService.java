@@ -38,18 +38,23 @@ public class CareSiteService {
     // 병원 등록. 대표로 등록하면 원래 대표 병원은 풀림
     @Transactional
     public CareSiteResponse create(Long userId, CareSiteCreateRequest req) {
-        User user = userRepository.findById(userId)
+        // 대표로 등록하면 회원 줄을 잠가서 같은 사용자의 대표 지정 요청이 한 번에 하나씩 처리되게 함
+        User user = (req.isPrimary() ? userRepository.findByIdForUpdate(userId) : userRepository.findById(userId))
                 .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
         if (req.isPrimary()) {
             releasePrimary(userId);
         }
         // 정렬 순서를 안 보내면 맨 뒤 (지금 병원 개수)
         int sortOrder = req.sortOrder() != null ? req.sortOrder() : list(userId).size();
-        CareSite saved = careSiteRepository.save(CareSite.of(
-                user, req.name(), req.department(), req.hiraCode(), req.address(), req.phone(),
-                req.roleNote(), req.isPrimary(), sortOrder));
-        flushPrimary();
-        return CareSiteResponse.from(saved);
+        CareSite careSite = CareSite.of(user, req.name(), req.department(), req.hiraCode(), req.address(),
+                req.phone(), req.roleNote(), req.isPrimary(), sortOrder);
+        try {
+            // id를 DB가 만들어서(IDENTITY) save 순간 바로 INSERT가 나감 -> 대표 하나 인덱스 충돌도 여기서 남
+            careSiteRepository.saveAndFlush(careSite);
+        } catch (DataIntegrityViolationException e) {
+            throw new CustomException(CareSiteErrorCode.PRIMARY_CONFLICT);
+        }
+        return CareSiteResponse.from(careSite);
     }
 
     // 목록: 대표 병원 먼저 → 정렬 순서 → 먼저 등록한 순
@@ -65,6 +70,11 @@ public class CareSiteService {
     public CareSiteResponse update(Long userId, Long careSiteId, CareSiteUpdateRequest req) {
         if (req.isEmpty()) {
             throw new CustomException(CareSiteErrorCode.NOTHING_TO_UPDATE);
+        }
+        // 대표로 지정하면 등록과 같이 회원 줄부터 잠금 (병원을 읽기 전에 잠가야 최신 대표 상태를 봄)
+        if (Boolean.TRUE.equals(req.primary())) {
+            userRepository.findByIdForUpdate(userId)
+                    .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
         }
         CareSite careSite = findMine(userId, careSiteId);
         careSite.update(req.name(), req.department(), req.hiraCode(), req.address(), req.phone(),
@@ -107,7 +117,7 @@ public class CareSiteService {
         careSiteRepository.flush();
     }
 
-    // DB에 씀. 대표 지정이 동시에 와서 대표 하나 인덱스(ux_care_sites_primary)에 걸리면 409
+    // DB에 씀. 회원 줄 잠금이 있어서 보통은 안 걸리지만, 잠금을 빠뜨린 경로가 생겨 대표 하나 인덱스(ux_care_sites_primary)에 걸리면 409
     private void flushPrimary() {
         try {
             careSiteRepository.flush();

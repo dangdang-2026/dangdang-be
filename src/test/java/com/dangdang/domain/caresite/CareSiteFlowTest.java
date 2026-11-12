@@ -18,7 +18,14 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -152,6 +159,52 @@ class CareSiteFlowTest {
         long others = create(other, primarySite("C병원", "OBGYN"));
         long mine = create(access, primarySite("A산부인과", "OBGYN"));
         assertThat(primaryIds()).containsExactlyInAnyOrder(others, mine);
+    }
+
+    @Test
+    void 대표_지정_요청이_동시에_여러_개_와도_모두_성공하고_대표는_하나() throws Exception {
+        for (int round = 0; round < 5; round++) {
+            long a = create(access, site("A산부인과" + round, "OBGYN"));
+            long b = create(access, site("B내과" + round, "ENDO"));
+            String newPrimary = primarySite("C병원" + round, "ETC");
+            // 하나는 수정으로 대표 지정, 하나는 새 병원을 대표로 등록 -> 동시에 출발
+            List<Integer> statuses = runTogether(
+                    () -> mvc.perform(patch("/api/care-sites/" + a).cookie(access)
+                                    .contentType(MediaType.APPLICATION_JSON).content("{\"primary\":true}"))
+                            .andReturn().getResponse().getStatus(),
+                    () -> mvc.perform(patch("/api/care-sites/" + b).cookie(access)
+                                    .contentType(MediaType.APPLICATION_JSON).content("{\"primary\":true}"))
+                            .andReturn().getResponse().getStatus(),
+                    () -> mvc.perform(post("/api/care-sites").cookie(access)
+                                    .contentType(MediaType.APPLICATION_JSON).content(newPrimary))
+                            .andReturn().getResponse().getStatus());
+            assertThat(statuses).containsExactly(200, 200, 201);   // 409 없이 줄 서서 처리됨
+            assertThat(primaryIds()).hasSize(1);
+        }
+    }
+
+    // 요청들을 최대한 같은 순간에 보내고 상태 코드를 순서대로 돌려줌
+    @SafeVarargs
+    private List<Integer> runTogether(Callable<Integer>... requests) throws Exception {
+        ExecutorService pool = Executors.newFixedThreadPool(requests.length);
+        try {
+            CountDownLatch start = new CountDownLatch(1);
+            List<Future<Integer>> futures = new ArrayList<>();
+            for (Callable<Integer> request : requests) {
+                futures.add(pool.submit(() -> {
+                    start.await();
+                    return request.call();
+                }));
+            }
+            start.countDown();
+            List<Integer> statuses = new ArrayList<>();
+            for (Future<Integer> f : futures) {
+                statuses.add(f.get(30, TimeUnit.SECONDS));
+            }
+            return statuses;
+        } finally {
+            pool.shutdownNow();
+        }
     }
 
     @Test
