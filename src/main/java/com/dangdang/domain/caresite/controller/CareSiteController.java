@@ -1,6 +1,7 @@
 package com.dangdang.domain.caresite.controller;
 
 import com.dangdang.domain.caresite.dto.request.CareSiteCreateRequest;
+import com.dangdang.domain.caresite.dto.request.CareSiteUpdateRequest;
 import com.dangdang.domain.caresite.dto.response.CareSiteResponse;
 import com.dangdang.domain.caresite.service.CareSiteService;
 import com.dangdang.global.common.BaseResponse;
@@ -51,5 +52,36 @@ public class CareSiteController {
             @AuthenticationPrincipal AuthPrincipal principal) {
         return ResponseEntity.ok(BaseResponse.success(200, "병원 목록 조회에 성공했습니다.",
                 careSiteService.list(principal.userId())));
+    }
+
+    @Operation(
+            summary = "[ 사용자 | 토큰 O | 병원 수정 ]",
+            description =
+                    """
+                    **Parameters** careSiteId + 바꿀 칸만: name, department, hiraCode, address, phone, roleNote(비우려면 ""), primary(true=대표로 지정, false=대표 해제), sortOrder
+                    **Returns** 수정된 병원. primary=true면 원래 대표 병원은 자동으로 풀림.
+                    바꿀 값이 없으면 CARE_SITE_40001, 없거나 삭제됐거나 남의 병원이면 CARE_SITE_40401
+                    """)
+    @PatchMapping("/{careSiteId}")
+    public ResponseEntity<BaseResponse<CareSiteResponse>> update(
+            @AuthenticationPrincipal AuthPrincipal principal, @PathVariable Long careSiteId,
+            @Valid @RequestBody CareSiteUpdateRequest request) {
+        return ResponseEntity.ok(BaseResponse.success(200, "병원 정보를 수정했습니다.",
+                careSiteService.update(principal.userId(), careSiteId, request)));
+    }
+
+    @Operation(
+            summary = "[ 사용자 | 토큰 O | 병원 삭제 ]",
+            description =
+                    """
+                    **Parameters** careSiteId
+                    **Returns** 성공 시 data 없음. 이후 목록에서 안 보임. 대표 병원이었으면 대표도 풀림.
+                    없거나 이미 삭제됐거나 남의 병원이면 CARE_SITE_40401
+                    """)
+    @DeleteMapping("/{careSiteId}")
+    public ResponseEntity<BaseResponse<Void>> delete(
+            @AuthenticationPrincipal AuthPrincipal principal, @PathVariable Long careSiteId) {
+        careSiteService.delete(principal.userId(), careSiteId);
+        return ResponseEntity.ok(BaseResponse.success(200, "병원을 삭제했습니다.", null));
     }
 }

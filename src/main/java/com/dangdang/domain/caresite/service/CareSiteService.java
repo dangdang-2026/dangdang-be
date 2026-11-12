@@ -1,6 +1,7 @@
 package com.dangdang.domain.caresite.service;
 
 import com.dangdang.domain.caresite.dto.request.CareSiteCreateRequest;
+import com.dangdang.domain.caresite.dto.request.CareSiteUpdateRequest;
 import com.dangdang.domain.caresite.dto.response.CareSiteResponse;
 import com.dangdang.domain.caresite.entity.CareSite;
 import com.dangdang.domain.caresite.exception.CareSiteErrorCode;
@@ -13,6 +14,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.util.List;
 
 @Service
@@ -22,6 +24,7 @@ public class CareSiteService {
 
     private final CareSiteRepository careSiteRepository;
     private final UserRepository userRepository;
+    private final Clock clock;
 
     // 병원 등록. 대표로 등록하면 원래 대표 병원은 풀림
     @Transactional
@@ -45,6 +48,33 @@ public class CareSiteService {
                 .stream()
                 .map(CareSiteResponse::from)
                 .toList();
+    }
+
+    // 수정 (보낸 칸만). primary=true면 원래 대표를 풀고 이 병원을 대표로, false면 대표 해제
+    @Transactional
+    public CareSiteResponse update(Long userId, Long careSiteId, CareSiteUpdateRequest req) {
+        if (req.isEmpty()) {
+            throw new CustomException(CareSiteErrorCode.NOTHING_TO_UPDATE);
+        }
+        CareSite careSite = findMine(userId, careSiteId);
+        careSite.update(req.name(), req.department(), req.hiraCode(), req.address(), req.phone(),
+                req.roleNote(), req.sortOrder());
+        if (Boolean.TRUE.equals(req.primary()) && !careSite.isPrimary()) {
+            releasePrimary(userId);
+            careSite.markPrimary();
+        } else if (Boolean.FALSE.equals(req.primary())) {
+            careSite.unmarkPrimary();
+        }
+        // 변경 감지로 트랜잭션 끝날 때 반영되지만, 응답에 새 updatedAt을 담으려고 먼저 DB에 씀
+        careSiteRepository.flush();
+        return CareSiteResponse.from(careSite);
+    }
+
+    // 삭제 (soft delete). 이미 지운 병원을 또 지우면 findMine에서 404
+    // 이 병원을 가리키던 병원 기준(criteria_versions)은 그대로 둠 (지난 기록이 그때 병원을 가리켜야 해서)
+    @Transactional
+    public void delete(Long userId, Long careSiteId) {
+        findMine(userId, careSiteId).delete(clock.instant());   // 변경 감지로 트랜잭션 끝날 때 반영됨
     }
 
     // 지금 대표 병원이 있으면 대표를 풂 (대표는 사용자당 하나만)
