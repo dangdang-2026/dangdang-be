@@ -52,17 +52,17 @@ public class CareSite extends BaseTimeEntity {
 
     private Instant deletedAt;               // null = 살아 있음, 값 있음 = 삭제됨
 
-    // 새 병원 만들기
+    // 새 병원 만들기. 선택 칸을 ""로 보내도 안 보낸 것과 똑같이 null로 저장
     public static CareSite of(User user, String name, Department department, String hiraCode,
                               String address, String phone, String roleNote, boolean primary, int sortOrder) {
         CareSite c = new CareSite();
         c.user = user;
         c.name = name;
         c.department = department;
-        c.hiraCode = hiraCode;
-        c.address = address;
-        c.phone = phone;
-        c.roleNote = roleNote;
+        c.hiraCode = blankToNull(hiraCode);
+        c.address = blankToNull(address);
+        c.phone = blankToNull(phone);
+        c.roleNote = blankToNull(roleNote);
         c.primary = primary;
         c.sortOrder = sortOrder;
         return c;
@@ -81,8 +81,9 @@ public class CareSite extends BaseTimeEntity {
         if (sortOrder != null) this.sortOrder = sortOrder;
     }
 
+    // "", 공백만 -> null (null은 그대로 null)
     private static String blankToNull(String value) {
-        return value.isBlank() ? null : value;
+        return (value == null || value.isBlank()) ? null : value;
     }
 
     // 대표 병원으로 지정

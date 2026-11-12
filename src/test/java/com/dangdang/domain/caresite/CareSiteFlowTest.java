@@ -20,6 +20,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -103,6 +104,15 @@ class CareSiteFlowTest {
                 .andExpect(jsonPath("$.data.primary").value(false))
                 .andExpect(jsonPath("$.data.sortOrder").value(1))
                 .andExpect(jsonPath("$.data.hiraCode").doesNotExist());
+    }
+
+    @Test
+    void 등록할_때_빈_문자열로_보낸_칸은_안_보낸_것처럼_null() throws Exception {
+        long id = create(access, "{\"name\":\"A산부인과\",\"department\":\"OBGYN\","
+                + "\"hiraCode\":\"\",\"address\":\"\",\"phone\":\"  \",\"roleNote\":\"\"}");
+        Map<String, Object> row = jdbc.queryForMap(
+                "SELECT hira_code, address, phone, role_note FROM care_sites WHERE id = ?", id);
+        assertThat(row.values()).containsOnlyNulls();
     }
 
     @Test
