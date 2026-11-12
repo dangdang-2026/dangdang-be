@@ -204,7 +204,8 @@ class CareSiteFlowTest {
                 .andExpect(jsonPath("$.data.name").value("A여성병원"))
                 .andExpect(jsonPath("$.data.department").value("OBGYN"))
                 .andExpect(jsonPath("$.data.phone").value("02-1"))
-                .andExpect(jsonPath("$.data.address").value(""));
+                .andExpect(jsonPath("$.data.address").doesNotExist());   // 등록 때 안 보낸 것과 같은 null
+        assertThat(jdbc.queryForObject("SELECT address FROM care_sites WHERE id = ?", String.class, id)).isNull();
     }
 
     @Test

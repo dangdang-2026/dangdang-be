@@ -69,15 +69,20 @@ public class CareSite extends BaseTimeEntity {
     }
 
     // 수정. null로 온 칸은 그대로 둠 (대표 지정은 markPrimary·unmarkPrimary로 따로 함)
+    // 선택 칸을 ""로 보내면 비움 -> 등록 때 안 보낸 것과 똑같이 null로 저장
     public void update(String name, Department department, String hiraCode,
                        String address, String phone, String roleNote, Integer sortOrder) {
         if (name != null) this.name = name;
         if (department != null) this.department = department;
-        if (hiraCode != null) this.hiraCode = hiraCode;
-        if (address != null) this.address = address;
-        if (phone != null) this.phone = phone;
-        if (roleNote != null) this.roleNote = roleNote;
+        if (hiraCode != null) this.hiraCode = blankToNull(hiraCode);
+        if (address != null) this.address = blankToNull(address);
+        if (phone != null) this.phone = blankToNull(phone);
+        if (roleNote != null) this.roleNote = blankToNull(roleNote);
         if (sortOrder != null) this.sortOrder = sortOrder;
+    }
+
+    private static String blankToNull(String value) {
+        return value.isBlank() ? null : value;
     }
 
     // 대표 병원으로 지정
