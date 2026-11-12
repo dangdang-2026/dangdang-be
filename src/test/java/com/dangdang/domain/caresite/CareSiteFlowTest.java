@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -20,6 +21,7 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -150,6 +152,21 @@ class CareSiteFlowTest {
         long others = create(other, primarySite("C병원", "OBGYN"));
         long mine = create(access, primarySite("A산부인과", "OBGYN"));
         assertThat(primaryIds()).containsExactlyInAnyOrder(others, mine);
+    }
+
+    @Test
+    void 동시_요청으로_대표가_두_개_되려_하면_DB가_막는다() throws Exception {
+        long mine = create(access, primarySite("A산부인과", "OBGYN"));
+        Long userId = jdbc.queryForObject("SELECT user_id FROM care_sites WHERE id = ?", Long.class, mine);
+        // 코드 검사를 건너뛰고 대표를 하나 더 넣어 봄 (동시 요청이 둘 다 "대표 없음"을 본 상황)
+        assertThatThrownBy(() -> jdbc.update(
+                "INSERT INTO care_sites (user_id, name, department, is_primary) VALUES (?, 'B병원', 'ENDO', true)",
+                userId))
+                .isInstanceOf(DataIntegrityViolationException.class);
+        // 삭제된 병원은 대표였어도 상관없음
+        jdbc.update("INSERT INTO care_sites (user_id, name, department, is_primary, deleted_at) "
+                + "VALUES (?, 'C병원', 'ENDO', true, now())", userId);
+        assertThat(primaryIds()).containsExactly(mine);
     }
 
     // ---------- 목록 ----------

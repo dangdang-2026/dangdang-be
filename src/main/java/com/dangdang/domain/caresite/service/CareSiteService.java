@@ -14,6 +14,7 @@ import com.dangdang.domain.user.exception.UserErrorCode;
 import com.dangdang.domain.user.repository.UserRepository;
 import com.dangdang.global.exception.CustomException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -47,6 +48,7 @@ public class CareSiteService {
         CareSite saved = careSiteRepository.save(CareSite.of(
                 user, req.name(), req.department(), req.hiraCode(), req.address(), req.phone(),
                 req.roleNote(), req.isPrimary(), sortOrder));
+        flushPrimary();
         return CareSiteResponse.from(saved);
     }
 
@@ -73,8 +75,8 @@ public class CareSiteService {
         } else if (Boolean.FALSE.equals(req.primary())) {
             careSite.unmarkPrimary();
         }
-        // 변경 감지로 트랜잭션 끝날 때 반영되지만, 응답에 새 updatedAt을 담으려고 먼저 DB에 씀
-        careSiteRepository.flush();
+        // 변경 감지로 트랜잭션 끝날 때 반영되지만, 응답에 새 updatedAt을 담고 대표 충돌도 여기서 잡으려고 먼저 DB에 씀
+        flushPrimary();
         return CareSiteResponse.from(careSite);
     }
 
@@ -98,9 +100,20 @@ public class CareSiteService {
     }
 
     // 지금 대표 병원이 있으면 대표를 풂 (대표는 사용자당 하나만)
+    // 바로 DB에 씀: 안 그러면 새 대표 INSERT·UPDATE가 옛 대표 해제보다 먼저 나가서 대표 하나 인덱스에 걸림
     private void releasePrimary(Long userId) {
         careSiteRepository.findByUserIdAndPrimaryTrueAndDeletedAtIsNull(userId)
                 .ifPresent(CareSite::unmarkPrimary);
+        careSiteRepository.flush();
+    }
+
+    // DB에 씀. 대표 지정이 동시에 와서 대표 하나 인덱스(ux_care_sites_primary)에 걸리면 409
+    private void flushPrimary() {
+        try {
+            careSiteRepository.flush();
+        } catch (DataIntegrityViolationException e) {
+            throw new CustomException(CareSiteErrorCode.PRIMARY_CONFLICT);
+        }
     }
 
     // 내 것 + 삭제 안 된 것만. 없음·삭제됨·남의 것은 전부 404
