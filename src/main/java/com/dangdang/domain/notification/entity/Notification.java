@@ -55,4 +55,11 @@ public class Notification {
         n.sentAt = sentAt;
         return n;
     }
+
+    // 처음 읽은 시각만 남긴다
+    public void markRead(Instant now) {
+        if (this.readAt == null) {
+            this.readAt = now;
+        }
+    }
 }
