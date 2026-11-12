@@ -80,6 +80,11 @@ public class User extends BaseTimeEntity {
         this.passwordHash = newPasswordHash;
     }
 
+    // 내 이름 바꾸기 (MY-01, M-02). 앞뒤 공백은 요청 DTO에서 이미 지웠다
+    public void changeDisplayName(String displayName) {
+        this.displayName = displayName;
+    }
+
     // 앞뒤 공백 제거 + 소문자. 저장할 때도 찾을 때도 항상 거친다
     public static String normalize(String email) {
         return email.trim().toLowerCase(Locale.ROOT);
