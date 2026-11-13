@@ -22,7 +22,7 @@ public class PostReactionService {
     @Transactional
     public ReactionResponse add(Long userId, Long postId) {
         CommunityProfile profile = profileService.requireProfile(userId);
-        postService.findVisiblePost(postId);
+        postService.findVisiblePost(postId, profile.getId());
         reactionRepository.addIfAbsent(postId, profile.getId(), clock.instant());
         return new ReactionResponse(true, reactionRepository.countByPostId(postId));
     }
@@ -30,7 +30,7 @@ public class PostReactionService {
     @Transactional
     public ReactionResponse remove(Long userId, Long postId) {
         CommunityProfile profile = profileService.requireProfile(userId);
-        postService.findVisiblePost(postId);
+        postService.findVisiblePost(postId, profile.getId());
         reactionRepository.remove(postId, profile.getId());
         return new ReactionResponse(false, reactionRepository.countByPostId(postId));
     }
