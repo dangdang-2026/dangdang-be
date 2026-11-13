@@ -1,15 +1,17 @@
 package com.dangdang.domain.post.dto.response;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.IntStream;
 
 public record PollResponse(List<PollOptionResponse> options, long totalVotes, Integer myOptionIndex) {
 
-    // 19단계(투표)를 만들기 전까지는 항목만 내려간다
-    public static PollResponse notVoted(List<String> options) {
+    // counts를 null로 주면 항목별 숫자를 숨긴다 — 투표 전에는 결과를 안 보여 준다 (U-02 -> U-09)
+    public static PollResponse of(List<String> options, Map<Long, Long> counts, long totalVotes, Integer myOptionIndex) {
         List<PollOptionResponse> items = IntStream.range(0, options.size())
-                .mapToObj(i -> new PollOptionResponse(i, options.get(i), null))
+                .mapToObj(i -> new PollOptionResponse(i, options.get(i),
+                        counts == null ? null : counts.getOrDefault((long) i, 0L)))
                 .toList();
-        return new PollResponse(items, 0, null);
+        return new PollResponse(items, totalVotes, myOptionIndex);
     }
 }
