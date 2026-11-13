@@ -220,7 +220,7 @@ class PushSubscriptionFlowTest {
 
         assertThat(fakeSender.sent).hasSize(1);
         assertThat(fakeSender.sent.get(0).title()).isEqualTo("당당");
-        assertThat(fakeSender.sent.get(0).body()).isEqualTo("당당 알림이 왔어요");
+        assertThat(fakeSender.sent.get(0).body()).isEqualTo("확인할 일이 있어요");
     }
 
     @Test

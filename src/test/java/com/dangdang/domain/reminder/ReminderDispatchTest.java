@@ -52,8 +52,8 @@ class ReminderDispatchTest extends ReminderTestBase {
         assertThat(row.get("user_id")).isEqualTo(jisuId);
         assertThat(row.get("reminder_id")).isEqualTo(id);
         assertThat(row.get("type")).isEqualTo("MEASURE");
-        assertThat(row.get("title")).isEqualTo("혈당 잴 시간이에요");
-        assertThat(row.get("body")).isEqualTo("점심 식후 혈당을 재 주세요");
+        assertThat(row.get("title")).isEqualTo("점심 식후 혈당을 잴 시간이에요");
+        assertThat(row.get("body")).isNull();
         assertThat(row.get("deep_link")).isEqualTo("/today?sheet=glucose&reminderId=" + id);
         assertThat(((Timestamp) row.get("sent_at")).toInstant()).isEqualTo(NOW);
         assertThat(row.get("read_at")).isNull();
@@ -91,11 +91,11 @@ class ReminderDispatchTest extends ReminderTestBase {
         scheduler.run();
 
         assertThat(fakeSender.sent.get(0).title()).isEqualTo("당당");
-        assertThat(fakeSender.sent.get(0).body()).isEqualTo("당당 알림이 왔어요");
+        assertThat(fakeSender.sent.get(0).body()).isEqualTo("확인할 일이 있어요");
         assertThat(fakeSender.sent.get(0).url()).isEqualTo("/today?sheet=glucose&reminderId=" + id);
         assertThat(fakeSender.sent.get(0).reminderId()).isEqualTo(id);
-        assertThat(jdbc.queryForObject("SELECT body FROM notifications", String.class))
-                .isEqualTo("점심 식후 혈당을 재 주세요");
+        assertThat(jdbc.queryForObject("SELECT title FROM notifications", String.class))
+                .isEqualTo("점심 식후 혈당을 잴 시간이에요");
     }
 
     @Test
