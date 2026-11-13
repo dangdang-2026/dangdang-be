@@ -159,6 +159,6 @@ class NotificationPreferenceFlowTest extends ReminderTestBase {
         change("{\"hideContent\":false}").andExpect(status().isOk());
         scheduler.run();
 
-        assertThat(fakeSender.sent.get(0).body()).isEqualTo("혈당 잴 시간이에요");
+        assertThat(fakeSender.sent.get(0).body()).isEqualTo("점심 식후 혈당을 잴 시간이에요");
     }
 }
