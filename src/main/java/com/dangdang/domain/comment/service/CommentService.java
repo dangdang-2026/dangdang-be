@@ -9,6 +9,7 @@ import com.dangdang.domain.comment.exception.CommentErrorCode;
 import com.dangdang.domain.comment.repository.CommentReactionRepository;
 import com.dangdang.domain.comment.repository.CommentRepository;
 import com.dangdang.domain.community.entity.CommunityProfile;
+import com.dangdang.domain.community.service.BlockService;
 import com.dangdang.domain.community.service.CommunityProfileService;
 import com.dangdang.domain.post.dto.response.ReactionResponse;
 import com.dangdang.domain.post.entity.Post;
@@ -34,12 +35,14 @@ public class CommentService {
     private final CommentReactionRepository reactionRepository;
     private final PostService postService;
     private final CommunityProfileService profileService;
+    private final BlockService blockService;
     private final Clock clock;
 
     public CommentListResponse list(Long userId, Long postId) {
-        postService.findVisiblePost(postId);
         Long myProfileId = profileService.findMyProfileId(userId).orElse(null);
-        List<Comment> comments = commentRepository.findVisibleByPostId(postId);
+        postService.findVisiblePost(postId, myProfileId);
+        Long viewer = myProfileId == null ? -1L : myProfileId;  // 프로필이 없으면 차단한 사람도 없다
+        List<Comment> comments = commentRepository.findVisibleByPostId(postId, viewer);
         if (comments.isEmpty()) {
             return new CommentListResponse(List.of(), 0);
         }
@@ -57,8 +60,8 @@ public class CommentService {
     @Transactional
     public CommentResponse create(Long userId, Long postId, CommentCreateRequest request) {
         CommunityProfile profile = profileService.requireProfile(userId);
-        Post post = postService.findVisiblePost(postId);
-        Comment parent = request.parentId() == null ? null : findParent(request.parentId(), postId);
+        Post post = postService.findVisiblePost(postId, profile.getId());
+        Comment parent = request.parentId() == null ? null : findParent(request.parentId(), postId, profile.getId());
         Comment comment = Comment.of(post, profile, parent, request.content().trim(),
                 Boolean.TRUE.equals(request.isAnonymous()), clock.instant());
         commentRepository.save(comment);
@@ -86,7 +89,7 @@ public class CommentService {
     @Transactional
     public ReactionResponse addReaction(Long userId, Long commentId) {
         CommunityProfile profile = profileService.requireProfile(userId);
-        findVisibleComment(commentId);
+        findVisibleComment(commentId, profile.getId());
         reactionRepository.addIfAbsent(commentId, profile.getId(), clock.instant());
         return new ReactionResponse(true, reactionRepository.countByCommentId(commentId));
     }
@@ -94,23 +97,25 @@ public class CommentService {
     @Transactional
     public ReactionResponse removeReaction(Long userId, Long commentId) {
         CommunityProfile profile = profileService.requireProfile(userId);
-        findVisibleComment(commentId);
+        findVisibleComment(commentId, profile.getId());
         reactionRepository.remove(commentId, profile.getId());
         return new ReactionResponse(false, reactionRepository.countByCommentId(commentId));
     }
 
-    // ★ 19단계 신고에서도 부른다 — 지운·가린 댓글, 글이 안 보이는 댓글은 없는 것으로
-    public Comment findVisibleComment(Long commentId) {
+    // 신고에서도 부른다 — 지운·가린 댓글, 안 보기 한 사람의 댓글, 글이 안 보이는 댓글은 없는 것으로
+    public Comment findVisibleComment(Long commentId, Long myProfileId) {
         Comment comment = commentRepository.findByIdAndDeletedAtIsNull(commentId)
                 .filter(c -> !c.isHidden())
+                .filter(c -> !blockService.isBlocking(myProfileId, c.getProfile()))
                 .orElseThrow(() -> new CustomException(CommentErrorCode.COMMENT_NOT_FOUND));
-        postService.findVisiblePost(comment.getPost().getId());
+        postService.findVisiblePost(comment.getPost().getId(), myProfileId);
         return comment;
     }
 
-    private Comment findParent(Long parentId, Long postId) {
+    private Comment findParent(Long parentId, Long postId, Long myProfileId) {
         Comment parent = commentRepository.findByIdAndDeletedAtIsNull(parentId)
                 .filter(c -> !c.isHidden() && c.getPost().getId().equals(postId))
+                .filter(c -> !blockService.isBlocking(myProfileId, c.getProfile()))
                 .orElseThrow(() -> new CustomException(CommentErrorCode.COMMENT_NOT_FOUND));
         if (parent.isReply()) {     // U-02b는 답글 아래에 답글 버튼이 없다 (1단계까지만)
             throw new CustomException(CommentErrorCode.REPLY_DEPTH_EXCEEDED);
