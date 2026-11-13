@@ -1,9 +1,12 @@
 package com.dangdang.domain.post.repository;
 
+import com.dangdang.domain.community.entity.ProfileBlock;
 import com.dangdang.domain.post.entity.Post;
 import com.dangdang.domain.post.enums.PostCategory;
 import com.dangdang.global.common.TimeCursor;
 import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
+import jakarta.persistence.criteria.Subquery;
 import org.springframework.data.jpa.domain.Specification;
 
 import java.util.ArrayList;
@@ -16,11 +19,19 @@ public final class PostSpecifications {
     private PostSpecifications() {
     }
 
-    public static Specification<Post> feed(PostCategory category, String q, TimeCursor cursor) {
+    public static Specification<Post> feed(PostCategory category, String q, TimeCursor cursor, Long myProfileId) {
         return (root, query, cb) -> {
             List<Predicate> where = new ArrayList<>();
             where.add(cb.isNull(root.get("deletedAt")));      // 지운 글 제외
             where.add(cb.isNull(root.get("hiddenReason")));   // 가려진 글 제외
+            if (myProfileId != null) {                        // 내가 안 보기 한 사람의 글 제외
+                Subquery<Long> blocked = query.subquery(Long.class);
+                Root<ProfileBlock> block = blocked.from(ProfileBlock.class);
+                blocked.select(block.get("id")).where(
+                        cb.equal(block.get("profile").get("id"), myProfileId),
+                        cb.equal(block.get("blockedProfile").get("id"), root.get("profile").get("id")));
+                where.add(cb.not(cb.exists(blocked)));
+            }
             if (category != null) {
                 where.add(cb.equal(root.get("category"), category));
             }

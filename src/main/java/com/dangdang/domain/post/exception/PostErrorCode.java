@@ -13,8 +13,11 @@ public enum PostErrorCode implements BaseErrorCode {
     EMPTY_UPDATE("POST_40003", "바꿀 내용을 하나 이상 보내 주세요.", HttpStatus.BAD_REQUEST),
     INVALID_SEARCH("POST_40004", "검색어를 다시 확인해 주세요.", HttpStatus.BAD_REQUEST),
     BLANK_TEXT("POST_40005", "제목과 내용은 비워 둘 수 없어요.", HttpStatus.BAD_REQUEST),
+    INVALID_POLL_OPTION("POST_40006", "투표 항목을 다시 골라 주세요.", HttpStatus.BAD_REQUEST),
     OFFICIAL_ONLY("POST_40301", "당당 소식은 공식 계정만 쓸 수 있어요.", HttpStatus.FORBIDDEN),
-    POST_NOT_FOUND("POST_40401", "글을 찾을 수 없어요.", HttpStatus.NOT_FOUND);
+    POST_NOT_FOUND("POST_40401", "글을 찾을 수 없어요.", HttpStatus.NOT_FOUND),
+    POLL_NOT_FOUND("POST_40402", "투표가 없는 글이에요.", HttpStatus.NOT_FOUND),
+    VOTE_ALREADY_CAST("POST_40901", "이미 다른 항목에 투표했어요. 투표는 바꿀 수 없어요.", HttpStatus.CONFLICT);
 
     private final String code;
     private final String message;

@@ -2,6 +2,7 @@ package com.dangdang.domain.post.service;
 
 import com.dangdang.domain.comment.repository.CommentRepository;
 import com.dangdang.domain.community.entity.CommunityProfile;
+import com.dangdang.domain.community.service.BlockService;
 import com.dangdang.domain.community.service.CommunityProfileService;
 import com.dangdang.domain.post.dto.request.PostCreateRequest;
 import com.dangdang.domain.post.dto.request.PostUpdateRequest;
@@ -9,9 +10,11 @@ import com.dangdang.domain.post.dto.response.PollResponse;
 import com.dangdang.domain.post.dto.response.PostDetailResponse;
 import com.dangdang.domain.post.dto.response.PostListResponse;
 import com.dangdang.domain.post.dto.response.PostSummaryResponse;
+import com.dangdang.domain.post.entity.PollVote;
 import com.dangdang.domain.post.entity.Post;
 import com.dangdang.domain.post.enums.PostCategory;
 import com.dangdang.domain.post.exception.PostErrorCode;
+import com.dangdang.domain.post.repository.PollVoteRepository;
 import com.dangdang.domain.post.repository.PostDraftRepository;
 import com.dangdang.domain.post.repository.PostReactionRepository;
 import com.dangdang.domain.post.repository.PostRepository;
@@ -44,6 +47,8 @@ public class PostService {
     private final PostDraftRepository draftRepository;
     private final PostReactionRepository reactionRepository;
     private final CommentRepository commentRepository;
+    private final PollVoteRepository pollVoteRepository;
+    private final BlockService blockService;
     private final CommunityProfileService profileService;
     private final Clock clock;
 
@@ -58,7 +63,7 @@ public class PostService {
 
         // size보다 하나 더 읽어서 다음 페이지가 있는지 본다
         List<Post> found = postRepository.findBy(
-                PostSpecifications.feed(category, q, cursor),
+                PostSpecifications.feed(category, q, cursor, myProfileId),
                 query -> query.sortBy(LATEST).limit(size + 1).all());
         boolean hasNext = found.size() > size;
         List<Post> page = hasNext ? found.subList(0, size) : found;
@@ -87,10 +92,13 @@ public class PostService {
     public PostDetailResponse detail(Long userId, Long postId) {
         Post post = postRepository.findByIdAndDeletedAtIsNull(postId)
                 .orElseThrow(() -> new CustomException(PostErrorCode.POST_NOT_FOUND));
+        Long myProfileId = profileService.findMyProfileId(userId).orElse(null);
+        if (blockService.isBlocking(myProfileId, post.getProfile())) {
+            throw new CustomException(PostErrorCode.POST_NOT_FOUND);
+        }
         if (post.isHidden()) {
             return PostDetailResponse.hidden(post);
         }
-        Long myProfileId = profileService.findMyProfileId(userId).orElse(null);
         postRepository.increaseViewCount(postId);
         return toDetail(post, myProfileId, post.getViewCount() + 1);
     }
@@ -117,11 +125,25 @@ public class PostService {
         findMine(postId, profile.getId()).softDelete(clock.instant());
     }
 
-    // ★ 댓글·공감에서 부른다 — 지운 글·가린 글은 없는 글로 친다
-    public Post findVisiblePost(Long postId) {
+    // 댓글·공감·투표·신고에서 부른다 — 지운 글·가린 글·내가 안 보기 한 사람의 글은 없는 글로 친다
+    public Post findVisiblePost(Long postId, Long myProfileId) {
         return postRepository.findByIdAndDeletedAtIsNull(postId)
                 .filter(post -> !post.isHidden())
+                .filter(post -> !blockService.isBlocking(myProfileId, post.getProfile()))
                 .orElseThrow(() -> new CustomException(PostErrorCode.POST_NOT_FOUND));
+    }
+
+    // 투표 API도 같은 모양으로 돌려준다. 내가 투표하기 전에는 항목별 숫자를 숨긴다
+    public PollResponse pollOf(Post post, Long myProfileId) {
+        if (post.getPoll() == null) {
+            return null;
+        }
+        Integer mine = myProfileId == null ? null
+                : pollVoteRepository.findByPostIdAndProfileId(post.getId(), myProfileId)
+                .map(PollVote::getOptionIndex).orElse(null);
+        Map<Long, Long> counts = toMap(pollVoteRepository.countByOption(post.getId()));
+        long total = counts.values().stream().mapToLong(Long::longValue).sum();
+        return PollResponse.of(post.getPoll(), mine == null ? null : counts, total, mine);
     }
 
     private Post findMine(Long postId, Long profileId) {
@@ -137,7 +159,7 @@ public class PostService {
         }
         List<Long> ids = posts.stream().map(Post::getId).toList();
         Map<Long, Long> reactions = toMap(reactionRepository.countByPostIds(ids));
-        Map<Long, Long> comments = toMap(commentRepository.countVisibleByPostIds(ids));
+        Map<Long, Long> comments = toMap(commentRepository.countVisibleByPostIds(ids, viewerKey(myProfileId)));
         Set<Long> reacted = myProfileId == null ? Set.of()
                 : reactionRepository.findReactedPostIds(ids, myProfileId);
         return posts.stream()
@@ -155,10 +177,16 @@ public class PostService {
     private PostDetailResponse toDetail(Post post, Long myProfileId, int viewCount) {
         Long postId = post.getId();
         long reactionCount = reactionRepository.countByPostId(postId);
-        long commentCount = toMap(commentRepository.countVisibleByPostIds(List.of(postId))).getOrDefault(postId, 0L);
+        long commentCount = toMap(commentRepository.countVisibleByPostIds(List.of(postId), viewerKey(myProfileId)))
+                .getOrDefault(postId, 0L);
         boolean reacted = myProfileId != null && reactionRepository.existsByPostIdAndProfileId(postId, myProfileId);
-        PollResponse poll = post.getPoll() == null ? null : PollResponse.notVoted(post.getPoll());
-        return PostDetailResponse.of(post, myProfileId, viewCount, reactionCount, commentCount, reacted, poll);
+        return PostDetailResponse.of(post, myProfileId, viewCount, reactionCount, commentCount, reacted,
+                pollOf(post, myProfileId));
+    }
+
+    // 프로필이 없는 사람은 차단한 사람도 없다 → 절대 안 맞는 번호를 넘긴다
+    private Long viewerKey(Long myProfileId) {
+        return myProfileId == null ? -1L : myProfileId;
     }
 
     private void rejectDeferredFilters(String sort, String period, String audience) {
