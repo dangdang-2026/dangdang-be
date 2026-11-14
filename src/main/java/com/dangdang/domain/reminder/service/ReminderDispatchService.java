@@ -1,5 +1,7 @@
 package com.dangdang.domain.reminder.service;
 
+import com.dangdang.domain.meal.entity.Meal;
+import com.dangdang.domain.meal.repository.MealRepository;
 import com.dangdang.domain.push.dto.response.PushDeliveryResponse;
 import com.dangdang.domain.push.service.PushSendService;
 import com.dangdang.domain.reminder.entity.Reminder;
@@ -31,6 +33,7 @@ public class ReminderDispatchService {
     private final NotificationPreferenceRepository notificationPreferenceRepository;
     private final PushSendService pushSendService;
     private final ReminderDeliveryRecorder recorder;
+    private final MealRepository mealRepository;
     private final Clock clock;
 
     public void dispatchDue() {
@@ -65,7 +68,7 @@ public class ReminderDispatchService {
             recorder.recordTurnedOff(reminder.getId());
             return;
         }
-        PushDeliveryResponse result = pushSendService.sendToUser(userId, ReminderMessages.push(reminder));
+        PushDeliveryResponse result = pushSendService.sendToUser(userId, ReminderMessages.push(reminder, mealStartedAt(reminder)));
         if (result.sentCount() > 0) {
             recorder.recordSent(reminder.getId(), now);
             return;
@@ -74,6 +77,14 @@ public class ReminderDispatchService {
             return;                              // SCHEDULED로 두면 다음 바퀴에 다시 시도한다
         }
         recorder.recordNoDevice(reminder.getId(), now);
+    }
+
+    // 문구에 넣을 식사 시작 시각 — 식사가 없는 알림(공복·자기 전)이면 null
+    private Instant mealStartedAt(Reminder reminder) {
+        if (reminder.getMealId() == null) {
+            return null;
+        }
+        return mealRepository.findById(reminder.getMealId()).map(Meal::getStartedAt).orElse(null);
     }
 
     // 설정 줄이 없으면 켜진 것으로 (DDL 기본값 true와 같게)

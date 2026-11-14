@@ -82,7 +82,7 @@ class ReminderRenotifyTest extends ReminderTestBase {
     void 잠금화면_가리기는_재알림에도_적용된다() {
         runAt(TEN);
 
-        assertThat(fakeSender.sent.get(0).body()).isEqualTo("당당 알림이 왔어요");
+        assertThat(fakeSender.sent.get(0).body()).isEqualTo("확인할 일이 있어요");
     }
 
     @Test
