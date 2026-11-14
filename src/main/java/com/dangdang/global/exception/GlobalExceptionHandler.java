@@ -4,6 +4,10 @@ import com.dangdang.global.common.BaseResponse;
 import com.dangdang.global.exception.model.BaseErrorCode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
@@ -70,6 +74,37 @@ public class GlobalExceptionHandler {
                 .body(BaseResponse.fail(code, e.getAllErrors().get(0).getDefaultMessage()));
     }
 
+    //Content-Type이 틀림 (JSON 주소에 글자·파일을 보냄) -> 500 말고 415
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<BaseResponse<Void>> handleMediaType(HttpMediaTypeNotSupportedException e) {
+        log.warn("지원 안 하는 Content-Type: {}", e.getContentType());
+        return fail(GlobalErrorCode.UNSUPPORTED_MEDIA_TYPE);
+    }
+
+    //주소는 있는데 그 방식(GET·POST…)은 없음 -> 500 말고 405
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<BaseResponse<Void>> handleMethod(HttpRequestMethodNotSupportedException e) {
+        log.warn("지원 안 하는 요청 방식: {}", e.getMethod());
+        return fail(GlobalErrorCode.METHOD_NOT_ALLOWED);
+    }
+
+    //없는 주소 -> 500 말고 404
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<BaseResponse<Void>> handleNotFound(NoResourceFoundException e) {
+        log.warn("없는 주소: {}", e.getResourcePath());
+        return fail(GlobalErrorCode.NOT_FOUND);
+    }
+
+    //업로드 파일이 너무 큼 (사진 API용, spring.servlet.multipart 크기 초과) -> 500 말고 413
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<BaseResponse<Void>> handleTooLarge(MaxUploadSizeExceededException e) {
+        log.warn("업로드 크기 초과: {}", e.getMaxUploadSize());
+        return fail(GlobalErrorCode.PAYLOAD_TOO_LARGE);
+    }
+
+    private ResponseEntity<BaseResponse<Void>> fail(GlobalErrorCode code) {
+        return ResponseEntity.status(code.getStatus()).body(BaseResponse.fail(code));
+    }
 
     // 에상 못한 에러라면? (내부 내용 숨기고, 고정 문구만. 자세한 건 로그에만 남김)
     @ExceptionHandler(Exception.class)
