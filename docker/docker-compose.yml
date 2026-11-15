@@ -6,6 +6,7 @@ services:
     environment:
       DB_URL: jdbc:postgresql://db:5432/${DB_NAME}
       REDIS_HOST: redis
+      AI_BASE_URL: http://ai:8000
     ports: ["127.0.0.1:8080:8080"]
     depends_on:
       db: { condition: service_healthy }
@@ -37,6 +38,8 @@ services:
     image: dahyun0423/dangdang-ai:latest
     environment:
       INTERNAL_TOKEN: ${INTERNAL_TOKEN}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-gpt-5.4-nano}
     volumes: [ "../ai-models:/app/models:ro" ]
     mem_limit: 1g
     restart: unless-stopped
