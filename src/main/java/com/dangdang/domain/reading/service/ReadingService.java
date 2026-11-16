@@ -52,6 +52,8 @@ public class ReadingService {
                 req.mealId(), clock.instant()));
         if (saved.getMealId() != null) {   // 식후 혈당을 쟀으니 그 식사의 "재세요" 알림은 끝 처리
             reminderService.completeForMeal(saved.getMealId(), saved.getId());
+        } else if (saved.getSlot() != null) {   // 공복, 자기 전 혈당이면 그날 그 알림을 끝 처리
+            reminderService.completeForSlot(userId, saved.getSlot(), saved.getMeasuredAt(), saved.getId());
         }
         return ReadingResponse.from(saved);
     }
