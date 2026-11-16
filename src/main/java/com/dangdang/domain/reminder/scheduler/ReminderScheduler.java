@@ -1,5 +1,6 @@
 package com.dangdang.domain.reminder.scheduler;
 
+import com.dangdang.domain.reminder.service.DailyReminderPlanner;
 import com.dangdang.domain.reminder.service.ReminderDispatchService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -13,10 +14,12 @@ import java.util.concurrent.TimeUnit;
 public class ReminderScheduler {
 
     private final ReminderDispatchService reminderDispatchService;
+    private final DailyReminderPlanner dailyReminderPlanner;
 
     // 앞 바퀴가 끝나고 30초 뒤에 다음 바퀴 (겹치지 않는다). 테스트는 이 메서드를 직접 부른다
     @Scheduled(initialDelay = 30, fixedDelay = 30, timeUnit = TimeUnit.SECONDS)
     public void run() {
+        dailyReminderPlanner.planDue();          // ★ 추가 — 공복과 자기 전 알림을 먼저 만들어야 같은 바퀴에 바로 보낸다
         reminderDispatchService.dispatchDue();
         reminderDispatchService.renotifyDue();
     }

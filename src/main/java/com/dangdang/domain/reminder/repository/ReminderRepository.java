@@ -1,5 +1,6 @@
 package com.dangdang.domain.reminder.repository;
 
+import com.dangdang.domain.criteria.enums.MeasureSlot;
 import com.dangdang.domain.reminder.entity.Reminder;
 import com.dangdang.domain.reminder.enums.ReminderStatus;
 import org.springframework.data.domain.Limit;
@@ -23,6 +24,13 @@ public interface ReminderRepository extends JpaRepository<Reminder, Long> {
 
     // 이 혈당이 이미 어떤 알림에 붙어 있는지
     boolean existsByReadingId(Long readingId);
+
+    // 공복과 자기 전 알림을 이 시각으로 이미 만들었는지 (30초마다 돌아도 하루 한 번만)
+    boolean existsByUserIdAndSlotAndScheduledAt(Long userId, MeasureSlot slot, Instant scheduledAt);
+
+    // 그날(한국) 그 시점 알림 중 아직 안 끝난 것 — 식사 없는 혈당(공복, 자기 전)을 저장하면 끝 처리
+    List<Reminder> findByUserIdAndSlotAndMealIdIsNullAndStatusInAndScheduledAtGreaterThanEqualAndScheduledAtLessThanOrderByIdAsc(
+            Long userId, MeasureSlot slot, Collection<ReminderStatus> statuses, Instant from, Instant to);                          // ★ 추가
 
     // 이 식사로 생긴 알림 중 상태가 목록 안에 있는 것. 먼저 만든 순
     List<Reminder> findByMealIdAndStatusInOrderByIdAsc(Long mealId, Collection<ReminderStatus> statuses);
