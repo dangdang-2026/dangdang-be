@@ -151,6 +151,41 @@ class RecordFlowTest {
     }
 
     @Test
+    void 지운_식사에_붙은_혈당이나_공복_혈당은_timing이_null() throws Exception {
+        createCriteria(access, 60, 95, 140);
+        Instant now = Instant.now();
+        long deletedMeal = createMeal(access, "LUNCH", now.minus(Duration.ofMinutes(70)));
+        createReading(access, 150, "POST_MEAL", now.minus(Duration.ofMinutes(5)), deletedMeal);
+        mvc.perform(delete("/api/meals/" + deletedMeal).cookie(access)).andExpect(status().isOk());
+        long liveMeal = createMeal(access, "DINNER", now.minus(Duration.ofMinutes(200)));
+        createReading(access, 90, "FASTING", now.minus(Duration.ofMinutes(1)), liveMeal);   // 공복인데 식사가 붙음
+
+        mvc.perform(get("/api/today").cookie(access))
+                .andExpect(jsonPath("$.data.readings", hasSize(2)))
+                .andExpect(jsonPath("$.data.readings[0].timing").value((Object) null))
+                .andExpect(jsonPath("$.data.readings[1].timing").value((Object) null));
+    }
+
+    @Test
+    void 알림을_받은_식후_혈당은_알림_예정_시각과_비교한다() throws Exception {
+        // 식사 땐 식후 60분 기준 → 알림이 식사 + 60분(= 지금 + 10분)에 예약됨
+        mvc.perform(post("/api/criteria-versions").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"postMealMinutes\":60,\"measureSlots\":[\"LUNCH_AFTER\"],\"postMealTarget\":140,"
+                                + "\"effectiveFrom\":\"" + today().minusDays(40) + "\"}"))
+                .andExpect(status().isCreated());
+        Instant now = Instant.now();
+        long mealId = createMeal(access, "LUNCH", now.minus(Duration.ofMinutes(50)));
+        // 그 뒤 오늘부터 식후 30분으로 바뀜 → 기준으로만 계산하면 식사 + 30분(= 20분 전)이라 LATE가 됨
+        mvc.perform(post("/api/criteria-versions").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"postMealMinutes\":30,\"measureSlots\":[\"LUNCH_AFTER\"],\"postMealTarget\":140}"))
+                .andExpect(status().isCreated());
+        createReading(access, 120, "POST_MEAL", now, mealId);   // 저장하면 그 알림에 이 혈당이 붙음
+
+        mvc.perform(get("/api/today").cookie(access))
+                .andExpect(jsonPath("$.data.readings[0].timing").value("ON_TIME"));   // 실제 알림(지금 + 10분) 기준
+    }
+
+    @Test
     void 로그인_안_하면_401() throws Exception {
         mvc.perform(get("/api/today")).andExpect(status().isUnauthorized());
         mvc.perform(get("/api/records?from=2026-11-01&to=2026-11-01")).andExpect(status().isUnauthorized());
@@ -284,6 +319,32 @@ class RecordFlowTest {
                 .andExpect(jsonPath("$.data.hasPrevMonth").value(false))
                 .andExpect(jsonPath("$.data.hasNextMonth").value(true))
                 .andExpect(jsonPath("$.data.firstRecordDate").value((Object) null));
+    }
+
+    @Test
+    void 가입_전_날짜에_적은_기록은_가려지지_않고_그_달로_갈_수_있다() throws Exception {
+        LocalDate before = today().minusDays(70);   // 방금 가입했지만 70일 전 날짜로 기록
+        createReading(access, 100, "FASTING", kst(before, 8, 0), null);
+        YearMonth month = YearMonth.from(before);
+
+        mvc.perform(get("/api/records/calendar").cookie(access).param("month", month.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.firstRecordDate").value(before.toString()))
+                .andExpect(jsonPath("$.data.days[" + (before.getDayOfMonth() - 1) + "].status").value("RECORDED"))
+                .andExpect(jsonPath("$.data.hasPrevMonth").value(false));   // 첫 기록이 있는 달이 맨 처음
+        mvc.perform(get("/api/records/calendar").cookie(access).param("month", month.plusMonths(1).toString()))
+                .andExpect(jsonPath("$.data.hasPrevMonth").value(true));
+    }
+
+    @Test
+    void 연도가_너무_크거나_작으면_500이_아니라_400() throws Exception {
+        mvc.perform(get("/api/records").cookie(access)
+                        .param("from", "+999999999-12-31").param("to", "+999999999-12-31"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("GLOBAL_40001"));
+        mvc.perform(get("/api/records/calendar").cookie(access).param("month", "1999-12"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("GLOBAL_40001"));
     }
 
     @Test
