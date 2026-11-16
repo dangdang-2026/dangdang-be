@@ -18,10 +18,12 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.sql.Timestamp;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 
 import static org.hamcrest.Matchers.hasSize;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -86,10 +88,24 @@ class ReadingStatsFlowTest {
                 .andExpect(status().isCreated());
     }
 
+    // 정확한 시각으로 혈당 저장하고 번호를 돌려줌 (분 단위 경계 확인용)
+    private long readingAt(Cookie who, int value, String type, Instant measuredAt) throws Exception {
+        String body = mvc.perform(post("/api/readings").cookie(who).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"value\":" + value + ",\"measuredAt\":\"" + measuredAt
+                                + "\",\"readingType\":\"" + type + "\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return ((Number) JsonPath.read(body, "$.data.readingId")).longValue();
+    }
+
     // 알림 하나를 바로 DB에 넣음 (보냈는데 안 잰 알림 = SENT)
     private void reminder(Long userId, String slot, LocalDate day, int hour, String status) {
+        reminderAt(userId, slot, kst(day, hour), status);
+    }
+
+    private void reminderAt(Long userId, String slot, Instant scheduledAt, String status) {
         jdbc.update("INSERT INTO reminders (user_id, slot, scheduled_at, status) VALUES (?, ?, ?, ?)",
-                userId, slot, Timestamp.from(kst(day, hour)), status);
+                userId, slot, Timestamp.from(scheduledAt), status);
     }
 
     private static Instant kst(LocalDate date, int hour) {
@@ -267,7 +283,6 @@ class ReadingStatsFlowTest {
                     .andExpect(jsonPath("$.errorCode").value("GLOBAL_40001"));
         }
         String[][] customs = {
-                {daysAgo(1).toString(), daysAgo(5).toString()},                 // 거꾸로
                 {daysAgo(1).toString(), today().plusDays(1).toString()},        // 미래까지
                 {daysAgo(300).toString(), today().toString()},                  // 301일
                 {"2026/11/01", today().toString()},                             // 형식
@@ -284,6 +299,67 @@ class ReadingStatsFlowTest {
         mvc.perform(get("/api/readings/stats").cookie(access).param("period", "CUSTOM")
                         .param("from", daysAgo(299).toString()).param("to", today().toString()))
                 .andExpect(status().isOk());
+    }
+
+    @Test
+    void from이_to보다_늦으면_목록_API와_같은_READING_40001() throws Exception {
+        mvc.perform(get("/api/readings/stats").cookie(access).param("period", "CUSTOM")
+                        .param("from", daysAgo(1).toString()).param("to", daysAgo(5).toString()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("READING_40001"));
+    }
+
+    // ---------- 리뷰 반영 ----------
+
+    @Test
+    void 방금_보낸_알림은_아직_놓친_측정으로_안_센다() throws Exception {
+        Instant now = Instant.now();
+        reminderAt(jisuId, "LUNCH_AFTER", now.minus(Duration.ofMinutes(1)), "SENT");    // 1분 전 → 아직 잴 시간 있음
+        reminderAt(jisuId, "DINNER_AFTER", now.minus(Duration.ofMinutes(40)), "SENT");  // 40분 전 → 놓침
+
+        mvc.perform(get("/api/readings/stats").cookie(access).param("period", "1W"))
+                .andExpect(jsonPath("$.data.current.missed").value(1));
+    }
+
+    @Test
+    void 지난_기간에_기록이_없어도_놓친_측정이_있으면_비교한다() throws Exception {
+        reading(access, 130, "POST_MEAL", daysAgo(2), 13, null, null);         // 이번 주 기록 1개
+        for (int d = 7; d <= 13; d++) {
+            reminder(jisuId, "LUNCH_AFTER", daysAgo(d), 13, "SENT");           // 지난주 7번 다 놓침
+        }
+
+        mvc.perform(get("/api/readings/stats").cookie(access).param("period", "1W"))
+                .andExpect(jsonPath("$.data.current.missed").value(0))
+                .andExpect(jsonPath("$.data.previous.count").value(0))
+                .andExpect(jsonPath("$.data.previous.average").value((Object) null))
+                .andExpect(jsonPath("$.data.previous.missed").value(7))
+                .andExpect(jsonPath("$.data.previousSeries", hasSize(7)));
+    }
+
+    @Test
+    void 한국_새벽_0시30분_기록은_그_한국_날짜로_들어간다() throws Exception {
+        // 한국 00:30은 UTC로 전날 15:30. UTC로 자르면 하루 앞 날짜로 잘못 들어감
+        readingAt(access, 150, "POST_MEAL", kst(daysAgo(6), 0).plus(Duration.ofMinutes(30)));  // 이번 기간 첫날
+        readingAt(access, 110, "POST_MEAL", kst(daysAgo(7), 0).plus(Duration.ofMinutes(30)));  // 비교 기간 마지막 날
+
+        mvc.perform(get("/api/readings/stats").cookie(access).param("period", "1W"))
+                .andExpect(jsonPath("$.data.current.count").value(1))
+                .andExpect(jsonPath("$.data.series[0].date").value(daysAgo(6).toString()))
+                .andExpect(jsonPath("$.data.series[0].average").value(150))
+                .andExpect(jsonPath("$.data.previous.count").value(1))
+                .andExpect(jsonPath("$.data.previousSeries[6].date").value(daysAgo(7).toString()))
+                .andExpect(jsonPath("$.data.previousSeries[6].average").value(110));
+    }
+
+    @Test
+    void 지운_기록은_통계에서_빠진다() throws Exception {
+        reading(access, 120, "POST_MEAL", daysAgo(2), 13, null, null);
+        long deleted = readingAt(access, 300, "POST_MEAL", kst(daysAgo(1), 13));
+        mvc.perform(delete("/api/readings/" + deleted).cookie(access)).andExpect(status().isOk());
+
+        mvc.perform(get("/api/readings/stats").cookie(access).param("period", "1W"))
+                .andExpect(jsonPath("$.data.current.count").value(1))
+                .andExpect(jsonPath("$.data.current.average").value(120));
     }
 
     @Test
