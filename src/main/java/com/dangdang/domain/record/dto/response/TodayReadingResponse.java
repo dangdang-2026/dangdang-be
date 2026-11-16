@@ -19,9 +19,8 @@ public record TodayReadingResponse(
         ReadingTiming timing,     // 재야 할 시각을 모르면 null
         Boolean aboveTarget) {    // 목표가 없으면 null
 
-    // mealStartedAt = 이 혈당이 붙은 식사의 시작 시각 (식사가 없으면 null)
-    public static TodayReadingResponse of(Reading r, Instant mealStartedAt) {
-        Instant expectedAt = ReadingEvaluator.expectedAt(r, mealStartedAt);
+    // expectedAt = 재야 할 시각 (ReadingEvaluator.expectedAt으로 구한 값, 모르면 null)
+    public static TodayReadingResponse of(Reading r, Instant expectedAt) {
         return new TodayReadingResponse(
                 r.getId(), r.getValue(), r.getReadingType(), r.getSlot(), r.getMealId(), r.getMeasuredAt(),
                 ReadingEvaluator.timing(r.getMeasuredAt(), expectedAt),

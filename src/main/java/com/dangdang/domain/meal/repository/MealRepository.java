@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -14,6 +15,9 @@ public interface MealRepository extends JpaRepository<Meal, Long> {
 
     // 하나 찾기: 이 id + 내 것 + 삭제 안 된 것만 (아니면 Optional.empty)
     Optional<Meal> findByIdAndUserIdAndDeletedAtIsNull(Long id, Long userId);
+
+    // 여러 개 찾기: 이 id들 중 내 것 + 삭제 안 된 것만 (지운 식사는 빠짐)
+    List<Meal> findAllByIdInAndUserIdAndDeletedAtIsNull(Collection<Long> ids, Long userId);
 
     // 목록 한 페이지: 내 것 + 삭제 안 됨 + from 이후 + 커서(cursorAt, cursorId)보다 과거. 시작 시각 최신순
     // 첫 페이지는 cursorAt = 기간 끝(to 다음 날 0시), cursorId = 0 으로 부름 (혈당 목록과 같은 방식)

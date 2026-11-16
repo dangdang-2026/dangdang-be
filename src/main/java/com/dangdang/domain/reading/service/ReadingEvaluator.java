@@ -3,6 +3,7 @@ package com.dangdang.domain.reading.service;
 import com.dangdang.domain.criteria.entity.CriteriaVersion;
 import com.dangdang.domain.reading.entity.Reading;
 import com.dangdang.domain.reading.enums.ReadingTiming;
+import com.dangdang.domain.reading.enums.ReadingType;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -17,13 +18,18 @@ public final class ReadingEvaluator {
     private ReadingEvaluator() {
     }
 
-    // 재야 할 시각. 알림 예정 시각이 있으면 그것, 없으면 식사 시작 + 병원 기준 식후 시간(분)
-    // 둘 다 모르면 null (공복·자기 전 혈당이나, 식사를 안 붙인 식후 혈당)
-    public static Instant expectedAt(Reading reading, Instant mealStartedAt) {
-        if (reading.getScheduledAt() != null) {
-            return reading.getScheduledAt();
+    // 재야 할 시각. 식후 혈당만 있음 (공복·기타는 null)
+    // 1순위: 이 혈당이 끝낸 측정 알림의 예정 시각 (사용자가 실제로 받은 시각이라 가장 정확함)
+    // 2순위: 식사 시작 + 식사 날짜에 적용 중이던 병원 식후 시간(분). 알림이 없던 식사용 (늦게 적은 식사 등)
+    // 식사가 없거나(지운 식사 포함) 식후 시간을 모르면 null
+    public static Instant expectedAt(Reading reading, Instant reminderScheduledAt,
+                                     Instant mealStartedAt, Integer postMealMinutes) {
+        if (reading.getReadingType() != ReadingType.POST_MEAL) {
+            return null;
         }
-        Integer postMealMinutes = reading.getCriteriaVersion().getPostMealMinutes();
+        if (reminderScheduledAt != null) {
+            return reminderScheduledAt;
+        }
         if (mealStartedAt == null || postMealMinutes == null) {
             return null;
         }
