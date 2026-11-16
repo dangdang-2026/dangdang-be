@@ -16,11 +16,13 @@ public class ChatRecordsQuery {
 
     private final EntityManager em;
 
-    public List<Reading> readings(Long userId, Instant from, Instant to, MeasureSlot slotOrNull, int limit) {
-        String jpql = "select r from Reading r where r.user.id = :userId and r.deletedAt is null"
-                + " and r.measuredAt >= :from and r.measuredAt < :to"
-                + (slotOrNull == null ? "" : " and r.slot = :slot")
-                + " order by r.measuredAt asc, r.id asc";
+    private static final String WHERE = " from Reading r where r.user.id = :userId and r.deletedAt is null"
+            + " and r.measuredAt >= :from and r.measuredAt < :to";
+
+    // 최신 기록부터 limit개 (넘치면 오래된 쪽이 잘린다, 리뷰 #79)
+    public List<Reading> latestReadings(Long userId, Instant from, Instant to, MeasureSlot slotOrNull, int limit) {
+        String jpql = "select r" + WHERE + (slotOrNull == null ? "" : " and r.slot = :slot")
+                + " order by r.measuredAt desc, r.id desc";
         var query = em.createQuery(jpql, Reading.class)
                 .setParameter("userId", userId)
                 .setParameter("from", from)
@@ -30,5 +32,18 @@ public class ChatRecordsQuery {
             query.setParameter("slot", slotOrNull);
         }
         return query.getResultList();
+    }
+
+    // 기간 안 진짜 개수 (카드의 count)
+    public long count(Long userId, Instant from, Instant to, MeasureSlot slotOrNull) {
+        String jpql = "select count(r)" + WHERE + (slotOrNull == null ? "" : " and r.slot = :slot");
+        var query = em.createQuery(jpql, Long.class)
+                .setParameter("userId", userId)
+                .setParameter("from", from)
+                .setParameter("to", to);
+        if (slotOrNull != null) {
+            query.setParameter("slot", slotOrNull);
+        }
+        return query.getSingleResult();
     }
 }
