@@ -4,6 +4,7 @@ import com.dangdang.domain.criteria.dto.response.CriteriaVersionResponse;
 import com.dangdang.domain.criteria.enums.MeasureSlot;
 import com.dangdang.domain.criteria.service.CriteriaService;
 import com.dangdang.domain.meal.enums.MealSlot;
+import com.dangdang.domain.notification.repository.NotificationRepository;
 import com.dangdang.domain.reminder.dto.response.ReminderOpenResponse;
 import com.dangdang.domain.reminder.dto.response.ReminderSnoozeResponse;
 import com.dangdang.domain.reminder.entity.Reminder;
@@ -13,6 +14,7 @@ import com.dangdang.domain.reminder.repository.ReminderRepository;
 import com.dangdang.domain.user.entity.User;
 import com.dangdang.domain.user.exception.UserErrorCode;
 import com.dangdang.domain.user.repository.UserRepository;
+import com.dangdang.global.config.ClockConfig;
 import com.dangdang.global.exception.CustomException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -21,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
@@ -29,6 +32,7 @@ import java.util.Optional;
 public class ReminderService {
     private static final Duration SNOOZE = Duration.ofMinutes(10);
     private final ReminderRepository reminderRepository;
+    private final NotificationRepository notificationRepository;
     private final CriteriaService criteriaService;
     private final UserRepository userRepository;
     private final Clock clock;
@@ -99,7 +103,28 @@ public class ReminderService {
         }
     }
 
-    // 알림을 눌러서 들어왔을 때
+    // 식사 없는 혈당(공복, 자기 전)을 저장했을 때: 그날(한국) 그 시점 알림을 끝 처리 (completeForMeal과 같은 규칙)
+    @Transactional
+    public void completeForSlot(Long userId, MeasureSlot slot, Instant measuredAt, Long readingId) {
+        if (slot != MeasureSlot.FASTING && slot != MeasureSlot.BEDTIME) {
+            return;             // 식후는 식사(mealId)로 끝 처리한다
+        }
+        if (reminderRepository.existsByReadingId(readingId)) {
+            return;
+        }
+        LocalDate day = measuredAt.atZone(ClockConfig.KST).toLocalDate();   // 그날 = 한국 날짜
+        List<Reminder> pending = reminderRepository
+                .findByUserIdAndSlotAndMealIdIsNullAndStatusInAndScheduledAtGreaterThanEqualAndScheduledAtLessThanOrderByIdAsc(
+                        userId, slot, List.of(ReminderStatus.SCHEDULED, ReminderStatus.SENT, ReminderStatus.OPENED),
+                        day.atStartOfDay(ClockConfig.KST).toInstant(),
+                        day.plusDays(1).atStartOfDay(ClockConfig.KST).toInstant());
+        for (int i = 0; i < pending.size(); i++) {
+            if (i == 0) pending.get(i).complete(readingId);
+            else pending.get(i).cancel();
+        }
+    }
+
+    // 알림을 눌러서 들어왔을 때 — 알림함의 같은 알림(재알림 포함)도 읽음으로 (H-15)
     @Transactional
     public ReminderOpenResponse open(Long userId, Long reminderId) {
         Reminder reminder = findMine(userId, reminderId);
@@ -110,6 +135,9 @@ public class ReminderService {
             }
             default -> throw new CustomException(ReminderErrorCode.CANNOT_OPEN);
         }
+        Instant now = clock.instant();
+        notificationRepository.findByUserIdAndReminderIdAndReadAtIsNull(userId, reminderId)
+                .forEach(n -> n.markRead(now));
         return ReminderOpenResponse.from(reminder);
     }
 
