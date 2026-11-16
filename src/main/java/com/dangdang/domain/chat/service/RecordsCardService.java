@@ -5,13 +5,16 @@ import com.dangdang.domain.chat.infra.ChatClient;
 import com.dangdang.domain.chat.repository.ChatRecordsQuery;
 import com.dangdang.domain.criteria.enums.MeasureSlot;
 import com.dangdang.domain.reading.entity.Reading;
-import com.dangdang.global.config.ClockConfig;
+import com.dangdang.global.common.KoreanTime;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 // Q-03 내 기록 카드 — 숫자·횟수는 여기서만 센다. 「괜찮다/위험하다」 같은 해석은 넣지 않는다 (ASK-03)
@@ -27,9 +30,12 @@ public class RecordsCardService {
 
     @Transactional(readOnly = true)
     public ChatPayload.RecordsCard build(Long userId, ChatClient.Records ask) {
-        LocalDate today = LocalDate.now(clock.withZone(ClockConfig.KST));
+        LocalDate today = KoreanTime.dateOf(clock.instant());
         LocalDate to = ask.to() == null || ask.to().isAfter(today) ? today : ask.to();
         LocalDate from = ask.from() == null ? to.minusDays(6) : ask.from();     // 기간을 못 정했으면 최근 7일
+        if (from.isAfter(today)) {
+            from = today;                                   // 미래 날짜는 오늘로 (리뷰 #79: 바꾸기 전에 자른다)
+        }
         if (from.isAfter(to)) {
             LocalDate t = from; from = to; to = t;
         }
@@ -37,16 +43,18 @@ public class RecordsCardService {
             from = to.minusDays(MAX_DAYS - 1);
         }
         MeasureSlot slot = parseSlot(ask.slot());
-        List<Reading> readings = chatRecordsQuery.readings(userId,
-                from.atStartOfDay(ClockConfig.KST).toInstant(),
-                to.plusDays(1).atStartOfDay(ClockConfig.KST).toInstant(),
-                slot, MAX_ITEMS);
+        Instant fromAt = KoreanTime.startOfDay(from);
+        Instant toAt = KoreanTime.endOfDay(to);
+        // 최신 100개를 읽어서 화면용으로 오래된 순으로 뒤집는다. 개수는 따로 센다 (리뷰 #79)
+        List<Reading> readings = new ArrayList<>(chatRecordsQuery.latestReadings(userId, fromAt, toAt, slot, MAX_ITEMS));
+        Collections.reverse(readings);
+        long count = chatRecordsQuery.count(userId, fromAt, toAt, slot);
         List<ChatPayload.Item> items = readings.stream()
                 .map(r -> new ChatPayload.Item(r.getMeasuredAt(),
                         r.getSlot() == null ? null : r.getSlot().name(),
                         r.getReadingType().name(), r.getValue()))
                 .toList();
-        return new ChatPayload.RecordsCard(from, to, slot == null ? null : slot.name(), items.size(), items);
+        return new ChatPayload.RecordsCard(from, to, slot == null ? null : slot.name(), (int) count, items);
     }
 
     private MeasureSlot parseSlot(String slot) {
