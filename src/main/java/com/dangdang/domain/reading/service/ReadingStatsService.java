@@ -13,6 +13,7 @@ import com.dangdang.domain.reading.dto.response.ReadingStatsResponse.Range;
 import com.dangdang.domain.reading.dto.response.ReadingStatsResponse.Summary;
 import com.dangdang.domain.reading.entity.Reading;
 import com.dangdang.domain.reading.enums.ReadingType;
+import com.dangdang.domain.reading.exception.ReadingErrorCode;
 import com.dangdang.domain.reading.enums.StatsPeriod;
 import com.dangdang.domain.reading.repository.ReadingRepository;
 import com.dangdang.domain.reminder.enums.ReminderStatus;
@@ -25,6 +26,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -47,6 +50,8 @@ public class ReadingStatsService {
 
     // "놓친 측정" = 알림을 보냈거나 열어 봤는데 혈당이 안 붙은 알림 (DONE이 안 됨)
     private static final List<ReminderStatus> MISSED_STATUSES = List.of(ReminderStatus.SENT, ReminderStatus.OPENED);
+    // 알림이 가고 이만큼 지나야 "놓침"으로 셈 (늦게 적기 기준 30분과 같게)
+    static final Duration MISSED_GRACE = Duration.ofMinutes(30);
     private static final List<MeasureSlot> POST_MEAL_SLOTS =
             List.of(MeasureSlot.BREAKFAST_AFTER, MeasureSlot.LUNCH_AFTER, MeasureSlot.DINNER_AFTER);
 
@@ -56,29 +61,32 @@ public class ReadingStatsService {
     private final CriteriaService criteriaService;
     private final Clock clock;
 
-    // slot = FASTING 또는 POST_MEAL. from·to는 CUSTOM일 때만 씀 (다른 기간이면 무시)
-    public ReadingStatsResponse stats(Long userId, ReadingType slot, StatsPeriod period, LocalDate from, LocalDate to) {
+    // type = FASTING 또는 POST_MEAL (API 파라미터 이름은 slot). from·to는 CUSTOM일 때만 씀 (다른 기간이면 무시)
+    public ReadingStatsResponse stats(Long userId, ReadingType type, StatsPeriod period, LocalDate from, LocalDate to) {
         Range range = rangeOf(period, from, to);
         long days = ChronoUnit.DAYS.between(range.from(), range.to()) + 1;
         Range compareRange = new Range(range.from().minusDays(days), range.from().minusDays(1));
 
         // 두 기간을 한 번에 읽고 날짜로 나눔
-        List<Reading> all = readingRepository.findAllInRangeByType(userId, slot,
+        List<Reading> all = readingRepository.findAllInRangeByType(userId, type,
                 KoreanTime.startOfDay(compareRange.from()), KoreanTime.endOfDay(range.to()));
         List<Reading> current = all.stream().filter(r -> !dateOf(r).isBefore(range.from())).toList();
         List<Reading> previous = all.stream().filter(r -> dateOf(r).isBefore(range.from())).toList();
-        boolean hasPrevious = !previous.isEmpty();   // 비교 기간에 기록이 없으면 비교 안 함 (D-20)
+        long previousMissed = missed(userId, type, compareRange);
+        // 비교 기간에 기록도 놓친 측정도 없으면 비교 안 함 (D-20)
+        // 놓친 측정만 있어도 비교함 — 지난번에 다 놓친 사람에게 "놓친 측정이 줄었어요"를 보여 줄 수 있게
+        boolean hasPrevious = !previous.isEmpty() || previousMissed > 0;
 
         return new ReadingStatsResponse(
-                slot,
+                type,
                 range,
                 compareRange,
-                targetOf(criteriaService.current(userId), slot),
-                summarize(current, missed(userId, slot, range)),
-                hasPrevious ? summarize(previous, missed(userId, slot, compareRange)) : null,
+                targetOf(criteriaService.current(userId), type),
+                summarize(current, missed(userId, type, range)),
+                hasPrevious ? summarize(previous, previousMissed) : null,
                 series(current, range),
                 hasPrevious ? series(previous, compareRange) : null,
-                slot == ReadingType.POST_MEAL ? byMeal(current, previous) : List.of());
+                type == ReadingType.POST_MEAL ? byMeal(current, previous) : List.of());
     }
 
     // 보는 기간. 정해진 기간은 오늘까지 거꾸로, CUSTOM은 from·to 그대로 (둘 다 포함)
@@ -91,7 +99,7 @@ public class ReadingStatsService {
             throw new CustomException(GlobalErrorCode.INVALID_INPUT, "기간을 직접 고르면 from과 to를 같이 보내 주세요.");
         }
         if (from.isAfter(to)) {
-            throw new CustomException(GlobalErrorCode.INVALID_INPUT, "from은 to보다 늦을 수 없어요.");
+            throw new CustomException(ReadingErrorCode.INVALID_DATE_RANGE);   // 기록 목록 API와 같은 코드
         }
         if (to.isAfter(today)) {
             throw new CustomException(GlobalErrorCode.INVALID_INPUT, "to는 오늘보다 늦을 수 없어요.");
@@ -103,11 +111,11 @@ public class ReadingStatsService {
     }
 
     // 지금 병원 목표 (공복이면 공복 목표, 식후면 식후 목표). 없으면 null
-    private Integer targetOf(CriteriaVersionResponse criteria, ReadingType slot) {
+    private Integer targetOf(CriteriaVersionResponse criteria, ReadingType type) {
         if (criteria == null) {
             return null;
         }
-        return slot == ReadingType.FASTING ? criteria.fastingTarget() : criteria.postMealTarget();
+        return type == ReadingType.FASTING ? criteria.fastingTarget() : criteria.postMealTarget();
     }
 
     private Summary summarize(List<Reading> readings, long missed) {
@@ -175,10 +183,14 @@ public class ReadingStatsService {
     }
 
     // 기간 안 놓친 측정 수. 공복은 공복 알림, 식후는 아침·점심·저녁 식후 알림만 셈
-    private long missed(Long userId, ReadingType slot, Range range) {
-        List<MeasureSlot> slots = slot == ReadingType.FASTING ? List.of(MeasureSlot.FASTING) : POST_MEAL_SLOTS;
+    // 알림 시각에서 MISSED_GRACE가 안 지난 알림은 아직 잴 시간이 있어서 안 셈 (방금 보낸 알림이 바로 "놓침"이 되지 않게)
+    private long missed(Long userId, ReadingType type, Range range) {
+        List<MeasureSlot> slots = type == ReadingType.FASTING ? List.of(MeasureSlot.FASTING) : POST_MEAL_SLOTS;
+        Instant rangeEnd = KoreanTime.endOfDay(range.to());
+        Instant graceEnd = clock.instant().minus(MISSED_GRACE);
+        Instant end = rangeEnd.isBefore(graceEnd) ? rangeEnd : graceEnd;
         return reminderRepository.countByUserIdAndSlotInAndStatusInAndScheduledAtGreaterThanEqualAndScheduledAtLessThan(
-                userId, slots, MISSED_STATUSES, KoreanTime.startOfDay(range.from()), KoreanTime.endOfDay(range.to()));
+                userId, slots, MISSED_STATUSES, KoreanTime.startOfDay(range.from()), end);
     }
 
     // 평균 (반올림). 기록이 없으면 null

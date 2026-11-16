@@ -78,10 +78,10 @@ public class ReadingController {
                     **Parameters** slot(FASTING·POST_MEAL, 기본 POST_MEAL), period(1W·2W·1M·3M·CUSTOM, 기본 1M),
                     from·to(한국 날짜 yyyy-MM-dd, period=CUSTOM일 때만 필수, 둘 다 포함, to는 오늘까지, 최대 300일)
                     **Returns** range(보는 기간)·compareRange(바로 앞 같은 길이 기간)·targetValue(지금 목표, 없으면 null)
-                    current·previous{average, inTargetRate(0~1, 목표가 없으면 null), count, missed(알림 갔는데 안 잰 수), overDays}
+                    current·previous{average, inTargetRate(0~1, 목표가 없으면 null), count, missed(알림 갔는데 안 잰 수, 알림 뒤 30분 지난 것만), overDays}
                     series·previousSeries(날짜별 average·count), byMeal(식후만 끼니별 평균, 공복이면 []).
-                    "목표 안"은 기록마다 잴 때 적용 중이던 병원 기준으로 셈. 비교 기간에 기록이 없으면 previous·previousSeries는 null.
-                    값 형식이 틀리거나 CUSTOM인데 from·to가 없거나 범위가 틀리면 GLOBAL_40001
+                    "목표 안"은 기록마다 잴 때 적용 중이던 병원 기준으로 셈. 비교 기간에 기록도 놓친 측정도 없으면 previous·previousSeries는 null.
+                    from이 to보다 늦으면 READING_40001, 값 형식이 틀리거나 CUSTOM인데 from·to가 없거나 기간이 틀리면 GLOBAL_40001
                     """)
     @GetMapping("/stats")
     public ResponseEntity<BaseResponse<ReadingStatsResponse>> stats(
