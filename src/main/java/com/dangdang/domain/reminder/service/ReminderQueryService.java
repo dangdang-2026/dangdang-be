@@ -6,7 +6,7 @@ import com.dangdang.domain.reminder.dto.response.ReminderResponse;
 import com.dangdang.domain.reminder.entity.Reminder;
 import com.dangdang.domain.reminder.enums.ReminderStatus;
 import com.dangdang.domain.reminder.repository.ReminderRepository;
-import com.dangdang.global.config.ClockConfig;
+import com.dangdang.global.common.KoreanTime;
 import com.dangdang.global.exception.CustomException;
 import com.dangdang.global.exception.GlobalErrorCode;
 import lombok.RequiredArgsConstructor;
@@ -32,8 +32,8 @@ public class ReminderQueryService {
         if (from.isAfter(to)) {
             throw new CustomException(GlobalErrorCode.INVALID_INPUT, "from은 to보다 늦을 수 없어요.");
         }
-        Instant start = from.atStartOfDay(ClockConfig.KST).toInstant();
-        Instant end = to.plusDays(1).atStartOfDay(ClockConfig.KST).toInstant();
+        Instant start = KoreanTime.startOfDay(from);
+        Instant end = KoreanTime.endOfDay(to);
         PageRequest pageable = PageRequest.of(page, size,
                 Sort.by(Sort.Order.desc("scheduledAt"), Sort.Order.desc("id")));
 
