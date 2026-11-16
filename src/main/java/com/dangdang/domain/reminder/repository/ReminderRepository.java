@@ -30,7 +30,7 @@ public interface ReminderRepository extends JpaRepository<Reminder, Long> {
 
     // 그날(한국) 그 시점 알림 중 아직 안 끝난 것 — 식사 없는 혈당(공복, 자기 전)을 저장하면 끝 처리
     List<Reminder> findByUserIdAndSlotAndMealIdIsNullAndStatusInAndScheduledAtGreaterThanEqualAndScheduledAtLessThanOrderByIdAsc(
-            Long userId, MeasureSlot slot, Collection<ReminderStatus> statuses, Instant from, Instant to);                          // ★ 추가
+            Long userId, MeasureSlot slot, Collection<ReminderStatus> statuses, Instant from, Instant to);
 
     // 이 식사로 생긴 알림 중 상태가 목록 안에 있는 것. 먼저 만든 순
     List<Reminder> findByMealIdAndStatusInOrderByIdAsc(Long mealId, Collection<ReminderStatus> statuses);
