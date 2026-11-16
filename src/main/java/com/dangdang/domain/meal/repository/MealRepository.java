@@ -27,4 +27,33 @@ public interface MealRepository extends JpaRepository<Meal, Long> {
             order by m.startedAt desc, m.id desc
             """)
     List<Meal> findPage(Long userId, Instant from, Instant cursorAt, Long cursorId, Limit limit);
+
+    // 기간 안 식사 전부 (오늘 화면·기록 통합 조회용). from 이상 to 미만, 시작 시각 오래된 순
+    @Query("""
+            select m from Meal m
+            where m.user.id = :userId
+              and m.deletedAt is null
+              and m.startedAt >= :from
+              and m.startedAt < :to
+            order by m.startedAt asc, m.id asc
+            """)
+    List<Meal> findAllInRange(Long userId, Instant from, Instant to);
+
+    // 기간 안 시작 시각만 (달력에서 기록 있는 날 찾기용)
+    @Query("""
+            select m.startedAt from Meal m
+            where m.user.id = :userId
+              and m.deletedAt is null
+              and m.startedAt >= :from
+              and m.startedAt < :to
+            """)
+    List<Instant> findStartedAtsInRange(Long userId, Instant from, Instant to);
+
+    // 가장 처음 시작한 식사 시각 (식사가 하나도 없으면 null)
+    @Query("""
+            select min(m.startedAt) from Meal m
+            where m.user.id = :userId
+              and m.deletedAt is null
+            """)
+    Instant findFirstStartedAt(Long userId);
 }
