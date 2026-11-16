@@ -2,6 +2,7 @@ package com.dangdang.domain.record.dto.response;
 
 import com.dangdang.domain.record.enums.CalendarDayStatus;
 import com.fasterxml.jackson.annotation.JsonInclude;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.time.LocalDate;
 import java.time.YearMonth;
@@ -17,6 +18,8 @@ public record CalendarResponse(
         boolean hasNextMonth,        // 이번 달보다 앞인 달이면 true
         List<Day> days) {            // 그 달 1일 ~ 말일
 
+    // Swagger 이름을 따로 줌 (RecordsResponse.Day와 이름이 같아서 문서에서 하나로 합쳐지던 문제)
+    @Schema(name = "CalendarDay")
     public record Day(
             LocalDate date,
             CalendarDayStatus status,
