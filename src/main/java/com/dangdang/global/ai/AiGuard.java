@@ -1,7 +1,7 @@
 package com.dangdang.global.ai;
 
 import com.dangdang.domain.user.service.ConsentService;
-import com.dangdang.global.config.ClockConfig;
+import com.dangdang.global.common.KoreanTime;
 import com.dangdang.global.exception.CustomException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -25,7 +25,7 @@ public class AiGuard {
         if (!consentService.isGranted(userId, feature.requiredConsent())) {
             throw new CustomException(AiErrorCode.CONSENT_REQUIRED);
         }
-        LocalDate today = LocalDate.now(clock.withZone(ClockConfig.KST));
+        LocalDate today = KoreanTime.dateOf(clock.instant());
         long used = usageStore.increase(feature, userId, today);
         if (used > feature.getDailyLimit()) {
             usageStore.decrease(feature, userId, today);   // 거절한 것은 세지 않는다
