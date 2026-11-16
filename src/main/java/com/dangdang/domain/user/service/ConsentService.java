@@ -56,6 +56,13 @@ public class ConsentService {
         return new ConsentResponse(isCompleted(latest), items);
     }
 
+    // 이 항목에 지금 동의한 상태인지 (가장 최근 줄 기준. 한 번도 안 골랐으면 false) — AI 문지기가 쓴다
+    @Transactional(readOnly = true)
+    public boolean isGranted(Long userId, ConsentType type) {
+        ConsentEvent latest = latestByType(userId).get(type);
+        return latest != null && latest.isGranted();
+    }
+
     @Transactional(readOnly = true)
     public boolean isCompleted(Long userId) {
         return isCompleted(latestByType(userId));
