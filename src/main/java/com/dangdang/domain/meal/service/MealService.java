@@ -17,6 +17,8 @@ import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.dangdang.global.common.KoreanTime;
+
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -62,9 +64,9 @@ public class MealService {
         }
         int pageSize = Math.clamp(size, 1, MAX_PAGE_SIZE);   // 0이나 10000이 와도 1~100 사이로 맞춤
 
-        Instant fromAt = startOfKoreanDay(from);
+        Instant fromAt = KoreanTime.startOfDay(from);
         // 첫 페이지: 커서 = 기간 끝(to 다음 날 0시), id = 0 → 기간 끝 시각과 딱 같은 식사는 안 걸림
-        Instant afterAt = cursorAt != null ? cursorAt : startOfKoreanDay(to.plusDays(1));
+        Instant afterAt = cursorAt != null ? cursorAt : KoreanTime.endOfDay(to);
         Long afterId = cursorId != null ? cursorId : 0L;
 
         // 하나 더 받아서 다음 페이지가 있는지 확인함 (count 쿼리 안 씀)
@@ -102,10 +104,5 @@ public class MealService {
     private Meal findMine(Long userId, Long mealId) {
         return mealRepository.findByIdAndUserIdAndDeletedAtIsNull(mealId, userId)
                 .orElseThrow(() -> new CustomException(MealErrorCode.MEAL_NOT_FOUND));
-    }
-
-    // 한국 날짜 -> 그날 0시(한국)의 세계 공통 시각
-    private Instant startOfKoreanDay(LocalDate date) {
-        return date.atStartOfDay(clock.getZone()).toInstant();
     }
 }

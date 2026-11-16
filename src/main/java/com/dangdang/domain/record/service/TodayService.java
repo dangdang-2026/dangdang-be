@@ -16,6 +16,7 @@ import com.dangdang.domain.record.dto.response.TodayResponse;
 import com.dangdang.domain.reminder.entity.Reminder;
 import com.dangdang.domain.reminder.repository.ReminderRepository;
 import com.dangdang.domain.reminder.service.ReminderQueryService;
+import com.dangdang.global.common.KoreanTime;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -46,8 +47,8 @@ public class TodayService {
 
     public TodayResponse today(Long userId) {
         LocalDate today = LocalDate.now(clock);
-        Instant start = today.atStartOfDay(clock.getZone()).toInstant();
-        Instant end = today.plusDays(1).atStartOfDay(clock.getZone()).toInstant();
+        Instant start = KoreanTime.startOfDay(today);
+        Instant end = KoreanTime.endOfDay(today);
 
         List<Meal> meals = mealRepository.findAllInRange(userId, start, end);
         List<Reading> readings = readingRepository.findAllInRange(userId, start, end);
@@ -80,7 +81,7 @@ public class TodayService {
                     Meal meal = r.getMealId() == null ? null : mealsById.get(r.getMealId());
                     Instant mealStartedAt = meal == null ? null : meal.getStartedAt();
                     Integer postMealMinutes = meal == null ? null : postMealMinutesByDate
-                            .computeIfAbsent(LocalDate.ofInstant(mealStartedAt, clock.getZone()),
+                            .computeIfAbsent(KoreanTime.dateOf(mealStartedAt),
                                     date -> postMealMinutesOn(userId, date))
                             .orElse(null);
                     Instant expectedAt = ReadingEvaluator.expectedAt(

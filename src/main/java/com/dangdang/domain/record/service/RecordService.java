@@ -9,6 +9,7 @@ import com.dangdang.domain.record.enums.CalendarDayStatus;
 import com.dangdang.domain.user.entity.User;
 import com.dangdang.domain.user.exception.UserErrorCode;
 import com.dangdang.domain.user.repository.UserRepository;
+import com.dangdang.global.common.KoreanTime;
 import com.dangdang.global.exception.CustomException;
 import com.dangdang.global.exception.GlobalErrorCode;
 import lombok.RequiredArgsConstructor;
@@ -57,15 +58,15 @@ public class RecordService {
         if (ChronoUnit.DAYS.between(from, to) >= MAX_RANGE_DAYS) {
             throw new CustomException(GlobalErrorCode.INVALID_INPUT, "한 번에 " + MAX_RANGE_DAYS + "일까지 볼 수 있어요.");
         }
-        Instant start = startOfDay(from);
-        Instant end = startOfDay(to.plusDays(1));
+        Instant start = KoreanTime.startOfDay(from);
+        Instant end = KoreanTime.endOfDay(to);
 
         // 혈당·식사를 한 줄로 합친 뒤 한국 날짜별로 나눔
         Map<LocalDate, List<RecordEventResponse>> byDate = Stream.concat(
                         readingRepository.findAllInRange(userId, start, end).stream().map(RecordEventResponse::from),
                         mealRepository.findAllInRange(userId, start, end).stream().map(RecordEventResponse::from))
                 .sorted(EVENT_ORDER)
-                .collect(Collectors.groupingBy(e -> koreanDate(e.occurredAt())));
+                .collect(Collectors.groupingBy(e -> KoreanTime.dateOf(e.occurredAt())));
 
         List<RecordsResponse.Day> days = from.datesUntil(to.plusDays(1))
                 .map(date -> new RecordsResponse.Day(date, byDate.getOrDefault(date, List.of())))
@@ -81,19 +82,19 @@ public class RecordService {
                 .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
         LocalDate today = LocalDate.now(clock);
         LocalDate firstRecordDate = firstRecordDate(userId);
-        LocalDate signupDate = koreanDate(user.getCreatedAt());
+        LocalDate signupDate = KoreanTime.dateOf(user.getCreatedAt());
         LocalDate startDate = firstRecordDate != null && firstRecordDate.isBefore(signupDate)
                 ? firstRecordDate : signupDate;
 
         LocalDate first = month.atDay(1);
         LocalDate last = month.atEndOfMonth();
-        Instant start = startOfDay(first);
-        Instant end = startOfDay(last.plusDays(1));
+        Instant start = KoreanTime.startOfDay(first);
+        Instant end = KoreanTime.endOfDay(last);
 
         // 그 달에 기록이 있는 날짜들
         Set<LocalDate> recordedDates = new HashSet<>();
-        readingRepository.findMeasuredAtsInRange(userId, start, end).forEach(at -> recordedDates.add(koreanDate(at)));
-        mealRepository.findStartedAtsInRange(userId, start, end).forEach(at -> recordedDates.add(koreanDate(at)));
+        readingRepository.findMeasuredAtsInRange(userId, start, end).forEach(at -> recordedDates.add(KoreanTime.dateOf(at)));
+        mealRepository.findStartedAtsInRange(userId, start, end).forEach(at -> recordedDates.add(KoreanTime.dateOf(at)));
 
         List<CalendarResponse.Day> days = new ArrayList<>();
         for (LocalDate date = first; !date.isAfter(last); date = date.plusDays(1)) {
@@ -125,16 +126,6 @@ public class RecordService {
                 .filter(at -> at != null)
                 .min(Comparator.naturalOrder())
                 .orElse(null);
-        return first == null ? null : koreanDate(first);
-    }
-
-    // 세계 공통 시각 -> 한국 날짜
-    private LocalDate koreanDate(Instant at) {
-        return LocalDate.ofInstant(at, clock.getZone());
-    }
-
-    // 한국 날짜 -> 그날 0시(한국)의 세계 공통 시각
-    private Instant startOfDay(LocalDate date) {
-        return date.atStartOfDay(clock.getZone()).toInstant();
+        return first == null ? null : KoreanTime.dateOf(first);
     }
 }
