@@ -1,5 +1,6 @@
 package com.dangdang.domain.record.service;
 
+import com.dangdang.domain.criteria.dto.response.CriteriaVersionResponse;
 import com.dangdang.domain.criteria.entity.CriteriaVersion;
 import com.dangdang.domain.criteria.repository.CriteriaVersionRepository;
 import com.dangdang.domain.criteria.service.CriteriaService;
@@ -55,11 +56,24 @@ public class TodayService {
 
         return new TodayResponse(
                 today,
-                criteriaService.current(userId),
+                currentCriteria(userId),
                 meals.stream().map(MealResponse::from).toList(),
                 toReadingResponses(userId, readings, meals),
                 reminderQueryService.findNext(userId),
                 pushSubscriptionService.hasActive(userId));
+    }
+
+    // 지금 병원 기준. 한 번도 안 적었으면 null
+    // 기준 없이 혈당을 저장하면 빈 기준 줄이 자동으로 생기는데(CriteriaService.onDateOrEmpty),
+    // 그건 사용자가 적은 기준이 아니라서 "기준 없음"(null)으로 봄 → 화면이 "병원 목표를 적어 주세요"를 띄울 수 있게
+    private CriteriaVersionResponse currentCriteria(Long userId) {
+        CriteriaVersionResponse c = criteriaService.current(userId);
+        boolean empty = c != null
+                && c.postMealMinutes() == null
+                && c.fastingTarget() == null
+                && c.postMealTarget() == null
+                && (c.measureSlots() == null || c.measureSlots().isEmpty());
+        return empty ? null : c;
     }
 
     // 혈당마다 재야 할 시각을 구해서 timing 계산에 넘김 (식후 혈당만 해당)
@@ -94,7 +108,8 @@ public class TodayService {
     // 식후 혈당이 붙은 식사 중 살아 있는 것만 (지운 식사에 붙은 혈당은 재야 할 시각을 모르는 것으로 봄)
     // 오늘 식사는 이미 불러왔으니 그대로 쓰고, 없는 것(어젯밤 식사 등)만 DB에서 찾음
     private Map<Long, Meal> liveMealsOf(Long userId, List<Reading> postMeal, List<Meal> todayMeals) {
-        Map<Long, Meal> mealsById = todayMeals.stream().collect(Collectors.toMap(Meal::getId, m -> m));
+        // 아래에서 put을 하니까 고칠 수 있는 HashMap으로 만듦 (toMap 결과는 고칠 수 있다는 보장이 없음)
+        Map<Long, Meal> mealsById = new HashMap<>(todayMeals.stream().collect(Collectors.toMap(Meal::getId, m -> m)));
         List<Long> missing = postMeal.stream()
                 .map(Reading::getMealId)
                 .filter(id -> id != null && !mealsById.containsKey(id))
