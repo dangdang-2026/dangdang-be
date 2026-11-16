@@ -50,14 +50,15 @@ public class ChatController {
     }
 
     @Operation(summary = "[ 사용자 | 토큰 O | 대화 목록 ]",
-            description = "**Parameters** page(기본 0), size(기본 20, 1~50) **Returns** items(최신이 먼저), page, size, hasNext")
+            description = "**Parameters** cursorId(첫 장은 비움, 다음 장은 받은 nextCursorId), size(기본 20, 1~50) "
+                    + "**Returns** items(최신이 먼저), size, hasNext, nextCursorId")
     @GetMapping
     public ResponseEntity<BaseResponse<ChatPageResponse>> list(
             @AuthenticationPrincipal AuthPrincipal principal,
-            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @RequestParam(required = false) @Min(1) Long cursorId,
             @RequestParam(defaultValue = "20") @Min(1) @Max(50) int size) {
         return ResponseEntity.ok(BaseResponse.success(200, "대화 목록 조회에 성공했습니다.",
-                chatService.list(principal.userId(), page, size)));
+                chatService.list(principal.userId(), cursorId, size)));
     }
 
     @Operation(summary = "[ 사용자 | 토큰 O | 대화 모두 지우기 ]", description = "**Returns** deletedCount. 바로 지워지고 되돌릴 수 없다")
