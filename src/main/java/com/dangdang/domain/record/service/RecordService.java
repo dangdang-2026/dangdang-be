@@ -74,11 +74,16 @@ public class RecordService {
     }
 
     // 기록 달력 한 달. 상태 우선순위: 미래 → 오늘 → 가입 전 → 기록 있음 → 기록 없음
+    // 가입 전 날짜로도 기록을 적을 수 있어서, "가입 전"의 경계는 가입일과 첫 기록일 중 더 이른 날로 잡음
+    // (그래야 가입 전에 적은 기록이 흐리게 가려지지 않고, 그 달로 넘어갈 수도 있음)
     public CalendarResponse calendar(Long userId, YearMonth month) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
         LocalDate today = LocalDate.now(clock);
+        LocalDate firstRecordDate = firstRecordDate(userId);
         LocalDate signupDate = koreanDate(user.getCreatedAt());
+        LocalDate startDate = firstRecordDate != null && firstRecordDate.isBefore(signupDate)
+                ? firstRecordDate : signupDate;
 
         LocalDate first = month.atDay(1);
         LocalDate last = month.atEndOfMonth();
@@ -92,21 +97,22 @@ public class RecordService {
 
         List<CalendarResponse.Day> days = new ArrayList<>();
         for (LocalDate date = first; !date.isAfter(last); date = date.plusDays(1)) {
-            days.add(new CalendarResponse.Day(date, statusOf(date, today, signupDate, recordedDates), false));
+            days.add(new CalendarResponse.Day(date, statusOf(date, today, startDate, recordedDates), false));
         }
 
         return new CalendarResponse(
                 month,
-                firstRecordDate(userId),
-                month.isAfter(YearMonth.from(signupDate)),
+                firstRecordDate,
+                month.isAfter(YearMonth.from(startDate)),
                 month.isBefore(YearMonth.from(today)),
                 days);
     }
 
-    private CalendarDayStatus statusOf(LocalDate date, LocalDate today, LocalDate signupDate, Set<LocalDate> recordedDates) {
+    // startDate = 가입일과 첫 기록일 중 더 이른 날
+    private CalendarDayStatus statusOf(LocalDate date, LocalDate today, LocalDate startDate, Set<LocalDate> recordedDates) {
         if (date.isAfter(today)) return CalendarDayStatus.FUTURE;
         if (date.isEqual(today)) return CalendarDayStatus.TODAY;
-        if (date.isBefore(signupDate)) return CalendarDayStatus.BEFORE_SIGNUP;
+        if (date.isBefore(startDate)) return CalendarDayStatus.BEFORE_SIGNUP;
         if (recordedDates.contains(date)) return CalendarDayStatus.RECORDED;
         return CalendarDayStatus.EMPTY;
     }
