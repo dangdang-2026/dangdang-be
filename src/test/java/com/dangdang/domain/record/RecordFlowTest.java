@@ -21,9 +21,11 @@ import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.YearMonth;
 
 import static org.hamcrest.Matchers.hasSize;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
@@ -99,6 +101,13 @@ class RecordFlowTest {
         return LocalDate.now(ClockConfig.KST);
     }
 
+    // "지금 − n분"으로 오늘 기록을 만드는 테스트는 한국 새벽에 돌면 그 기록이 어제로 넘어가서 실패함
+    // → 새벽 4시 전이면 건너뜀 (실패가 아니라 skip으로 남음)
+    private static void assumeAwayFromMidnight() {
+        assumeTrue(LocalTime.now(ClockConfig.KST).isAfter(LocalTime.of(4, 0)),
+                "한국 새벽(00~04시)엔 '오늘' 기록이 어제로 넘어가서 건너뜀");
+    }
+
     // ---------- 오늘 화면 ----------
 
     @Test
@@ -115,6 +124,7 @@ class RecordFlowTest {
 
     @Test
     void 오늘_식사와_혈당만_오고_timing과_aboveTarget이_계산된다() throws Exception {
+        assumeAwayFromMidnight();
         createCriteria(access, 60, 95, 140);
         Instant now = Instant.now();
         long mealId = createMeal(access, "LUNCH", now.minus(Duration.ofMinutes(70)));
@@ -139,6 +149,7 @@ class RecordFlowTest {
 
     @Test
     void 예정보다_15분_넘게_늦으면_LATE_목표가_없으면_aboveTarget_null() throws Exception {
+        assumeAwayFromMidnight();
         createCriteria(access, 60, 95, 140);
         Instant now = Instant.now();
         long mealId = createMeal(access, "DINNER", now.minus(Duration.ofMinutes(90)));
@@ -152,6 +163,7 @@ class RecordFlowTest {
 
     @Test
     void 지운_식사에_붙은_혈당이나_공복_혈당은_timing이_null() throws Exception {
+        assumeAwayFromMidnight();
         createCriteria(access, 60, 95, 140);
         Instant now = Instant.now();
         long deletedMeal = createMeal(access, "LUNCH", now.minus(Duration.ofMinutes(70)));
@@ -168,6 +180,7 @@ class RecordFlowTest {
 
     @Test
     void 알림을_받은_식후_혈당은_알림_예정_시각과_비교한다() throws Exception {
+        assumeAwayFromMidnight();
         // 식사 땐 식후 60분 기준 → 알림이 식사 + 60분(= 지금 + 10분)에 예약됨
         mvc.perform(post("/api/criteria-versions").cookie(access).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"postMealMinutes\":60,\"measureSlots\":[\"LUNCH_AFTER\"],\"postMealTarget\":140,"
@@ -183,6 +196,41 @@ class RecordFlowTest {
 
         mvc.perform(get("/api/today").cookie(access))
                 .andExpect(jsonPath("$.data.readings[0].timing").value("ON_TIME"));   // 실제 알림(지금 + 10분) 기준
+    }
+
+    @Test
+    void 예정보다_15분_넘게_일찍_재면_EARLY() throws Exception {
+        assumeAwayFromMidnight();
+        createCriteria(access, 60, 95, 140);
+        Instant now = Instant.now();
+        long mealId = createMeal(access, "LUNCH", now.minus(Duration.ofMinutes(90)));   // 예정 = 30분 전
+        createReading(access, 120, "POST_MEAL", now.minus(Duration.ofMinutes(50)), mealId);   // 예정보다 20분 일찍
+
+        mvc.perform(get("/api/today").cookie(access))
+                .andExpect(jsonPath("$.data.readings[0].timing").value("EARLY"));
+    }
+
+    @Test
+    void 오늘_새벽_혈당이_어젯밤_식사에_붙으면_어젯밤_식사_기준으로_계산한다() throws Exception {
+        assumeTrue(LocalTime.now(ClockConfig.KST).isAfter(LocalTime.of(1, 0)), "오늘 00:40 기록을 만들려면 01시 이후여야 함");
+        createCriteria(access, 60, 95, 140);
+        long lateMeal = createMeal(access, "DINNER", kst(today().minusDays(1), 23, 30));   // 어젯밤 → 예정은 오늘 00:30
+        createReading(access, 120, "POST_MEAL", kst(today(), 0, 40), lateMeal);           // 10분 뒤 → 제때
+
+        mvc.perform(get("/api/today").cookie(access))
+                .andExpect(jsonPath("$.data.meals", hasSize(0)))   // 어젯밤 식사는 오늘 식사 목록엔 없음
+                .andExpect(jsonPath("$.data.readings", hasSize(1)))
+                .andExpect(jsonPath("$.data.readings[0].timing").value("ON_TIME"));
+    }
+
+    @Test
+    void 기준_없이_혈당만_적어도_criteria는_null() throws Exception {
+        // 혈당을 저장하면 빈 기준 줄이 자동으로 생기지만, 사용자가 적은 기준이 아니라서 null로 나와야 함
+        createReading(access, 100, "FASTING", Instant.now().minus(Duration.ofMinutes(1)), null);
+
+        mvc.perform(get("/api/today").cookie(access))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.criteria").value((Object) null));
     }
 
     @Test
@@ -249,6 +297,21 @@ class RecordFlowTest {
                 .andExpect(jsonPath("$.data.days[0].events", hasSize(1)))
                 .andExpect(jsonPath("$.data.days[0].events[0].id").value(edited))
                 .andExpect(jsonPath("$.data.days[0].events[0].modified").value(true));
+    }
+
+    @Test
+    void 식사를_고치면_modified_true() throws Exception {
+        LocalDate day = today().minusDays(1);
+        long mealId = createMeal(access, "LUNCH", kst(day, 12, 0));
+        mvc.perform(patch("/api/meals/" + mealId).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"note\":\"김밥\"}"))
+                .andExpect(status().isOk());
+
+        mvc.perform(get("/api/records").cookie(access)
+                        .param("from", day.toString()).param("to", day.toString()))
+                .andExpect(jsonPath("$.data.days[0].events[0].type").value("MEAL"))
+                .andExpect(jsonPath("$.data.days[0].events[0].modified").value(true))
+                .andExpect(jsonPath("$.data.days[0].events[0].meal.note").value("김밥"));
     }
 
     @Test
@@ -334,6 +397,30 @@ class RecordFlowTest {
                 .andExpect(jsonPath("$.data.hasPrevMonth").value(false));   // 첫 기록이 있는 달이 맨 처음
         mvc.perform(get("/api/records/calendar").cookie(access).param("month", month.plusMonths(1).toString()))
                 .andExpect(jsonPath("$.data.hasPrevMonth").value(true));
+    }
+
+    @Test
+    void 남의_기록은_내_달력에_RECORDED로_안_잡힌다() throws Exception {
+        signedUpDaysAgo("jisu@x.com", 40);
+        LocalDate day = today().minusDays(10);
+        createMeal(other, "LUNCH", kst(day, 12, 0));   // 다른 사람만 기록함
+        YearMonth month = YearMonth.from(day);
+
+        mvc.perform(get("/api/records/calendar").cookie(access).param("month", month.toString()))
+                .andExpect(jsonPath("$.data.days[" + (day.getDayOfMonth() - 1) + "].status").value("EMPTY"))
+                .andExpect(jsonPath("$.data.firstRecordDate").value((Object) null));
+    }
+
+    @Test
+    void 다음_달은_전부_FUTURE이고_다음_달_없음() throws Exception {
+        YearMonth next = YearMonth.from(today()).plusMonths(1);
+
+        mvc.perform(get("/api/records/calendar").cookie(access).param("month", next.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.days[0].status").value("FUTURE"))
+                .andExpect(jsonPath("$.data.days[" + (next.lengthOfMonth() - 1) + "].status").value("FUTURE"))
+                .andExpect(jsonPath("$.data.hasPrevMonth").value(true))
+                .andExpect(jsonPath("$.data.hasNextMonth").value(false));
     }
 
     @Test
