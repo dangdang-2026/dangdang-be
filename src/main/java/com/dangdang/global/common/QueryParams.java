@@ -4,6 +4,7 @@ import com.dangdang.global.exception.CustomException;
 import com.dangdang.global.exception.GlobalErrorCode;
 
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.time.format.DateTimeParseException;
 
 // 주소 뒤 ?from=...&page=... 값을 글자로 받아 직접 검사한다 (틀리면 전부 400 GLOBAL_40001)
@@ -20,6 +21,17 @@ public final class QueryParams {
             return LocalDate.parse(value);
         } catch (DateTimeParseException e) {
             throw new CustomException(GlobalErrorCode.INVALID_INPUT, name + "은(는) yyyy-MM-dd 형식으로 보내 주세요.");
+        }
+    }
+
+    public static YearMonth requiredMonth(String value, String name) {
+        if (value == null || value.isBlank()) {
+            throw new CustomException(GlobalErrorCode.INVALID_INPUT, name + " 값을 보내 주세요.");
+        }
+        try {
+            return YearMonth.parse(value);
+        } catch (DateTimeParseException e) {
+            throw new CustomException(GlobalErrorCode.INVALID_INPUT, name + "은(는) yyyy-MM 형식으로 보내 주세요.");
         }
     }
 
