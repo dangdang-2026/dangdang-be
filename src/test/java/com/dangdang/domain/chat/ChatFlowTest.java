@@ -284,7 +284,8 @@ class ChatFlowTest extends ReminderTestBase {
                 .andExpect(jsonPath("$.data.items.length()").value(2))
                 .andExpect(jsonPath("$.data.items[0].role").value("ASSISTANT"))
                 .andExpect(jsonPath("$.data.items[1].content").value("피가 비쳐요"))
-                .andExpect(jsonPath("$.data.hasNext").value(false));
+                .andExpect(jsonPath("$.data.hasNext").value(false))
+                .andExpect(jsonPath("$.data.nextCursorId").value(nullValue()));
     }
 
     @Test
@@ -323,5 +324,97 @@ class ChatFlowTest extends ReminderTestBase {
         ask(jisu, " ").andExpect(status().isBadRequest()).andExpect(jsonPath("$.errorCode").value("GLOBAL_40001"));
         mvc.perform(post("/api/chat/messages").contentType(MediaType.APPLICATION_JSON).content("{\"content\":\"안녕\"}"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    // ── 리뷰 반영 (#79) ──
+
+    @Test
+    void 글_없이_출처만_오면_500이_아니라_병원_안내() throws Exception {
+        agreeAll(jisu);
+        given(chatClient.ask(anyString(), anyString(), anyBoolean(), any())).willReturn(new ChatClient.Reply(
+                "INFO", null, null, null, List.of(new ChatClient.Source("자료", "https://example.com")), "chat-v1"));
+
+        ask(jisu, "출산하면 낫나요?")
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.answer.kind").value("UNKNOWN"))
+                .andExpect(jsonPath("$.data.answer.sources").value(nullValue()));
+    }
+
+    @Test
+    void 어떤_예외가_나도_FAILED이고_횟수를_돌려준다() throws Exception {
+        agreeAll(jisu);
+        given(chatClient.ask(anyString(), anyString(), anyBoolean(), any()))
+                .willThrow(new IllegalStateException("응답을 읽다가 실패"));   // RestClientException이 아닌 예외
+
+        ask(jisu, "공복 혈당은 언제 재요?")
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.answer.kind").value("FAILED"));
+        assertThat(redis.opsForValue().get("ai:usage:CHAT:" + jisuId + ":2026-11-09")).isEqualTo("0");
+        assertThat(messageCount()).isEqualTo(2);   // 질문 + FAILED 답 (답 없이 질문만 남지 않는다)
+    }
+
+    @Test
+    void 위험_신호_대화는_다음_질문의_AI_기록에_안_들어간다() throws Exception {
+        agreeAll(jisu);
+        given(chatClient.ask(anyString(), anyString(), anyBoolean(), any())).willReturn(reply("UNKNOWN", "병원에 물어봐 주세요."));
+        ask(jisu, "첫 질문");
+        ask(jisu, "요즘 그냥 사라지고 싶어요");          // RISK — AI 안 감
+        ask(jisu, "인슐린 몇 단위 맞아야 해요?");        // DOSE — AI 안 감
+        ask(jisu, "공복 혈당은 언제 재요?");
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<ChatClient.Turn>> history = ArgumentCaptor.forClass(List.class);
+        verify(chatClient, times(2)).ask(anyString(), anyString(), anyBoolean(), history.capture());
+        assertThat(history.getAllValues().get(1)).containsExactly(
+                new ChatClient.Turn("user", "첫 질문"), new ChatClient.Turn("assistant", "병원에 물어봐 주세요."));
+    }
+
+    @Test
+    void 기록이_100개를_넘으면_최근_100개를_보여_주고_개수는_진짜로_센다() throws Exception {
+        agreeAll(jisu);
+        for (int i = 0; i < 105; i++) {                   // 한국 11/01 00:00부터 1시간마다 105개 → 마지막은 11/05 08:00
+            java.time.Instant at = java.time.Instant.parse("2026-10-31T15:00:00Z").plusSeconds(i * 3600L);
+            reading(jisu, 90 + (i % 50), at.toString(), "OTHER", null);
+        }
+        given(chatClient.ask(anyString(), anyString(), eq(true), any())).willReturn(new ChatClient.Reply(
+                "RECORDS", null, new ChatClient.Records(LocalDate.of(2026, 11, 1), LocalDate.of(2026, 11, 9), null),
+                null, null, "chat-v1"));
+
+        ask(jisu, "이번 달 기록 보여 줘")
+                .andExpect(jsonPath("$.data.answer.records.count").value(105))
+                .andExpect(jsonPath("$.data.answer.records.items.length()").value(100))
+                .andExpect(jsonPath("$.data.answer.records.items[0].measuredAt").value("2026-10-31T20:00:00Z"))   // 오래된 5개가 잘림
+                .andExpect(jsonPath("$.data.answer.records.items[99].measuredAt").value("2026-11-04T23:00:00Z"));  // 가장 최근이 맨 끝
+    }
+
+    @Test
+    void 미래_시작일만_오면_오늘_하루로_자른다() throws Exception {
+        agreeAll(jisu);
+        given(chatClient.ask(anyString(), anyString(), anyBoolean(), any())).willReturn(new ChatClient.Reply(
+                "RECORDS", null, new ChatClient.Records(LocalDate.of(2026, 12, 1), null, null), null, null, "chat-v1"));
+
+        ask(jisu, "다음 달 기록 보여 줘")
+                .andExpect(jsonPath("$.data.answer.records.from").value("2026-11-09"))
+                .andExpect(jsonPath("$.data.answer.records.to").value("2026-11-09"));
+    }
+
+    @Test
+    void 대화_목록은_커서로_불러와서_새_말이_생겨도_겹치지_않는다() throws Exception {
+        ask(jisu, "피가 비쳐요");           // 1, 2
+        ask(jisu, "출혈이 있어요");          // 3, 4
+        ask(jisu, "배가 심하게 아파요");     // 5, 6
+
+        String first = mvc.perform(get("/api/chat/messages").cookie(jisu).param("size", "2"))
+                .andExpect(jsonPath("$.data.items.length()").value(2))
+                .andExpect(jsonPath("$.data.hasNext").value(true))
+                .andReturn().getResponse().getContentAsString();
+        Long cursor = com.jayway.jsonpath.JsonPath.parse(first).read("$.data.nextCursorId", Long.class);
+
+        ask(jisu, "피가 또 비쳐요");         // 첫 장을 본 뒤 새 말 2줄이 생겨도
+
+        mvc.perform(get("/api/chat/messages").cookie(jisu).param("size", "2").param("cursorId", cursor.toString()))
+                .andExpect(jsonPath("$.data.items.length()").value(2))
+                .andExpect(jsonPath("$.data.items[1].content").value("출혈이 있어요"))   // 바로 이어서 나온다
+                .andExpect(jsonPath("$.data.hasNext").value(true));
     }
 }
