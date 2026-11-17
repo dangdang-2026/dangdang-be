@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Locale;
+import java.util.regex.Pattern;
 
 // 음식 (식약처 음식 영양성분 데이터) 조회
 @Service
@@ -22,9 +23,12 @@ public class FoodService {
     private final FoodRepository foodRepository;
 
     // 이름 검색. 띄어쓰기는 무시함 ("김치 볶음밥" = "김치볶음밥")
+    // 다른 앱에서 복사한 특수 공백(줄바꿈 없는 공백  , 전각 공백 　)과 탭·줄바꿈도 같이 뺌
     // |는 검색용 이름(search_name)의 구분자라서 검색어에서 뺌 (안 빼면 "|"만 쳐도 전부 걸림)
+    private static final Pattern IGNORED = Pattern.compile("[\\s\\u00A0\\u3000|]");
+
     public FoodPageResponse search(String q, int page, int size) {
-        String keyword = q.replace(" ", "").replace("|", "").toLowerCase(Locale.ROOT);
+        String keyword = IGNORED.matcher(q).replaceAll("").toLowerCase(Locale.ROOT);
         if (keyword.isEmpty()) {
             return FoodPageResponse.from(Page.empty(PageRequest.of(page, size)));
         }
