@@ -52,7 +52,7 @@ flowchart LR
 | `auth` | `/api/auth` | 이메일 인증 · 회원가입 · 로그인 · 카카오 로그인 · 토큰 재발급 · 비밀번호 재설정 |
 | `user` | `/api/me` | 내 정보 · 이름 · 비밀번호 · 출산 예정일 · 약관/민감정보 동의 · 알림 설정 |
 | `criteria` | `/api/criteria-versions` | 병원 기준(식후 측정 시간 · 재는 때 · 목표) 버전 관리 |
-| `meal` | `/api/meals` | 식사 기록 CRUD |
+| `meal` | `/api/meals` | 식사 기록 CRUD · 먹은 음식 항목 추가·수정·삭제 · 영양값 직접 입력·공공값 되돌리기 |
 | `food` | `/api/foods` | 음식 검색 · 상세 (식약처 음식 영양성분 데이터) |
 | `reading` | `/api/readings` | 혈당 기록 CRUD |
 | `reminder` | `/api/reminders` | 측정 알림 목록 · 열기 · 10분 뒤 다시 |
