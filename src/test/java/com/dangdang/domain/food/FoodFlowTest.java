@@ -64,6 +64,8 @@ class FoodFlowTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.items[0].foodCode").value("D103-173000000-0001"))
                 .andExpect(jsonPath("$.data.items[0].name").value("쫄면"))
+                .andExpect(jsonPath("$.data.items[0].origin").value("HOME"))
+                .andExpect(jsonPath("$.data.items[0].maker").value(nullValue()))
                 .andExpect(jsonPath("$.data.items[0].servingG").value(550.0))
                 .andExpect(jsonPath("$.data.items[0].servingUnit").value("g"))
                 .andExpect(jsonPath("$.data.items[0].kcal").value(709.5))
@@ -95,6 +97,21 @@ class FoodFlowTest {
     }
 
     @Test
+    void 조각이_여러_개면_재료를_적힌_순서대로_붙여도_찾는다() throws Exception {
+        // 샌드위치_햄_치즈 → 햄치즈샌드위치, 무국_소고기_두부 → 소고기두부무국, 김밥_참치_김치 → 참치김치김밥
+        String[][] cases = {
+                {"햄치즈샌드위치", "D302-096434400-0002"},
+                {"소고기두부무국", "D605-219241700-0001"},
+                {"참치김치김밥", "D401-007455900-0001"},
+        };
+        for (String[] c : cases) {
+            mvc.perform(get("/api/foods").cookie(access).param("q", c[0]))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.items[*].foodCode", hasItem(c[1])));
+        }
+    }
+
+    @Test
     void 구분자_기호만_검색하면_빈_목록() throws Exception {
         // |는 검색용 이름의 구분자라 검색어에서 빼고, 남는 글자가 없으면 빈 결과
         mvc.perform(get("/api/foods").cookie(access).param("q", "|"))
@@ -109,6 +126,7 @@ class FoodFlowTest {
         mvc.perform(get("/api/foods").cookie(access).param("q", "라떼"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.items[0].foodCode").value("D320-723000000-0001"))
+                .andExpect(jsonPath("$.data.items[0].origin").value("RESTAURANT"))
                 .andExpect(jsonPath("$.data.items[0].servingUnit").value("ml"))
                 .andExpect(jsonPath("$.data.items[0].servingG").value(500.0))
                 .andExpect(jsonPath("$.data.items[0].carbG").value(66.3));
@@ -120,6 +138,8 @@ class FoodFlowTest {
         mvc.perform(get("/api/foods").cookie(access).param("q", "리소토/리조또_스파이시 씨푸드 리조또"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.items[0].foodCode").value("D201-013000000-0001"))
+                .andExpect(jsonPath("$.data.items[0].origin").value("FRANCHISE"))
+                .andExpect(jsonPath("$.data.items[0].maker").value("할리스"))
                 .andExpect(jsonPath("$.data.items[0].kcal").value(356.7))
                 .andExpect(jsonPath("$.data.items[0].carbG").value(nullValue()));
     }
