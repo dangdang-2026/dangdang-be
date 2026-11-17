@@ -30,7 +30,7 @@ public class FoodController {
             summary = "[ 사용자 | 토큰 O | 음식 검색 ]",
             description =
                     """
-                    **Parameters** q(필수, 1~100자, 식품명·대표식품명 부분 검색, 띄어쓰기 무시), page(기본 0), size(기본 20, 1~100)
+                    **Parameters** q(필수, 1~100자, 식품명·대표식품명 부분 검색, 띄어쓰기 무시, "볶음밥_김치"처럼 순서가 바뀐 이름도 "김치볶음밥"으로 찾음), page(기본 0), size(기본 20, 1~100)
                     **Returns** items[]{foodCode, name, servingG, servingUnit(g·ml), kcal, carbG, proteinG, fatG, sugarG, sourceVersion}·page·size·totalElements·hasNext.
                     영양값은 1인분 기준(소수 첫째 자리). servingG가 null이면 1인분 양을 몰라서 영양값은 100g(ml)당. 모르는 영양값은 null(0과 다름).
                     순서: 이름이 똑같은 음식 → 가정식·외식 → 급식 → 프랜차이즈 → 이름순. 결과가 없으면 items=[].

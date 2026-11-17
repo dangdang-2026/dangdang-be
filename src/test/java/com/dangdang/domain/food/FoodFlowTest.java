@@ -82,6 +82,28 @@ class FoodFlowTest {
     }
 
     @Test
+    void 순서가_바뀐_식약처_이름도_사람이_부르는_순서로_찾는다() throws Exception {
+        // 식약처 이름은 "볶음밥_김치", "김치찌개_참치"처럼 종류_재료 순서
+        mvc.perform(get("/api/foods").cookie(access).param("q", "김치볶음밥"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].foodCode").value("D101-017070000-0001"))
+                .andExpect(jsonPath("$.data.items[0].name").value("볶음밥_김치"));
+        mvc.perform(get("/api/foods").cookie(access).param("q", "참치 김치찌개"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].foodCode").value("D106-266250000-0001"))
+                .andExpect(jsonPath("$.data.items[0].name").value("김치찌개_참치"));
+    }
+
+    @Test
+    void 구분자_기호만_검색하면_빈_목록() throws Exception {
+        // |는 검색용 이름의 구분자라 검색어에서 빼고, 남는 글자가 없으면 빈 결과
+        mvc.perform(get("/api/foods").cookie(access).param("q", "|"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items", hasSize(0)))
+                .andExpect(jsonPath("$.data.totalElements").value(0));
+    }
+
+    @Test
     void 음료는_ml_단위로_준다() throws Exception {
         // 라떼 (외식): 1인분 500ml, 100ml당 탄수화물 13.26g
         mvc.perform(get("/api/foods").cookie(access).param("q", "라떼"))

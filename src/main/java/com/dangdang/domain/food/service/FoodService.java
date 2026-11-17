@@ -6,6 +6,7 @@ import com.dangdang.domain.food.exception.FoodErrorCode;
 import com.dangdang.domain.food.repository.FoodRepository;
 import com.dangdang.global.exception.CustomException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,8 +22,12 @@ public class FoodService {
     private final FoodRepository foodRepository;
 
     // 이름 검색. 띄어쓰기는 무시함 ("김치 볶음밥" = "김치볶음밥")
+    // |는 검색용 이름(search_name)의 구분자라서 검색어에서 뺌 (안 빼면 "|"만 쳐도 전부 걸림)
     public FoodPageResponse search(String q, int page, int size) {
-        String keyword = q.replace(" ", "").toLowerCase(Locale.ROOT);
+        String keyword = q.replace(" ", "").replace("|", "").toLowerCase(Locale.ROOT);
+        if (keyword.isEmpty()) {
+            return FoodPageResponse.from(Page.empty(PageRequest.of(page, size)));
+        }
         String pattern = "%" + escapeLike(keyword) + "%";
         return FoodPageResponse.from(foodRepository.search(keyword, pattern, PageRequest.of(page, size)));
     }
