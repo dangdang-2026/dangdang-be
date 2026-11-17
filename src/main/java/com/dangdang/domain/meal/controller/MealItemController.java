@@ -1,6 +1,7 @@
 package com.dangdang.domain.meal.controller;
 
 import com.dangdang.domain.meal.dto.request.MealItemCreateRequest;
+import com.dangdang.domain.meal.dto.request.MealItemUpdateRequest;
 import com.dangdang.domain.meal.dto.response.MealItemResponse;
 import com.dangdang.domain.meal.service.MealItemService;
 import com.dangdang.global.common.BaseResponse;
@@ -43,5 +44,25 @@ public class MealItemController {
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(BaseResponse.success(201, "식사 항목을 추가했습니다.",
                         mealItemService.add(principal.userId(), mealId, request)));
+    }
+
+    @Operation(
+            summary = "[ 사용자 | 토큰 O | 식사 항목 수정 ]",
+            description =
+                    """
+                    **Parameters** mealId, itemId, 보낸 칸만 바뀜: servings(인분, 0 초과 20 이하),
+                    weightG(직접 잰 무게. null을 보내면 무게를 지우고 servings로 계산), name(직접 적은 음식만, 100자)
+                    **Returns** 바뀐 항목 (추가 응답과 같은 모양). 음식 자체(foodCode)는 못 바꿈 — 다른 음식이면 지우고 새로 추가.
+                    아무 칸도 안 보내면 MEAL_40003, 고른 음식의 이름을 바꾸려 하면 MEAL_40006,
+                    식사가 없거나 남의 것이면 MEAL_40401, 항목이 없거나 지워졌거나 다른 식사의 항목이면 MEAL_40402, 값 범위가 틀리면 GLOBAL_40001
+                    """)
+    @PatchMapping("/{itemId}")
+    public ResponseEntity<BaseResponse<MealItemResponse>> update(
+            @AuthenticationPrincipal AuthPrincipal principal,
+            @PathVariable Long mealId,
+            @PathVariable Long itemId,
+            @Valid @RequestBody MealItemUpdateRequest request) {
+        return ResponseEntity.ok(BaseResponse.success(200, "식사 항목을 수정했습니다.",
+                mealItemService.update(principal.userId(), mealId, itemId, request)));
     }
 }

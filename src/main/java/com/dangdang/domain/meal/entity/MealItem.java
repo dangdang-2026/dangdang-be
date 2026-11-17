@@ -107,6 +107,18 @@ public class MealItem extends BaseTimeEntity {
         return i;
     }
 
+    // 수정. servings·name은 null이면 그대로, weight는 바꾸라고 했을 때만 바꿈 (null이면 무게를 지우고 인분으로 계산)
+    public void update(BigDecimal servings, boolean changeWeight, BigDecimal weight, String name) {
+        if (servings != null) this.servings = servings;
+        if (changeWeight) this.weight = weight;
+        if (name != null) this.name = name;
+    }
+
+    // 직접 적은 음식인지 (식약처 음식을 고른 게 아님)
+    public boolean isCustom() {
+        return foodCode == null;
+    }
+
     // 먹은 양 전체의 영양값 (소수 첫째 자리)
     // 직접 적은 값이 있으면 그 값을 그대로 쓰고, 안 적은 항목만 복사해 둔 공공 값 × 먹은 양으로 계산함
     public MealNutrition eatenNutrition() {

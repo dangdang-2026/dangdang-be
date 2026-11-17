@@ -4,6 +4,7 @@ import com.dangdang.domain.food.entity.Food;
 import com.dangdang.domain.food.exception.FoodErrorCode;
 import com.dangdang.domain.food.repository.FoodRepository;
 import com.dangdang.domain.meal.dto.request.MealItemCreateRequest;
+import com.dangdang.domain.meal.dto.request.MealItemUpdateRequest;
 import com.dangdang.domain.meal.dto.response.MealItemResponse;
 import com.dangdang.domain.meal.entity.Meal;
 import com.dangdang.domain.meal.entity.MealItem;
@@ -54,6 +55,29 @@ public class MealItemService {
         mealItemRepository.save(item);
         mealRepository.touch(mealId, clock.instant());   // 항목이 바뀌면 식사도 바뀐 것
         return MealItemResponse.from(item);
+    }
+
+    // 항목 수정 (보낸 칸만). 인분·무게, 직접 적은 음식이면 이름까지
+    @Transactional
+    public MealItemResponse update(Long userId, Long mealId, Long itemId, MealItemUpdateRequest req) {
+        if (req.isEmpty()) {
+            throw new CustomException(MealErrorCode.NOTHING_TO_UPDATE);
+        }
+        MealItem item = findMyItem(userId, mealId, itemId);
+        String name = req.trimmedName();
+        if (name != null && !item.isCustom()) {
+            throw new CustomException(MealErrorCode.ITEM_NAME_OF_FOOD);
+        }
+        item.update(req.getServings(), req.isWeightGSent(), req.getWeightG(), name);
+        mealRepository.touch(mealId, clock.instant());   // 여기서 항목 변경도 먼저 DB에 써서 응답에 새 updatedAt이 담김
+        return MealItemResponse.from(item);
+    }
+
+    // 내 식사의 살아 있는 항목. 식사·항목이 없거나 남의 것이면 404
+    private MealItem findMyItem(Long userId, Long mealId, Long itemId) {
+        findMyMeal(userId, mealId);
+        return mealItemRepository.findByIdAndMealIdAndDeletedAtIsNull(itemId, mealId)
+                .orElseThrow(() -> new CustomException(MealErrorCode.ITEM_NOT_FOUND));
     }
 
     // 내 식사 + 삭제 안 된 것만. 없음·삭제됨·남의 것은 전부 404

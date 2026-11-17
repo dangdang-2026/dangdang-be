@@ -25,6 +25,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -218,10 +219,106 @@ class MealItemFlowTest {
         }
     }
 
+    // ---------- 수정 ----------
+
+    private long addAndGetId(long meal, String json) throws Exception {
+        String body = add(access, meal, json).andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return ((Number) JsonPath.read(body, "$.data.itemId")).longValue();
+    }
+
+    private org.springframework.test.web.servlet.ResultActions patchItem(Cookie who, long meal, long item, String json) throws Exception {
+        return mvc.perform(patch("/api/meals/" + meal + "/items/" + item).cookie(who)
+                .contentType(MediaType.APPLICATION_JSON).content(json));
+    }
+
+    @Test
+    void 인분을_바꾸면_영양값도_다시_계산된다() throws Exception {
+        long itemId = addAndGetId(mealId, "{\"foodCode\":\"" + JJOLMYEON + "\"}");
+        patchItem(access, mealId, itemId, "{\"servings\":2}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.itemId").value(itemId))
+                .andExpect(jsonPath("$.data.servings").value(2))
+                .andExpect(jsonPath("$.data.name").value("쫄면"))              // 안 보낸 칸은 그대로
+                .andExpect(jsonPath("$.data.nutrition.carbG").value(255.9));   // 23.26 × 1100 / 100 = 255.86
+    }
+
+    @Test
+    void 무게를_넣었다가_null로_지우면_다시_인분으로_계산된다() throws Exception {
+        long itemId = addAndGetId(mealId, "{\"foodCode\":\"" + JJOLMYEON + "\",\"servings\":2}");
+        patchItem(access, mealId, itemId, "{\"weightG\":300}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.weightG").value(300))
+                .andExpect(jsonPath("$.data.nutrition.carbG").value(69.8));    // 300g
+        patchItem(access, mealId, itemId, "{\"servings\":1}")                 // 무게를 안 보내면 무게는 그대로
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.weightG").value(300))
+                .andExpect(jsonPath("$.data.nutrition.carbG").value(69.8));
+        patchItem(access, mealId, itemId, "{\"weightG\":null}")               // null을 보내면 무게를 지움
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.weightG").value(nullValue()))
+                .andExpect(jsonPath("$.data.nutrition.carbG").value(127.9));   // 1인분 550g
+    }
+
+    @Test
+    void 이름은_직접_적은_음식만_바꿀_수_있다() throws Exception {
+        long custom = addAndGetId(mealId, "{\"name\":\"잡채\"}");
+        patchItem(access, mealId, custom, "{\"name\":\" 엄마표 잡채 \"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.name").value("엄마표 잡채"));
+        long food = addAndGetId(mealId, "{\"foodCode\":\"" + JJOLMYEON + "\"}");
+        patchItem(access, mealId, food, "{\"name\":\"비빔쫄면\"}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("MEAL_40006"));
+    }
+
+    @Test
+    void 바꿀_값이_없으면_400() throws Exception {
+        long itemId = addAndGetId(mealId, "{\"name\":\"떡\"}");
+        patchItem(access, mealId, itemId, "{}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("MEAL_40003"));
+        patchItem(access, mealId, itemId, "{\"name\":\"  \"}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("MEAL_40003"));
+        patchItem(access, mealId, itemId, "{\"servings\":0}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("GLOBAL_40001"));
+    }
+
+    @Test
+    void 항목을_수정하면_식사_수정_시각도_바뀐다() throws Exception {
+        long itemId = addAndGetId(mealId, "{\"name\":\"떡\"}");
+        Instant past = Instant.parse("2026-01-01T00:00:00Z");
+        jdbc.update("UPDATE meals SET updated_at = ? WHERE id = ?", Timestamp.from(past), mealId);
+        patchItem(access, mealId, itemId, "{\"servings\":2}").andExpect(status().isOk());
+        Timestamp updated = jdbc.queryForObject("SELECT updated_at FROM meals WHERE id = ?", Timestamp.class, mealId);
+        assertThat(updated.toInstant()).isAfter(past);
+    }
+
+    @Test
+    void 남의_항목이나_다른_식사의_항목이나_지운_항목은_404() throws Exception {
+        long itemId = addAndGetId(mealId, "{\"name\":\"떡\"}");
+        patchItem(other, mealId, itemId, "{\"servings\":2}")                  // 남의 식사
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("MEAL_40401"));
+        long otherMeal = createMeal(access);
+        patchItem(access, otherMeal, itemId, "{\"servings\":2}")              // 내 다른 식사 주소로는 못 고침
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("MEAL_40402"));
+        jdbc.update("UPDATE meal_items SET deleted_at = now() WHERE id = ?", itemId);
+        patchItem(access, mealId, itemId, "{\"servings\":2}")                 // 지운 항목
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("MEAL_40402"));
+    }
+
     @Test
     void 로그인_안_하면_401() throws Exception {
         mvc.perform(post("/api/meals/" + mealId + "/items")
                         .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"떡\"}"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(patch("/api/meals/" + mealId + "/items/1")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"servings\":2}"))
                 .andExpect(status().isUnauthorized());
     }
 }
