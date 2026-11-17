@@ -76,6 +76,7 @@ public class Food {
     //   볶음밥_김치 → 김치 볶음밥 / 샌드위치_햄_치즈 → 햄 치즈 샌드위치
     //   뒤 조각에 종류가 이미 들어 있으면 뒤 조각만: 식빵_통밀식빵 → 통밀식빵, 파이/만주_사과파이 → 사과파이
     //   종류에 이미 든 조각은 뺌: 부추무침_부추_채소 → 채소 부추무침
+    //   2글자 이상 겹치면 한 단어로: 버섯볶음_새송이버섯 → 새송이버섯볶음
     //   양념은 괄호로: 쑥갓나물_고춧가루 → 쑥갓나물 (고춧가루)
     //   간편조리세트는 뒤가 상품명이라 상품명만 + 표시: 칼국수_간편조리세트_원주식장칼국수 → 원주식장칼국수 (간편조리세트)
     //   프랜차이즈는 뒤가 상품명이라 상품명만: 커피_아메리카노 핫(HOT) → 아메리카노 핫(HOT)
@@ -103,9 +104,24 @@ public class Food {
         } else if (containsKind(others, kind)) {
             core = String.join(" ", others);
         } else {
-            core = String.join(" ", others) + " " + kind;
+            core = mergeOverlap(others, kind);
         }
         return seasonings.isEmpty() ? core : core + " (" + String.join(", ", seasonings) + ")";
+    }
+
+    // 뒤 조각 끝과 종류 앞이 2글자 이상 겹치면 한 단어로 붙임 (버섯볶음_새송이버섯 → 새송이버섯볶음, 만두국_김치만두 → 김치만두국)
+    // 1글자 겹침은 "미음_현미 → 현미음"처럼 틀린 말이 돼서 안 붙임. 안 겹치면 그냥 앞에 둠 (볶음밥_김치 → 김치 볶음밥)
+    private static String mergeOverlap(List<String> others, String kind) {
+        for (String p : others) {
+            for (int len = Math.min(p.length() - 1, kind.length() - 1); len >= 2; len--) {
+                if (kind.startsWith(p.substring(p.length() - len))) {
+                    List<String> left = others.stream().filter(o -> !o.equals(p)).toList();
+                    String merged = p + kind.substring(len);
+                    return left.isEmpty() ? merged : String.join(" ", left) + " " + merged;
+                }
+            }
+        }
+        return String.join(" ", others) + " " + kind;
     }
 
     // 뒤 조각 중 하나에 종류 이름이 들어 있는지. 종류가 "파이/만주"처럼 여러 개면 하나라도 들어 있으면 됨
