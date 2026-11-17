@@ -32,7 +32,7 @@ public record RecordEventResponse(
 
     // items = 이 식사의 음식 항목 (없으면 [])
     public static RecordEventResponse from(Meal m, List<MealItemSummaryResponse> items) {
-        return new RecordEventResponse(RecordEventType.MEAL, m.getId(), m.getStartedAt(), isModified(m),
+        return new RecordEventResponse(RecordEventType.MEAL, m.getId(), m.getStartedAt(), m.isEdited(),   // 음식 항목만 바뀐 건 수정으로 안 셈
                 null,
                 new MealPayload(m.getMealSlot(), m.isStartedOffline(), m.getNote(), items));
     }

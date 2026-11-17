@@ -86,7 +86,7 @@ public class MealService {
         Meal meal = findMine(userId, mealId);
         boolean timingChanged = (req.mealSlot() != null && req.mealSlot() != meal.getMealSlot())
                 || (req.startedAt() != null && !req.startedAt().equals(meal.getStartedAt()));
-        meal.update(req.mealSlot(), req.startedAt(), req.note());
+        meal.update(req.mealSlot(), req.startedAt(), req.note(), clock.instant());
         if (timingChanged) {   // 끼니나 시작 시각이 바뀌면 알림 시각·종류도 바뀜. 메모만 바꾸면 그대로 둠
             reminderService.rescheduleAfterMeal(userId, mealId, meal.getMealSlot(), meal.getStartedAt());
         }
