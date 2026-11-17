@@ -1,6 +1,7 @@
 package com.dangdang.domain.reading.repository;
 
 import com.dangdang.domain.reading.entity.Reading;
+import com.dangdang.domain.reading.enums.ReadingType;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -40,6 +41,19 @@ public interface ReadingRepository extends JpaRepository<Reading, Long> {
             order by r.measuredAt asc, r.id asc
             """)
     List<Reading> findAllInRange(Long userId, Instant from, Instant to);
+
+    // 기간 안 기록 중 이 종류(공복·식후)만 (통계용). 병원 기준도 같이 가져옴 (목표 안/밖 계산)
+    @Query("""
+            select r from Reading r
+            join fetch r.criteriaVersion
+            where r.user.id = :userId
+              and r.deletedAt is null
+              and r.readingType = :readingType
+              and r.measuredAt >= :from
+              and r.measuredAt < :to
+            order by r.measuredAt asc, r.id asc
+            """)
+    List<Reading> findAllInRangeByType(Long userId, ReadingType readingType, Instant from, Instant to);
 
     // 기간 안 잰 시각만 (달력에서 기록 있는 날 찾기용)
     @Query("""

@@ -4,8 +4,15 @@ import com.dangdang.domain.reading.dto.request.ReadingCreateRequest;
 import com.dangdang.domain.reading.dto.request.ReadingUpdateRequest;
 import com.dangdang.domain.reading.dto.response.ReadingPageResponse;
 import com.dangdang.domain.reading.dto.response.ReadingResponse;
+import com.dangdang.domain.reading.dto.response.ReadingStatsResponse;
+import com.dangdang.domain.reading.enums.ReadingType;
+import com.dangdang.domain.reading.enums.StatsPeriod;
 import com.dangdang.domain.reading.service.ReadingService;
+import com.dangdang.domain.reading.service.ReadingStatsService;
 import com.dangdang.global.common.BaseResponse;
+import com.dangdang.global.common.QueryParams;
+import com.dangdang.global.exception.CustomException;
+import com.dangdang.global.exception.GlobalErrorCode;
 import com.dangdang.global.security.AuthPrincipal;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -26,6 +33,7 @@ import java.time.LocalDate;
 public class ReadingController {
 
     private final ReadingService readingService;
+    private final ReadingStatsService readingStatsService;
 
     @Operation(
             summary = "[ 사용자 | 토큰 O | 혈당 기록 등록 ]",
@@ -61,6 +69,40 @@ public class ReadingController {
             @RequestParam(defaultValue = "20") int size) {
         return ResponseEntity.ok(BaseResponse.success(200, "혈당 기록 목록 조회에 성공했습니다.",
                 readingService.list(principal.userId(), from, to, cursorAt, cursorId, size)));
+    }
+
+    @Operation(
+            summary = "[ 사용자 | 토큰 O | 혈당 통계 (지난 기간과 비교) ]",
+            description =
+                    """
+                    **Parameters** slot(FASTING·POST_MEAL, 기본 POST_MEAL), period(1W·2W·1M·3M·CUSTOM, 기본 1M),
+                    from·to(한국 날짜 yyyy-MM-dd, period=CUSTOM일 때만 필수, 둘 다 포함, to는 오늘까지, 최대 300일)
+                    **Returns** range(보는 기간)·compareRange(바로 앞 같은 길이 기간)·targetValue(지금 목표, 없으면 null)
+                    current·previous{average, inTargetRate(0~1, 목표가 없으면 null), count, missed(알림 갔는데 안 잰 수, 알림 뒤 30분 지난 것만), overDays}
+                    series·previousSeries(날짜별 average·count), byMeal(식후만 끼니별 평균, 공복이면 []).
+                    "목표 안"은 기록마다 잴 때 적용 중이던 병원 기준으로 셈. 비교 기간에 기록도 놓친 측정도 없으면 previous·previousSeries는 null.
+                    from이 to보다 늦으면 READING_40001, 값 형식이 틀리거나 CUSTOM인데 from·to가 없거나 기간이 틀리면 GLOBAL_40001
+                    """)
+    @GetMapping("/stats")
+    public ResponseEntity<BaseResponse<ReadingStatsResponse>> stats(
+            @AuthenticationPrincipal AuthPrincipal principal,
+            @RequestParam(required = false) String slot,
+            @RequestParam(required = false) String period,
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to) {
+        return ResponseEntity.ok(BaseResponse.success(200, "혈당 통계 조회에 성공했습니다.",
+                readingStatsService.stats(principal.userId(), statsSlot(slot), StatsPeriod.fromCode(period),
+                        QueryParams.optionalDate(from, "from"), QueryParams.optionalDate(to, "to"))));
+    }
+
+    // 통계는 공복과 식후만 (기타는 비교할 목표가 없어서). 안 보내면 식후
+    private static ReadingType statsSlot(String value) {
+        if (value == null || value.isBlank()) {
+            return ReadingType.POST_MEAL;
+        }
+        if (value.equals("FASTING")) return ReadingType.FASTING;
+        if (value.equals("POST_MEAL")) return ReadingType.POST_MEAL;
+        throw new CustomException(GlobalErrorCode.INVALID_INPUT, "slot은 FASTING 또는 POST_MEAL로 보내 주세요.");
     }
 
     @Operation(
