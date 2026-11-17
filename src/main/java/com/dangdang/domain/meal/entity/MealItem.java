@@ -122,6 +122,13 @@ public class MealItem extends BaseTimeEntity {
         if (changeWeight) this.weight = weight;
     }
 
+    // 공공 영양값으로 되돌리기. 직접 적은 값을 지우고, 추가할 때 복사해 둔 공공 값으로 다시 계산함
+    // 먹은 양(인분·무게)은 그대로. 이미 공공 값이어도 그대로 두면 됨 (여러 번 해도 같음)
+    public void revertNutrition() {
+        this.nutritionOverride = null;
+        this.nutritionSource = NutritionSource.DB;
+    }
+
     // 삭제 (soft delete). 줄을 지우지 않고 지운 시각만 적어 둠
     public void delete(Instant now) {
         this.deletedAt = now;

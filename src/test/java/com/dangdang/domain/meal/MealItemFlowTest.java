@@ -439,6 +439,66 @@ class MealItemFlowTest {
                 .andExpect(jsonPath("$.errorCode").value("MEAL_40402"));
     }
 
+    // ---------- 공공 영양값 되돌리기 ----------
+
+    private org.springframework.test.web.servlet.ResultActions revert(Cookie who, long meal, long item) throws Exception {
+        return mvc.perform(delete("/api/meals/" + meal + "/items/" + item + "/nutrition").cookie(who));
+    }
+
+    @Test
+    void 직접_적은_값을_지우고_공공_값으로_되돌린다() throws Exception {
+        Object[] added = addWithMealTime("{\"foodCode\":\"" + JJOLMYEON + "\",\"servings\":2}");
+        postNutrition(access, mealId, (long) added[0],
+                        "{\"nutritionOverride\":{\"carbG\":45},\"expectedUpdatedAt\":\"" + added[1] + "\"}")
+                .andExpect(status().isOk());
+
+        revert(access, mealId, (long) added[0])
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.nutritionSource").value("DB"))
+                .andExpect(jsonPath("$.data.nutritionOverride").value(nullValue()))
+                .andExpect(jsonPath("$.data.servings").value(2))                       // 먹은 양은 그대로
+                .andExpect(jsonPath("$.data.nutrition.carbG").value(255.9));           // 23.26 × 1100 / 100
+
+        // 이미 공공 값이어도 다시 하면 200
+        revert(access, mealId, (long) added[0])
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.nutritionSource").value("DB"));
+    }
+
+    @Test
+    void 되돌릴_때는_지금_음식_데이터가_아니라_복사해_둔_값을_쓴다() throws Exception {
+        long itemId = addAndGetId(mealId, "{\"foodCode\":\"" + JJOLMYEON + "\"}");
+        // 나중에 식약처 데이터가 바뀐 상황 (테스트가 끝나면 원래대로)
+        jdbc.update("UPDATE foods SET carb_g = 99.99 WHERE food_code = ?", JJOLMYEON);
+        try {
+            revert(access, mealId, itemId)
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.nutrition.carbG").value(127.9));       // 바뀌기 전 23.26으로 계산
+        } finally {
+            jdbc.update("UPDATE foods SET carb_g = 23.26 WHERE food_code = ?", JJOLMYEON);
+        }
+    }
+
+    @Test
+    void 직접_적은_음식은_되돌릴_공공_값이_없어서_409() throws Exception {
+        long itemId = addAndGetId(mealId, "{\"name\":\"잡채\",\"nutrition\":{\"carbG\":40}}");
+        revert(access, mealId, itemId)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.errorCode").value("MEAL_40902"));
+    }
+
+    @Test
+    void 남의_식사나_지운_항목은_되돌릴_수_없다() throws Exception {
+        long itemId = addAndGetId(mealId, "{\"foodCode\":\"" + JJOLMYEON + "\"}");
+        revert(other, mealId, itemId)
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("MEAL_40401"));
+        jdbc.update("UPDATE meal_items SET deleted_at = now() WHERE id = ?", itemId);
+        revert(access, mealId, itemId)
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("MEAL_40402"));
+    }
+
     // ---------- 삭제 ----------
 
     @Test

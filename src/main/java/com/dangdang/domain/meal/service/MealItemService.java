@@ -90,6 +90,19 @@ public class MealItemService {
         return MealItemResponse.from(item, touchMeal(mealId));
     }
 
+    // 공공 영양값으로 되돌리기 (노션 명세). 직접 적은 값을 지우고 nutritionSource=DB
+    // 영양값은 지금 foods를 다시 읽지 않고, 추가할 때 복사해 둔 값으로 계산함 (지난 기록은 그대로)
+    // 직접 적은 음식은 공공 값이 없어서 409, 이미 공공 값이면 그냥 200
+    @Transactional
+    public MealItemResponse revertNutrition(Long userId, Long mealId, Long itemId) {
+        MealItem item = findMyItem(userId, mealId, itemId);
+        if (item.isCustom()) {
+            throw new CustomException(MealErrorCode.NO_PUBLIC_NUTRITION);
+        }
+        item.revertNutrition();
+        return MealItemResponse.from(item, touchMeal(mealId));
+    }
+
     // 항목 삭제 (soft delete). 이미 지운 항목을 또 지우면 404
     @Transactional
     public void delete(Long userId, Long mealId, Long itemId) {

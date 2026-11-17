@@ -91,6 +91,25 @@ public class MealItemController {
     }
 
     @Operation(
+            summary = "[ 사용자 | 토큰 O | 식사 항목 공공 영양값 되돌리기 ]",
+            description =
+                    """
+                    **Parameters** mealId, itemId (본문 없음)
+                    **Returns** 바뀐 항목. nutritionSource=DB, nutritionOverride=null, 먹은 양(servings·weightG)은 그대로.
+                    영양값은 항목을 추가할 때 복사해 둔 공공 값 × 먹은 양으로 다시 계산 (지금 음식 데이터를 다시 읽지 않음).
+                    이미 공공 값이어도 200. 직접 적은 음식이면 MEAL_40902(409),
+                    식사가 없거나 남의 것이면 MEAL_40401, 항목이 없거나 지워졌으면 MEAL_40402
+                    """)
+    @DeleteMapping("/{itemId}/nutrition")
+    public ResponseEntity<BaseResponse<MealItemResponse>> revertNutrition(
+            @AuthenticationPrincipal AuthPrincipal principal,
+            @PathVariable Long mealId,
+            @PathVariable Long itemId) {
+        return ResponseEntity.ok(BaseResponse.success(200, "식사항목 공공 영양값 복귀에 성공했습니다.",
+                mealItemService.revertNutrition(principal.userId(), mealId, itemId)));
+    }
+
+    @Operation(
             summary = "[ 사용자 | 토큰 O | 식사 항목 삭제 ]",
             description =
                     """
