@@ -70,7 +70,7 @@ public class Food {
 
     private static final short FRANCHISE = 2;
     private static final String MEAL_KIT = "간편조리세트";
-    // 이름 뒤 조각이 이것뿐이면 재료가 아니라 양념이라 괄호로 뺌 (쑥갓나물_고춧가루 → 쑥갓나물 (고춧가루))
+    // 이름 뒤 조각 중 이것들은 재료가 아니라 양념이라 괄호로 뺌 (쑥갓나물_고춧가루 → 쑥갓나물 (고춧가루))
     private static final Set<String> SEASONINGS = Set.of("간장", "소금", "된장", "고추장", "고춧가루", "양념");
 
     // 화면에 보여 줄 이름. 식약처 이름은 "종류_재료" 순서라서 사람이 부르는 순서로 바꿈
