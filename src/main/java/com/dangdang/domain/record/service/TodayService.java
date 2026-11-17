@@ -4,9 +4,11 @@ import com.dangdang.domain.criteria.dto.response.CriteriaVersionResponse;
 import com.dangdang.domain.criteria.entity.CriteriaVersion;
 import com.dangdang.domain.criteria.repository.CriteriaVersionRepository;
 import com.dangdang.domain.criteria.service.CriteriaService;
+import com.dangdang.domain.meal.dto.response.MealItemSummaryResponse;
 import com.dangdang.domain.meal.dto.response.MealResponse;
 import com.dangdang.domain.meal.entity.Meal;
 import com.dangdang.domain.meal.repository.MealRepository;
+import com.dangdang.domain.meal.service.MealItemService;
 import com.dangdang.domain.push.service.PushSubscriptionService;
 import com.dangdang.domain.reading.entity.Reading;
 import com.dangdang.domain.reading.enums.ReadingType;
@@ -39,6 +41,7 @@ public class TodayService {
 
     private final ReadingRepository readingRepository;
     private final MealRepository mealRepository;
+    private final MealItemService mealItemService;
     private final ReminderRepository reminderRepository;
     private final CriteriaVersionRepository criteriaVersionRepository;
     private final CriteriaService criteriaService;
@@ -57,10 +60,16 @@ public class TodayService {
         return new TodayResponse(
                 today,
                 currentCriteria(userId),
-                meals.stream().map(MealResponse::from).toList(),
+                toMealResponses(meals),
                 toReadingResponses(userId, readings, meals),
                 reminderQueryService.findNext(userId),
                 pushSubscriptionService.hasActive(userId));
+    }
+
+    // 오늘 식사 + 각 식사의 음식 항목 (항목은 한 번에 읽음)
+    private List<MealResponse> toMealResponses(List<Meal> meals) {
+        Map<Long, List<MealItemSummaryResponse>> items = mealItemService.itemsByMeal(meals.stream().map(Meal::getId).toList());
+        return meals.stream().map(m -> MealResponse.from(m, items.getOrDefault(m.getId(), List.of()))).toList();
     }
 
     // 지금 병원 기준. 한 번도 안 적었으면 null

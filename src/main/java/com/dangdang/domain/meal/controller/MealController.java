@@ -47,7 +47,7 @@ public class MealController {
             description =
                     """
                     **Parameters** from·to(한국 날짜 yyyy-MM-dd, 필수, 둘 다 포함), size(기본 20, 1~100), cursorAt·cursorId(다음 페이지일 때만, 둘 다 같이)
-                    **Returns** 식사 시작 시각 최신순 + hasNext. 다음 페이지는 받은 nextCursorAt·nextCursorId를 cursorAt·cursorId로 그대로 보냄.
+                    **Returns** 식사 시작 시각 최신순(각 식사에 items 포함) + hasNext. 다음 페이지는 받은 nextCursorAt·nextCursorId를 cursorAt·cursorId로 그대로 보냄.
                     from이 to보다 늦으면 MEAL_40001, 커서를 하나만 보내면 MEAL_40002
                     """)
     @GetMapping
@@ -67,7 +67,7 @@ public class MealController {
             description =
                     """
                     **Parameters** mealId
-                    **Returns** 식사 하나. 없거나 삭제됐거나 남의 기록이면 MEAL_40401
+                    **Returns** 식사 하나 + items(먹은 음식 항목, 추가한 순서, 없으면 []). 없거나 삭제됐거나 남의 기록이면 MEAL_40401
                     """)
     @GetMapping("/{mealId}")
     public ResponseEntity<BaseResponse<MealResponse>> get(
