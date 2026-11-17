@@ -55,7 +55,8 @@ public class MealItemUpdateRequest {
         return name == null || name.isBlank() ? null : name.trim();
     }
 
-    // 바꿀 값이 하나도 없는 요청인지
+    // 바꿀 값이 하나도 없는 요청인지. Swagger·JSON에 "empty" 칸으로 안 보이게 뺌
+    @JsonIgnore
     public boolean isEmpty() {
         return servings == null && !weightGSent && trimmedName() == null;
     }
