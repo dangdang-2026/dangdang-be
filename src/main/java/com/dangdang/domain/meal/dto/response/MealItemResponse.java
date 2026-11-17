@@ -18,13 +18,15 @@ public record MealItemResponse(
         String unit,                     // g / ml
         NutritionSource nutritionSource, // DB 공공 값 / USER 직접 적은 값
         MealNutrition nutrition,         // 먹은 양 전체의 영양값 (모르는 값은 null)
+        MealNutrition nutritionOverride, // 사용자가 직접 적은 값만 (어느 칸을 고쳤는지 표시용). 없으면 null
         Instant createdAt,
-        Instant updatedAt) {
+        Instant updatedAt,
+        Instant mealUpdatedAt) {         // 바뀐 뒤 식사의 수정 시각. 다음 영양값 직접 입력의 expectedUpdatedAt으로 씀
 
-    public static MealItemResponse from(MealItem i) {
+    public static MealItemResponse from(MealItem i, Instant mealUpdatedAt) {
         return new MealItemResponse(
                 i.getId(), i.getMeal().getId(), i.getFoodCode(), i.getName(),
                 i.getServings(), i.getWeight(), i.getUnit(), i.getNutritionSource(),
-                i.eatenNutrition(), i.getCreatedAt(), i.getUpdatedAt());
+                i.eatenNutrition(), i.getNutritionOverride(), i.getCreatedAt(), i.getUpdatedAt(), mealUpdatedAt);
     }
 }

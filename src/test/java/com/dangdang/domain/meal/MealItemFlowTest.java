@@ -25,6 +25,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -144,6 +145,11 @@ class MealItemFlowTest {
                 .andExpect(jsonPath("$.data.nutrition.carbG").value(40.0))
                 .andExpect(jsonPath("$.data.nutrition.kcal").value(250.5))
                 .andExpect(jsonPath("$.data.nutrition.sugarG").value(nullValue()));   // 안 적은 값은 모름
+        // 저장된 영양값을 다시 읽어도 그대로 (DB JSON → 객체로 되돌리기가 깨지지 않음)
+        long itemId = addAndGetId(mealId, "{\"name\":\"잡채\",\"nutrition\":{\"carbG\":40}}");
+        patchItem(access, mealId, itemId, "{\"servings\":2}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.nutrition.carbG").value(40.0));     // 직접 적은 값은 먹은 양 전체 기준이라 인분이 바뀌어도 그대로
         // 영양값을 하나도 안 적어도 추가는 됨 (전부 모름)
         add(access, mealId, "{\"name\":\"떡\"}")
                 .andExpect(status().isCreated())
@@ -308,6 +314,127 @@ class MealItemFlowTest {
                 .andExpect(jsonPath("$.errorCode").value("MEAL_40402"));
         jdbc.update("UPDATE meal_items SET deleted_at = now() WHERE id = ?", itemId);
         patchItem(access, mealId, itemId, "{\"servings\":2}")                 // 지운 항목
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("MEAL_40402"));
+    }
+
+    // ---------- 영양값 직접 입력 ----------
+
+    private org.springframework.test.web.servlet.ResultActions postNutrition(Cookie who, long meal, long item, String json) throws Exception {
+        return mvc.perform(post("/api/meals/" + meal + "/items/" + item + "/nutrition").cookie(who)
+                .contentType(MediaType.APPLICATION_JSON).content(json));
+    }
+
+    // 항목을 추가하고 {itemId, 응답의 mealUpdatedAt} 돌려줌
+    private Object[] addWithMealTime(String json) throws Exception {
+        String body = add(access, mealId, json).andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return new Object[]{((Number) JsonPath.read(body, "$.data.itemId")).longValue(),
+                JsonPath.read(body, "$.data.mealUpdatedAt")};
+    }
+
+    @Test
+    void 적은_칸만_사용자_값이고_안_적은_칸은_공공_값으로_계산된다() throws Exception {
+        Object[] added = addWithMealTime("{\"foodCode\":\"" + JJOLMYEON + "\"}");
+        postNutrition(access, mealId, (long) added[0],
+                "{\"weightG\":250,\"nutritionOverride\":{\"carbG\":45},\"expectedUpdatedAt\":\"" + added[1] + "\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.nutritionSource").value("USER"))
+                .andExpect(jsonPath("$.data.weightG").value(250))
+                .andExpect(jsonPath("$.data.nutrition.carbG").value(45.0))            // 적은 값 그대로 (무게로 다시 곱하지 않음)
+                .andExpect(jsonPath("$.data.nutrition.kcal").value(322.5))            // 안 적은 칸: 129 × 250 / 100
+                .andExpect(jsonPath("$.data.nutritionOverride.carbG").value(45))
+                .andExpect(jsonPath("$.data.nutritionOverride.kcal").value(nullValue()))
+                .andExpect(jsonPath("$.data.nutritionOverride.empty").doesNotExist());   // 내부 메서드가 JSON 칸으로 새지 않음
+        // DB에 저장된 JSON에도 적은 칸만 있음 (다시 읽을 때 깨지지 않게)
+        String saved = jdbc.queryForObject("SELECT nutrition_override::text FROM meal_items WHERE id = ?", String.class, added[0]);
+        assertThat(saved).doesNotContain("empty");
+        // 공공 음식 데이터는 그대로
+        BigDecimal carb = jdbc.queryForObject("SELECT carb_g FROM foods WHERE food_code = ?", BigDecimal.class, JJOLMYEON);
+        assertThat(carb).isEqualByComparingTo("23.26");
+    }
+
+    @Test
+    void 응답의_mealUpdatedAt이나_식사_조회의_updatedAt으로_이어서_고칠_수_있다() throws Exception {
+        Object[] added = addWithMealTime("{\"foodCode\":\"" + JJOLMYEON + "\"}");
+        String first = postNutrition(access, mealId, (long) added[0],
+                        "{\"nutritionOverride\":{\"carbG\":45},\"expectedUpdatedAt\":\"" + added[1] + "\"}")
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        String next = JsonPath.read(first, "$.data.mealUpdatedAt");
+        postNutrition(access, mealId, (long) added[0],
+                        "{\"nutritionOverride\":{\"carbG\":50},\"expectedUpdatedAt\":\"" + next + "\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.nutrition.carbG").value(50.0));
+        // 식사 상세의 updatedAt도 그대로 쓸 수 있음
+        String meal = mvc.perform(get("/api/meals/" + mealId).cookie(access))
+                .andReturn().getResponse().getContentAsString();
+        String mealUpdatedAt = JsonPath.read(meal, "$.data.updatedAt");
+        postNutrition(access, mealId, (long) added[0],
+                        "{\"nutritionOverride\":{\"carbG\":55},\"expectedUpdatedAt\":\"" + mealUpdatedAt + "\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.nutrition.carbG").value(55.0));
+    }
+
+    @Test
+    void 그_사이_식사가_바뀌었으면_409() throws Exception {
+        Object[] added = addWithMealTime("{\"foodCode\":\"" + JJOLMYEON + "\"}");
+        patchItem(access, mealId, (long) added[0], "{\"servings\":2}").andExpect(status().isOk());   // 다른 곳에서 먼저 고침
+        postNutrition(access, mealId, (long) added[0],
+                        "{\"nutritionOverride\":{\"carbG\":45},\"expectedUpdatedAt\":\"" + added[1] + "\"}")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.errorCode").value("MEAL_40901"));
+        // 덮어쓰지 않았음
+        mvc.perform(get("/api/meals/" + mealId).cookie(access)).andExpect(status().isOk());
+        String source = jdbc.queryForObject("SELECT nutrition_source FROM meal_items WHERE id = ?", String.class, added[0]);
+        assertThat(source).isEqualTo("DB");
+    }
+
+    @Test
+    void 무게는_안_보내면_그대로_null을_보내면_지운다() throws Exception {
+        Object[] added = addWithMealTime("{\"foodCode\":\"" + JJOLMYEON + "\",\"weightG\":300}");
+        String r1 = postNutrition(access, mealId, (long) added[0],
+                        "{\"nutritionOverride\":{\"carbG\":45},\"expectedUpdatedAt\":\"" + added[1] + "\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.weightG").value(300))
+                .andReturn().getResponse().getContentAsString();
+        postNutrition(access, mealId, (long) added[0],
+                        "{\"weightG\":null,\"nutritionOverride\":{\"carbG\":45},\"expectedUpdatedAt\":\""
+                                + JsonPath.read(r1, "$.data.mealUpdatedAt") + "\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.weightG").value(nullValue()))
+                .andExpect(jsonPath("$.data.nutrition.kcal").value(709.5));          // 다시 1인분 550g으로 계산
+    }
+
+    @Test
+    void 영양값_직접_입력_입력값이_틀리면_400() throws Exception {
+        Object[] added = addWithMealTime("{\"foodCode\":\"" + JJOLMYEON + "\"}");
+        long itemId = (long) added[0];
+        postNutrition(access, mealId, itemId, "{\"nutritionOverride\":{},\"expectedUpdatedAt\":\"" + added[1] + "\"}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("MEAL_40007"));
+        String[] bodies = {
+                "{\"expectedUpdatedAt\":\"" + added[1] + "\"}",                                   // nutritionOverride 없음
+                "{\"nutritionOverride\":{\"carbG\":45}}",                                            // expectedUpdatedAt 없음
+                "{\"nutritionOverride\":{\"carbG\":-1},\"expectedUpdatedAt\":\"" + added[1] + "\"}", // 음수
+                "{\"weightG\":0,\"nutritionOverride\":{\"carbG\":1},\"expectedUpdatedAt\":\"" + added[1] + "\"}", // 무게 0
+        };
+        for (String b : bodies) {
+            postNutrition(access, mealId, itemId, b)
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errorCode").value("GLOBAL_40001"));
+        }
+    }
+
+    @Test
+    void 남의_식사나_지운_항목의_영양값은_못_고친다() throws Exception {
+        Object[] added = addWithMealTime("{\"foodCode\":\"" + JJOLMYEON + "\"}");
+        String body = "{\"nutritionOverride\":{\"carbG\":45},\"expectedUpdatedAt\":\"" + added[1] + "\"}";
+        postNutrition(other, mealId, (long) added[0], body)
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("MEAL_40401"));
+        jdbc.update("UPDATE meal_items SET deleted_at = now() WHERE id = ?", added[0]);
+        postNutrition(access, mealId, (long) added[0], body)
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.errorCode").value("MEAL_40402"));
     }

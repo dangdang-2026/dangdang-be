@@ -114,6 +114,14 @@ public class MealItem extends BaseTimeEntity {
         if (name != null) this.name = name;
     }
 
+    // 영양값 직접 입력. 적은 칸만 사용자 값으로 쓰고, 안 적은 칸은 계속 공공 값으로 계산함
+    // 무게는 바꾸라고 했을 때만 바꿈 (null이면 무게를 지우고 인분으로 계산)
+    public void overrideNutrition(MealNutrition nutrition, boolean changeWeight, BigDecimal weight) {
+        this.nutritionOverride = nutrition;
+        this.nutritionSource = NutritionSource.USER;
+        if (changeWeight) this.weight = weight;
+    }
+
     // 삭제 (soft delete). 줄을 지우지 않고 지운 시각만 적어 둠
     public void delete(Instant now) {
         this.deletedAt = now;

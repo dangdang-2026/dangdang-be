@@ -4,6 +4,7 @@ import com.dangdang.domain.food.entity.Food;
 import com.dangdang.domain.food.exception.FoodErrorCode;
 import com.dangdang.domain.food.repository.FoodRepository;
 import com.dangdang.domain.meal.dto.request.MealItemCreateRequest;
+import com.dangdang.domain.meal.dto.request.MealItemNutritionRequest;
 import com.dangdang.domain.meal.dto.request.MealItemUpdateRequest;
 import com.dangdang.domain.meal.dto.response.MealItemResponse;
 import com.dangdang.domain.meal.entity.Meal;
@@ -17,6 +18,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 
 // 식사에 붙는 음식 항목
 @Service
@@ -53,8 +56,7 @@ public class MealItemService {
                     req.nutrition() == null ? null : req.nutrition().toNutrition());
         }
         mealItemRepository.save(item);
-        mealRepository.touch(mealId, clock.instant());   // 항목이 바뀌면 식사도 바뀐 것
-        return MealItemResponse.from(item);
+        return MealItemResponse.from(item, touchMeal(mealId));
     }
 
     // 항목 수정 (보낸 칸만). 인분·무게, 직접 적은 음식이면 이름까지
@@ -69,20 +71,54 @@ public class MealItemService {
             throw new CustomException(MealErrorCode.ITEM_NAME_OF_FOOD);
         }
         item.update(req.getServings(), req.isWeightGSent(), req.getWeightG(), name);
-        mealRepository.touch(mealId, clock.instant());   // 여기서 항목 변경도 먼저 DB에 써서 응답에 새 updatedAt이 담김
-        return MealItemResponse.from(item);
+        return MealItemResponse.from(item, touchMeal(mealId));
+    }
+
+    // 영양값 직접 입력 (노션 명세). nutritionSource=USER가 되고, 적은 칸만 사용자 값으로 씀
+    // expectedUpdatedAt이 식사의 지금 수정 시각과 다르면 그 사이 다른 곳에서 바뀐 것이라 409 (덮어쓰지 않게)
+    @Transactional
+    public MealItemResponse overrideNutrition(Long userId, Long mealId, Long itemId, MealItemNutritionRequest req) {
+        if (req.getNutritionOverride().toNutrition().isEmpty()) {
+            throw new CustomException(MealErrorCode.ITEM_NUTRITION_EMPTY);
+        }
+        Meal meal = findMyMeal(userId, mealId);
+        if (!sameMoment(meal.getUpdatedAt(), req.getExpectedUpdatedAt())) {
+            throw new CustomException(MealErrorCode.MEAL_CHANGED);
+        }
+        MealItem item = findItemOf(mealId, itemId);
+        item.overrideNutrition(req.getNutritionOverride().toNutrition(), req.isWeightGSent(), req.getWeightG());
+        return MealItemResponse.from(item, touchMeal(mealId));
     }
 
     // 항목 삭제 (soft delete). 이미 지운 항목을 또 지우면 404
     @Transactional
     public void delete(Long userId, Long mealId, Long itemId) {
         findMyItem(userId, mealId, itemId).delete(clock.instant());
-        mealRepository.touch(mealId, clock.instant());   // 항목이 바뀌면 식사도 바뀐 것
+        touchMeal(mealId);
+    }
+
+    // 항목이 바뀌면 식사도 바뀐 것이라 식사 수정 시각을 지금으로 바꾸고, 그 시각을 돌려줌 (응답의 mealUpdatedAt)
+    // DB가 마이크로초까지만 저장해서 맞춰 자름 → 클라이언트가 이 값을 expectedUpdatedAt으로 그대로 보내도 맞음
+    // touch가 먼저 DB에 써서(flush) 항목 변경도 같이 반영되고, 응답에 항목의 새 updatedAt이 담김
+    private Instant touchMeal(Long mealId) {
+        Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
+        mealRepository.touch(mealId, now);
+        return now;
+    }
+
+    // 두 시각이 같은지 밀리초까지 비교 (DB·JSON을 거치며 마이크로초 아래 자릿수가 달라질 수 있어서)
+    private static boolean sameMoment(Instant a, Instant b) {
+        return a.truncatedTo(ChronoUnit.MILLIS).equals(b.truncatedTo(ChronoUnit.MILLIS));
     }
 
     // 내 식사의 살아 있는 항목. 식사·항목이 없거나 남의 것이면 404
     private MealItem findMyItem(Long userId, Long mealId, Long itemId) {
         findMyMeal(userId, mealId);
+        return findItemOf(mealId, itemId);
+    }
+
+    // 이 식사에 붙은 살아 있는 항목 (식사가 내 것인지는 먼저 확인했을 때만 부름)
+    private MealItem findItemOf(Long mealId, Long itemId) {
         return mealItemRepository.findByIdAndMealIdAndDeletedAtIsNull(itemId, mealId)
                 .orElseThrow(() -> new CustomException(MealErrorCode.ITEM_NOT_FOUND));
     }

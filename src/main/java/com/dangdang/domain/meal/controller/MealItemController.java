@@ -1,6 +1,7 @@
 package com.dangdang.domain.meal.controller;
 
 import com.dangdang.domain.meal.dto.request.MealItemCreateRequest;
+import com.dangdang.domain.meal.dto.request.MealItemNutritionRequest;
 import com.dangdang.domain.meal.dto.request.MealItemUpdateRequest;
 import com.dangdang.domain.meal.dto.response.MealItemResponse;
 import com.dangdang.domain.meal.service.MealItemService;
@@ -31,7 +32,8 @@ public class MealItemController {
                     servings(먹은 양 인분, 기본 1, 0 초과 20 이하), weightG(직접 잰 무게, 음료는 ml, 보내면 servings 대신 씀),
                     nutrition{kcal, carbG, proteinG, fatG, sugarG}(직접 적은 음식만, 먹은 양 전체 기준, 모르는 칸은 생략)
                     **Returns** itemId, mealId, foodCode, name, servings, weightG, unit(g·ml), nutritionSource(DB·USER),
-                    nutrition(먹은 양 전체의 영양값, 모르는 값은 null), createdAt, updatedAt.
+                    nutrition(먹은 양 전체의 영양값, 모르는 값은 null), nutritionOverride(직접 적은 값만, 없으면 null), createdAt, updatedAt,
+                    mealUpdatedAt(바뀐 뒤 식사 수정 시각 — 영양값 직접 입력의 expectedUpdatedAt으로 씀).
                     고른 음식은 그때의 공공 영양값을 복사해 둬서 음식 데이터가 바뀌어도 이 기록은 그대로임. name은 음식의 보이는 이름(displayName).
                     식사가 없거나 남의 것이면 MEAL_40401, 음식 코드가 없으면 FOOD_40401,
                     foodCode·name을 둘 다 보내거나 둘 다 안 보내면 MEAL_40004, foodCode와 nutrition을 같이 보내면 MEAL_40005, 값 범위가 틀리면 GLOBAL_40001
@@ -64,6 +66,28 @@ public class MealItemController {
             @Valid @RequestBody MealItemUpdateRequest request) {
         return ResponseEntity.ok(BaseResponse.success(200, "식사 항목을 수정했습니다.",
                 mealItemService.update(principal.userId(), mealId, itemId, request)));
+    }
+
+    @Operation(
+            summary = "[ 사용자 | 토큰 O | 식사 항목 영양값 직접 입력 ]",
+            description =
+                    """
+                    **Parameters** mealId, itemId, nutritionOverride{kcal, carbG, proteinG, fatG, sugarG}(필수, 최소 1칸, 0 이상, 소수 첫째 자리, 먹은 양 전체 기준),
+                    weightG(선택, 영양성분표 기준 무게. null을 보내면 무게를 지움, 안 보내면 그대로),
+                    expectedUpdatedAt(필수, 화면을 열 때 받은 식사 updatedAt 또는 항목 응답의 mealUpdatedAt)
+                    **Returns** 바뀐 항목. nutritionSource=USER, nutrition은 적은 칸은 그 값, 안 적은 칸은 공공 값 × 먹은 양.
+                    nutritionOverride는 직접 적은 값만. 공공 음식 데이터(foods)는 바뀌지 않음.
+                    영양값을 하나도 안 적으면 MEAL_40007, 그 사이 다른 곳에서 식사가 바뀌었으면 MEAL_40901(409, 새로 불러와서 다시),
+                    식사가 없거나 남의 것이면 MEAL_40401, 항목이 없거나 지워졌으면 MEAL_40402, 값 범위가 틀리면 GLOBAL_40001
+                    """)
+    @PostMapping("/{itemId}/nutrition")
+    public ResponseEntity<BaseResponse<MealItemResponse>> overrideNutrition(
+            @AuthenticationPrincipal AuthPrincipal principal,
+            @PathVariable Long mealId,
+            @PathVariable Long itemId,
+            @Valid @RequestBody MealItemNutritionRequest request) {
+        return ResponseEntity.ok(BaseResponse.success(200, "식사항목 영양값 직접 입력에 성공했습니다.",
+                mealItemService.overrideNutrition(principal.userId(), mealId, itemId, request)));
     }
 
     @Operation(
