@@ -28,6 +28,10 @@ public interface ReminderRepository extends JpaRepository<Reminder, Long> {
     // 이 혈당들이 끝낸 알림 (오늘 화면에서 "알림 예정 시각 대비 언제 쟀는지" 계산용)
     List<Reminder> findByReadingIdIn(Collection<Long> readingIds);
 
+    // 기간 안 이 시점들 알림 중 이 상태인 것 (혈당 통계의 "놓친 측정" — 보냈거나 열었는데 혈당이 안 붙은 알림)
+    long countByUserIdAndSlotInAndStatusInAndScheduledAtGreaterThanEqualAndScheduledAtLessThan(
+            Long userId, Collection<MeasureSlot> slots, Collection<ReminderStatus> statuses, Instant from, Instant to);
+
     // 공복과 자기 전 알림을 이 시각으로 이미 만들었는지 (30초마다 돌아도 하루 한 번만)
     boolean existsByUserIdAndSlotAndScheduledAt(Long userId, MeasureSlot slot, Instant scheduledAt);
 

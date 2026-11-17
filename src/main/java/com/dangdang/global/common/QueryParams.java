@@ -32,6 +32,11 @@ public final class QueryParams {
         return date;
     }
 
+    // 안 보내도 되는 날짜. 안 보냈으면 null, 보냈으면 requiredDate와 같은 검사
+    public static LocalDate optionalDate(String value, String name) {
+        return value == null || value.isBlank() ? null : requiredDate(value, name);
+    }
+
     public static YearMonth requiredMonth(String value, String name) {
         if (value == null || value.isBlank()) {
             throw new CustomException(GlobalErrorCode.INVALID_INPUT, name + " 값을 보내 주세요.");
