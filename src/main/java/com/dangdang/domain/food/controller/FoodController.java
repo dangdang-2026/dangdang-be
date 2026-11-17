@@ -31,7 +31,8 @@ public class FoodController {
             description =
                     """
                     **Parameters** q(필수, 1~100자, 식품명·대표식품명 부분 검색, 띄어쓰기 무시, "볶음밥_김치"처럼 순서가 바뀐 이름도 "김치볶음밥"으로 찾음), page(기본 0), size(기본 20, 1~100)
-                    **Returns** items[]{foodCode, name, origin, maker, servingG, servingUnit(g·ml), kcal, carbG, proteinG, fatG, sugarG, sourceVersion}·page·size·totalElements·hasNext.
+                    **Returns** items[]{foodCode, name, displayName, origin, maker, servingG, servingUnit(g·ml), kcal, carbG, proteinG, fatG, sugarG, sourceVersion}·page·size·totalElements·hasNext.
+                    name은 식약처 원래 이름(볶음밥_김치), displayName은 화면용 이름(김치 볶음밥). 화면에는 displayName을 씀.
                     origin(HOME 가정식 · RESTAURANT 외식 · MEAL_SERVICE 급식 · FRANCHISE 프랜차이즈)은 같은 이름이 여러 줄일 때 구분용, maker는 프랜차이즈 업체명(나머지 null).
                     영양값은 1인분 기준(소수 첫째 자리). servingG가 null이면 1인분 양을 몰라서 영양값은 100g(ml)당. 모르는 영양값은 null(0과 다름).
                     순서: 이름이 똑같은 음식 → 가정식·외식 → 급식 → 프랜차이즈 → 이름순. 결과가 없으면 items=[].
@@ -56,8 +57,8 @@ public class FoodController {
             description =
                     """
                     **Parameters** code(식약처 식품코드, 1~30자, 검색 결과의 foodCode 그대로)
-                    **Returns** foodCode, name, origin, maker, servingG, servingUnit(g·ml), kcal, carbG, proteinG, fatG, sugarG, sourceVersion.
-                    origin·maker와 영양값 규칙은 검색과 같음 (1인분 기준, servingG가 null이면 100g(ml)당, 모르는 값은 null).
+                    **Returns** foodCode, name, displayName, origin, maker, servingG, servingUnit(g·ml), kcal, carbG, proteinG, fatG, sugarG, sourceVersion.
+                    displayName·origin·maker와 영양값 규칙은 검색과 같음 (1인분 기준, servingG가 null이면 100g(ml)당, 모르는 값은 null).
                     없는 코드면 FOOD_40401, 30자를 넘으면 GLOBAL_40001
                     """)
     @GetMapping("/{code}")

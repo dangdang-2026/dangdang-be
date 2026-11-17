@@ -112,6 +112,29 @@ class FoodFlowTest {
     }
 
     @Test
+    void 화면_이름은_사람이_부르는_순서로_준다() throws Exception {
+        // {식품코드, 식약처 이름 → 화면 이름}
+        String[][] cases = {
+                {"D101-017070000-0001", "김치 볶음밥"},                     // 볶음밥_김치
+                {"D302-096434400-0002", "햄 치즈 샌드위치"},                // 샌드위치_햄_치즈
+                {"D614-637144300-0001", "채소 부추무침"},                   // 부추무침_부추_채소 (종류에 든 "부추"는 뺌)
+                {"D102-116190000-0001", "사과파이"},                        // 파이/만주_사과파이 (뒤 조각에 종류가 들어 있음)
+                {"D513-615030000-0001", "쑥갓나물 (고춧가루)"},             // 쑥갓나물_고춧가루 (양념은 괄호)
+                {"D303-164000000-0001", "쫄우동 (간편조리세트)"},           // 우동_간편조리세트_쫄우동
+                {"D201-013000000-0001", "스파이시 씨푸드 리조또"},          // 프랜차이즈는 상품명만
+                {"D103-173000000-0001", "쫄면"},                            // _ 없으면 그대로
+        };
+        for (String[] c : cases) {
+            mvc.perform(get("/api/foods/" + c[0]).cookie(access))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.displayName").value(c[1]));
+        }
+        // 원래 이름(name)은 식약처 그대로 남음
+        mvc.perform(get("/api/foods/D101-017070000-0001").cookie(access))
+                .andExpect(jsonPath("$.data.name").value("볶음밥_김치"));
+    }
+
+    @Test
     void 구분자_기호만_검색하면_빈_목록() throws Exception {
         // |는 검색용 이름의 구분자라 검색어에서 빼고, 남는 글자가 없으면 빈 결과
         mvc.perform(get("/api/foods").cookie(access).param("q", "|"))

@@ -12,7 +12,8 @@ import java.time.LocalDate;
 // 모르는 영양값은 null (0으로 채우지 않음)
 public record FoodResponse(
         String foodCode,
-        String name,
+        String name,                // 식약처 원래 이름 (볶음밥_김치). 매핑·AI 연결용
+        String displayName,         // 화면에 보여 줄 이름 (김치 볶음밥)
         FoodOrigin origin,          // 어디 기준 값인지 (HOME 가정식 / RESTAURANT 외식 / MEAL_SERVICE 급식 / FRANCHISE 프랜차이즈). 같은 이름이 여러 줄일 때 구분용
         String maker,               // 업체명 (프랜차이즈만, 나머지 null)
         BigDecimal servingG,        // 1인분 양. 이름은 명세대로 servingG지만 단위는 servingUnit을 봐야 함
@@ -31,6 +32,7 @@ public record FoodResponse(
         return new FoodResponse(
                 f.getFoodCode(),
                 f.getName(),
+                f.displayName(),
                 FoodOrigin.fromCode(f.getOrigin()),
                 f.getMaker(),
                 serving,
