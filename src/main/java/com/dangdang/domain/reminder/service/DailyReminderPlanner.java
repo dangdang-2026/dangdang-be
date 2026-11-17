@@ -3,8 +3,7 @@ package com.dangdang.domain.reminder.service;
 import com.dangdang.domain.criteria.dto.response.CriteriaVersionResponse;
 import com.dangdang.domain.criteria.enums.MeasureSlot;
 import com.dangdang.domain.criteria.service.CriteriaService;
-import com.dangdang.domain.pregnancy.enums.PregnancyState;
-import com.dangdang.domain.pregnancy.repository.PregnancyRepository;
+import com.dangdang.domain.pregnancy.service.MeasurementPause;
 import com.dangdang.domain.reminder.entity.Reminder;
 import com.dangdang.domain.reminder.repository.ReminderRepository;
 import com.dangdang.domain.user.entity.NotificationPreference;
@@ -35,7 +34,7 @@ public class DailyReminderPlanner {
     private final NotificationPreferenceRepository notificationPreferenceRepository;
     private final ReminderRepository reminderRepository;
     private final CriteriaService criteriaService;
-    private final PregnancyRepository pregnancyRepository;
+    private final MeasurementPause measurementPause;
     private final Clock clock;
 
     @Transactional
@@ -63,24 +62,17 @@ public class DailyReminderPlanner {
         if (reminderRepository.existsByUserIdAndSlotAndScheduledAt(userId, slot, alarmAt)) {
             return 0;                                  // 오늘 이미 만들었다
         }
-        if (!hospitalSaysMeasure(userId, slot) || !pregnancyAllowsMeasurement(userId)) {
+        if (!hospitalSaysMeasure(userId, slot) || !measurementPause.allowsMeasurement(userId)) {
             return 0;
         }
         reminderRepository.save(Reminder.scheduled(pref.getUser(), null, slot, alarmAt, now));
         return 1;
     }
 
-    // 병원 기준 「재는 때」에 이 시점이 있을 때만 (A-02b — 병원에서 들은 것만)
+    // 병원 기준 재는 때에 이 시점이 있을 때만 (A-02b — 병원에서 들은 것만)
     private boolean hospitalSaysMeasure(Long userId, MeasureSlot slot) {
         CriteriaVersionResponse criteria = criteriaService.current(userId);
         return criteria != null && criteria.measureSlots() != null && criteria.measureSlots().contains(slot);
-    }
-
-    // 입원(E-04)·산후·졸업이면 측정 알림을 멈춘다 (PP-01). 임신 정보를 아직 안 적은 사람은 보낸다
-    private boolean pregnancyAllowsMeasurement(Long userId) {
-        return pregnancyRepository.findByUserIdAndStateNot(userId, PregnancyState.ENDED)
-                .map(p -> p.getState() == PregnancyState.PREGNANT)
-                .orElseGet(() -> !pregnancyRepository.existsByUserIdAndState(userId, PregnancyState.ENDED));
     }
 
     private Instant todayAt(LocalDate date, LocalTime time) {
