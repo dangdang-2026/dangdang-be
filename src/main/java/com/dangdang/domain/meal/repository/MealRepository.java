@@ -3,6 +3,7 @@ package com.dangdang.domain.meal.repository;
 import com.dangdang.domain.meal.entity.Meal;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 
 import java.time.Instant;
@@ -60,4 +61,9 @@ public interface MealRepository extends JpaRepository<Meal, Long> {
               and m.deletedAt is null
             """)
     Instant findFirstStartedAt(Long userId);
+
+    // 식사의 수정 시각만 지금으로 바꿈. 식사 항목이 바뀌면 식사도 바뀐 것으로 봄 (식사 칸 자체는 그대로라 자동으로 안 바뀜)
+    @Modifying(flushAutomatically = true)
+    @Query("update Meal m set m.updatedAt = :now where m.id = :mealId")
+    void touch(Long mealId, Instant now);
 }
