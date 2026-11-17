@@ -175,8 +175,46 @@ class FoodFlowTest {
     }
 
     @Test
+    void 상세는_검색_결과와_같은_모양() throws Exception {
+        mvc.perform(get("/api/foods/D103-173000000-0001").cookie(access))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.foodCode").value("D103-173000000-0001"))
+                .andExpect(jsonPath("$.data.name").value("쫄면"))
+                .andExpect(jsonPath("$.data.servingG").value(550.0))
+                .andExpect(jsonPath("$.data.servingUnit").value("g"))
+                .andExpect(jsonPath("$.data.kcal").value(709.5))
+                .andExpect(jsonPath("$.data.carbG").value(127.9))
+                .andExpect(jsonPath("$.data.sugarG").value(19.3))
+                .andExpect(jsonPath("$.data.sourceVersion").value("2026-09-29"));
+        // 모르는 영양값은 상세에서도 null
+        mvc.perform(get("/api/foods/D201-013000000-0001").cookie(access))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.carbG").value(nullValue()));
+    }
+
+    @Test
+    void 없는_식품코드면_404() throws Exception {
+        mvc.perform(get("/api/foods/D999-000000000-0000").cookie(access))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("FOOD_40401"));
+        // 대소문자도 그대로 비교함 (코드를 바꿔 찾지 않음)
+        mvc.perform(get("/api/foods/d103-173000000-0001").cookie(access))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("FOOD_40401"));
+    }
+
+    @Test
+    void 식품코드가_30자를_넘으면_400() throws Exception {
+        mvc.perform(get("/api/foods/" + "D".repeat(31)).cookie(access))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("GLOBAL_40001"));
+    }
+
+    @Test
     void 로그인_안_하면_401() throws Exception {
         mvc.perform(get("/api/foods").param("q", "김치"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/foods/D103-173000000-0001"))
                 .andExpect(status().isUnauthorized());
     }
 }

@@ -1,7 +1,10 @@
 package com.dangdang.domain.food.service;
 
 import com.dangdang.domain.food.dto.response.FoodPageResponse;
+import com.dangdang.domain.food.dto.response.FoodResponse;
+import com.dangdang.domain.food.exception.FoodErrorCode;
 import com.dangdang.domain.food.repository.FoodRepository;
+import com.dangdang.global.exception.CustomException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -22,6 +25,13 @@ public class FoodService {
         String keyword = q.replace(" ", "").toLowerCase(Locale.ROOT);
         String pattern = "%" + escapeLike(keyword) + "%";
         return FoodPageResponse.from(foodRepository.search(keyword, pattern, PageRequest.of(page, size)));
+    }
+
+    // 상세. 식품코드는 글자 그대로 찾음 (숫자로 바꾸지 않음)
+    public FoodResponse get(String code) {
+        return foodRepository.findById(code)
+                .map(FoodResponse::from)
+                .orElseThrow(() -> new CustomException(FoodErrorCode.FOOD_NOT_FOUND));
     }
 
     // 검색어에 든 % _ \ 를 글자 그대로 찾게 막음 (PostgreSQL LIKE 기본 이스케이프 문자가 \)

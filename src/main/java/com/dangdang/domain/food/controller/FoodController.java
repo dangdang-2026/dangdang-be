@@ -1,6 +1,7 @@
 package com.dangdang.domain.food.controller;
 
 import com.dangdang.domain.food.dto.response.FoodPageResponse;
+import com.dangdang.domain.food.dto.response.FoodResponse;
 import com.dangdang.domain.food.service.FoodService;
 import com.dangdang.global.common.BaseResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -12,6 +13,7 @@ import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -46,5 +48,21 @@ public class FoodController {
             @Max(value = 100, message = "size는 1~100이에요.") int size) {
         return ResponseEntity.ok(BaseResponse.success(200, "음식 검색에 성공했습니다.",
                 foodService.search(q.trim(), page, size)));
+    }
+
+    @Operation(
+            summary = "[ 사용자 | 토큰 O | 음식 상세 ]",
+            description =
+                    """
+                    **Parameters** code(식약처 식품코드, 1~30자, 검색 결과의 foodCode 그대로)
+                    **Returns** foodCode, name, servingG, servingUnit(g·ml), kcal, carbG, proteinG, fatG, sugarG, sourceVersion.
+                    영양값 규칙은 검색과 같음 (1인분 기준, servingG가 null이면 100g(ml)당, 모르는 값은 null).
+                    없는 코드면 FOOD_40401, 30자를 넘으면 GLOBAL_40001
+                    """)
+    @GetMapping("/{code}")
+    public ResponseEntity<BaseResponse<FoodResponse>> get(
+            @PathVariable @Size(max = 30, message = "식품코드는 30자까지예요.") String code) {
+        return ResponseEntity.ok(BaseResponse.success(200, "음식 상세 조회에 성공했습니다.",
+                foodService.get(code)));
     }
 }
