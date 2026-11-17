@@ -7,6 +7,7 @@ import com.dangdang.domain.meal.dto.request.MealItemCreateRequest;
 import com.dangdang.domain.meal.dto.request.MealItemNutritionRequest;
 import com.dangdang.domain.meal.dto.request.MealItemUpdateRequest;
 import com.dangdang.domain.meal.dto.response.MealItemResponse;
+import com.dangdang.domain.meal.dto.response.MealItemSummaryResponse;
 import com.dangdang.domain.meal.entity.Meal;
 import com.dangdang.domain.meal.entity.MealItem;
 import com.dangdang.domain.meal.exception.MealErrorCode;
@@ -20,6 +21,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 // 식사에 붙는 음식 항목
 @Service
@@ -108,6 +113,22 @@ public class MealItemService {
     public void delete(Long userId, Long mealId, Long itemId) {
         findMyItem(userId, mealId, itemId).delete(clock.instant());
         touchMeal(mealId);
+    }
+
+    // 여러 식사의 항목을 한 번에 읽어서 식사 id별로 나눔 (식사 상세·목록·오늘 화면·기록 통합 조회용)
+    // 항목이 없는 식사는 맵에 없음 → 쓰는 쪽에서 getOrDefault(id, List.of())
+    public Map<Long, List<MealItemSummaryResponse>> itemsByMeal(Collection<Long> mealIds) {
+        if (mealIds.isEmpty()) {
+            return Map.of();
+        }
+        return mealItemRepository.findAllByMealIdInAndDeletedAtIsNullOrderByIdAsc(mealIds).stream()
+                .collect(Collectors.groupingBy(i -> i.getMeal().getId(),
+                        Collectors.mapping(MealItemSummaryResponse::from, Collectors.toList())));
+    }
+
+    // 식사 하나의 항목
+    public List<MealItemSummaryResponse> itemsOf(Long mealId) {
+        return itemsByMeal(List.of(mealId)).getOrDefault(mealId, List.of());
     }
 
     // 항목이 바뀌면 식사도 바뀐 것이라 식사 수정 시각을 지금으로 바꾸고, 그 시각을 돌려줌 (응답의 mealUpdatedAt)

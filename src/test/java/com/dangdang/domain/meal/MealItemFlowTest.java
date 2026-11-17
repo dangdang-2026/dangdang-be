@@ -23,6 +23,8 @@ import java.time.Instant;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -497,6 +499,58 @@ class MealItemFlowTest {
         revert(access, mealId, itemId)
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.errorCode").value("MEAL_40402"));
+    }
+
+    // ---------- 식사 조회에 항목 같이 보여 주기 ----------
+
+    @Test
+    void 식사_상세와_목록에_항목이_추가한_순서로_나오고_지운_항목은_빠진다() throws Exception {
+        addAndGetId(mealId, "{\"foodCode\":\"" + JJOLMYEON + "\"}");
+        long removed = addAndGetId(mealId, "{\"name\":\"떡\"}");
+        addAndGetId(mealId, "{\"name\":\"잡채\",\"nutrition\":{\"carbG\":40}}");
+        mvc.perform(delete("/api/meals/" + mealId + "/items/" + removed).cookie(access)).andExpect(status().isOk());
+        long emptyMeal = createMeal(access);   // 항목 없는 식사
+
+        mvc.perform(get("/api/meals/" + mealId).cookie(access))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items", hasSize(2)))
+                .andExpect(jsonPath("$.data.items[0].name").value("쫄면"))
+                .andExpect(jsonPath("$.data.items[0].nutrition.carbG").value(127.9))
+                .andExpect(jsonPath("$.data.items[1].name").value("잡채"))
+                .andExpect(jsonPath("$.data.items[1].nutritionSource").value("USER"));
+        mvc.perform(get("/api/meals/" + emptyMeal).cookie(access))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items", hasSize(0)));
+
+        // 목록: 식사마다 자기 항목만
+        String today = java.time.LocalDate.now(com.dangdang.global.config.ClockConfig.KST).toString();
+        String yesterday = java.time.LocalDate.now(com.dangdang.global.config.ClockConfig.KST).minusDays(1).toString();
+        mvc.perform(get("/api/meals").cookie(access).param("from", yesterday).param("to", today))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[?(@.mealId == " + mealId + ")].items[*].name", contains("쫄면", "잡채")))
+                .andExpect(jsonPath("$.data.items[?(@.mealId == " + emptyMeal + ")].items[*]", hasSize(0)));
+    }
+
+    @Test
+    void 기록_통합_조회와_오늘_화면의_식사에도_항목이_나온다() throws Exception {
+        // 오늘 화면에 확실히 들어가게 지금 시작한 식사로
+        String body = mvc.perform(post("/api/meals").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mealSlot\":\"SNACK\",\"startedAt\":\"" + Instant.now() + "\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        long nowMeal = ((Number) JsonPath.read(body, "$.data.mealId")).longValue();
+        addAndGetId(nowMeal, "{\"foodCode\":\"" + JJOLMYEON + "\",\"servings\":0.5}");
+
+        String today = java.time.LocalDate.now(com.dangdang.global.config.ClockConfig.KST).toString();
+        mvc.perform(get("/api/records").cookie(access).param("from", today).param("to", today))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.days[*].events[?(@.type == 'MEAL' && @.id == " + nowMeal + ")].meal.items[*].name",
+                        contains("쫄면")))
+                .andExpect(jsonPath("$.data.days[*].events[?(@.type == 'MEAL' && @.id == " + nowMeal + ")].meal.items[*].nutrition.carbG",
+                        contains(64.0)));
+        mvc.perform(get("/api/today").cookie(access))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.meals[?(@.mealId == " + nowMeal + ")].items[*].name", contains("쫄면")));
     }
 
     // ---------- 삭제 ----------

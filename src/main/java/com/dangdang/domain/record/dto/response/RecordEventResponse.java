@@ -1,6 +1,7 @@
 package com.dangdang.domain.record.dto.response;
 
 import com.dangdang.domain.criteria.enums.MeasureSlot;
+import com.dangdang.domain.meal.dto.response.MealItemSummaryResponse;
 import com.dangdang.domain.meal.entity.Meal;
 import com.dangdang.domain.meal.enums.MealSlot;
 import com.dangdang.domain.reading.entity.Reading;
@@ -29,10 +30,11 @@ public record RecordEventResponse(
                 null);
     }
 
-    public static RecordEventResponse from(Meal m) {
+    // items = 이 식사의 음식 항목 (없으면 [])
+    public static RecordEventResponse from(Meal m, List<MealItemSummaryResponse> items) {
         return new RecordEventResponse(RecordEventType.MEAL, m.getId(), m.getStartedAt(), isModified(m),
                 null,
-                new MealPayload(m.getMealSlot(), m.isStartedOffline(), m.getNote(), List.of()));
+                new MealPayload(m.getMealSlot(), m.isStartedOffline(), m.getNote(), items));
     }
 
     // 처음 저장할 땐 createdAt = updatedAt 이고, 고치면 updatedAt만 늦어짐
@@ -55,6 +57,6 @@ public record RecordEventResponse(
             MealSlot mealSlot,
             boolean startedOffline,
             String note,
-            List<Object> items) {   // 먹은 음식 목록. 음식 항목 기능(meal_items) 만들기 전이라 지금은 항상 []
+            List<MealItemSummaryResponse> items) {   // 먹은 음식 목록 (추가한 순서, 지운 항목 빼고, 없으면 [])
     }
 }
