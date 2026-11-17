@@ -1,6 +1,7 @@
 package com.dangdang.domain.reading.repository;
 
 import com.dangdang.domain.reading.entity.Reading;
+import com.dangdang.domain.reading.enums.ReadingType;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -27,4 +28,48 @@ public interface ReadingRepository extends JpaRepository<Reading, Long> {
             order by r.measuredAt desc, r.id desc
             """)
     List<Reading> findPage(Long userId, Instant from, Instant cursorAt, Long cursorId, Limit limit);
+
+    // 기간 안 기록 전부 (오늘 화면·기록 통합 조회용). from 이상 to 미만, 잰 시각 오래된 순
+    // 병원 기준도 같이 가져옴 (목표 비교할 때 기록마다 기준을 또 조회하지 않게)
+    @Query("""
+            select r from Reading r
+            join fetch r.criteriaVersion
+            where r.user.id = :userId
+              and r.deletedAt is null
+              and r.measuredAt >= :from
+              and r.measuredAt < :to
+            order by r.measuredAt asc, r.id asc
+            """)
+    List<Reading> findAllInRange(Long userId, Instant from, Instant to);
+
+    // 기간 안 기록 중 이 종류(공복·식후)만 (통계용). 병원 기준도 같이 가져옴 (목표 안/밖 계산)
+    @Query("""
+            select r from Reading r
+            join fetch r.criteriaVersion
+            where r.user.id = :userId
+              and r.deletedAt is null
+              and r.readingType = :readingType
+              and r.measuredAt >= :from
+              and r.measuredAt < :to
+            order by r.measuredAt asc, r.id asc
+            """)
+    List<Reading> findAllInRangeByType(Long userId, ReadingType readingType, Instant from, Instant to);
+
+    // 기간 안 잰 시각만 (달력에서 기록 있는 날 찾기용)
+    @Query("""
+            select r.measuredAt from Reading r
+            where r.user.id = :userId
+              and r.deletedAt is null
+              and r.measuredAt >= :from
+              and r.measuredAt < :to
+            """)
+    List<Instant> findMeasuredAtsInRange(Long userId, Instant from, Instant to);
+
+    // 가장 처음 잰 시각 (기록이 하나도 없으면 null)
+    @Query("""
+            select min(r.measuredAt) from Reading r
+            where r.user.id = :userId
+              and r.deletedAt is null
+            """)
+    Instant findFirstMeasuredAt(Long userId);
 }

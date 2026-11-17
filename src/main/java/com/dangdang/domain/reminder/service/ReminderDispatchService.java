@@ -2,6 +2,7 @@ package com.dangdang.domain.reminder.service;
 
 import com.dangdang.domain.meal.entity.Meal;
 import com.dangdang.domain.meal.repository.MealRepository;
+import com.dangdang.domain.pregnancy.service.MeasurementPause;
 import com.dangdang.domain.push.dto.response.PushDeliveryResponse;
 import com.dangdang.domain.push.service.PushSendService;
 import com.dangdang.domain.reminder.entity.Reminder;
@@ -34,6 +35,7 @@ public class ReminderDispatchService {
     private final PushSendService pushSendService;
     private final ReminderDeliveryRecorder recorder;
     private final MealRepository mealRepository;
+    private final MeasurementPause measurementPause;
     private final Clock clock;
 
     public void dispatchDue() {
@@ -64,7 +66,7 @@ public class ReminderDispatchService {
 
     private void dispatch(Reminder reminder, Instant now) {
         Long userId = reminder.getUser().getId();
-        if (!measurementEnabled(userId)) {
+        if (!measurementEnabled(userId) || !measurementPause.allowsMeasurement(userId)) {
             recorder.recordTurnedOff(reminder.getId());
             return;
         }

@@ -26,9 +26,15 @@ public class Pregnancy {
 
     private LocalDate dueDate;               // 출산 예정일
 
+    private LocalDate deliveryDate;          // 출산일 — 적으면 산후 모드 (PP-01)
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 15)
     private PregnancyState state;
+
+    private Instant hospitalizedAt;          // 입원 누른 시각 (E-03·E-04)
+
+    private LocalDate postpartumAskOn;       // 산후 검사 날짜를 다시 물어볼 날 (E-09)
 
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
@@ -49,6 +55,40 @@ public class Pregnancy {
 
     public void changeDueDate(LocalDate dueDate, Instant now) {
         this.dueDate = dueDate;
+        this.updatedAt = now;
+    }
+
+    // 입원했어요 — 측정 알림만 멈춘다 (기록은 그대로)
+    public void hospitalize(Instant now) {
+        this.state = PregnancyState.HOSPITALIZED;
+        this.hospitalizedAt = now;
+        this.updatedAt = now;
+    }
+
+    // 퇴원(다시 켜기) — 출산 전이면 임신 중으로
+    public void leaveHospital(Instant now) {
+        this.state = PregnancyState.PREGNANT;
+        this.hospitalizedAt = null;
+        this.updatedAt = now;
+    }
+
+    // 출산했어요 — 산후 모드
+    public void deliver(LocalDate deliveryDate, Instant now) {
+        this.deliveryDate = deliveryDate;
+        this.state = PregnancyState.POSTPARTUM;
+        this.hospitalizedAt = null;
+        this.updatedAt = now;
+    }
+
+    public void askLater(LocalDate askOn, Instant now) {
+        this.postpartumAskOn = askOn;
+        this.updatedAt = now;
+    }
+
+    // 임신 중 관리 졸업 (E-12) — 이 줄은 끝난 임신이 된다
+    public void graduate(Instant now) {
+        this.state = PregnancyState.ENDED;
+        this.postpartumAskOn = null;
         this.updatedAt = now;
     }
 }

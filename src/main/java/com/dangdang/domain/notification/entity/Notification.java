@@ -56,6 +56,17 @@ public class Notification {
         return n;
     }
 
+    // 산후 검사 전날·당일 알림 (내용 칸은 비움)
+    public static Notification postpartum(User user, String title, String deepLink, Instant sentAt) {
+        Notification n = new Notification();
+        n.user = user;
+        n.type = NotificationType.POSTPARTUM;
+        n.title = title;
+        n.deepLink = deepLink;
+        n.sentAt = sentAt;
+        return n;
+    }
+
     // 처음 읽은 시각만 남긴다
     public void markRead(Instant now) {
         if (this.readAt == null) {

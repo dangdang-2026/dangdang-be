@@ -15,6 +15,7 @@ import com.dangdang.domain.reading.repository.ReadingRepository;
 import com.dangdang.domain.user.entity.User;
 import com.dangdang.domain.user.exception.UserErrorCode;
 import com.dangdang.domain.user.repository.UserRepository;
+import com.dangdang.global.common.KoreanTime;
 import com.dangdang.global.exception.CustomException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Limit;
@@ -46,12 +47,14 @@ public class ReadingService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
         checkMealIsMine(userId, req.mealId());
-        CriteriaVersion criteria = criteriaService.onDateOrEmpty(userId, koreanDate(req.measuredAt()));
+        CriteriaVersion criteria = criteriaService.onDateOrEmpty(userId, KoreanTime.dateOf(req.measuredAt()));
         Reading saved = readingRepository.save(Reading.of(
                 user, criteria, req.readingType(), req.slot(), req.measuredAt(), req.value(),
                 req.mealId(), clock.instant()));
         if (saved.getMealId() != null) {   // 식후 혈당을 쟀으니 그 식사의 "재세요" 알림은 끝 처리
             reminderService.completeForMeal(saved.getMealId(), saved.getId());
+        } else if (saved.getSlot() != null) {   // 공복, 자기 전 혈당이면 그날 그 알림을 끝 처리
+            reminderService.completeForSlot(userId, saved.getSlot(), saved.getMeasuredAt(), saved.getId());
         }
         return ReadingResponse.from(saved);
     }
@@ -72,9 +75,9 @@ public class ReadingService {
         }
         int pageSize = Math.clamp(size, 1, MAX_PAGE_SIZE);   // 0이나 10000이 와도 1~100 사이로 맞춤
 
-        Instant fromAt = startOfKoreanDay(from);
+        Instant fromAt = KoreanTime.startOfDay(from);
         // 첫 페이지: 커서 = 기간 끝(to 다음 날 0시) → 쿼리의 "커서보다 과거" 조건이 기간 끝 역할도 함
-        Instant afterAt = cursorAt != null ? cursorAt : startOfKoreanDay(to.plusDays(1));
+        Instant afterAt = cursorAt != null ? cursorAt : KoreanTime.endOfDay(to);
         // id는 1부터라 0이면 "기간 끝과 같은 시각" 기록이 안 걸림 (MAX_VALUE면 다음 날 0시 기록이 섞여 들어옴)
         Long afterId = cursorId != null ? cursorId : 0L;
 
@@ -93,7 +96,7 @@ public class ReadingService {
         Reading reading = findMine(userId, readingId);
         checkMealIsMine(userId, req.mealId());
         CriteriaVersion criteria = req.measuredAt() != null
-                ? criteriaService.onDateOrEmpty(userId, koreanDate(req.measuredAt()))
+                ? criteriaService.onDateOrEmpty(userId, KoreanTime.dateOf(req.measuredAt()))
                 : null;   // 잰 시각을 안 바꾸면 기준도 그대로
 
         reading.update(req.value(), req.measuredAt(), criteria, req.readingType(), req.slot(), req.mealId());
@@ -123,15 +126,5 @@ public class ReadingService {
         if (mealId != null && mealRepository.findByIdAndUserIdAndDeletedAtIsNull(mealId, userId).isEmpty()) {
             throw new CustomException(MealErrorCode.MEAL_NOT_FOUND);
         }
-    }
-
-    // 세계 공통 시각 -> 한국 날짜 (한국 새벽 1시는 UTC로 전날이라서)
-    private LocalDate koreanDate(Instant at) {
-        return LocalDate.ofInstant(at, clock.getZone());
-    }
-
-    // 한국 날짜 -> 그날 0시(한국)의 세계 공통 시각
-    private Instant startOfKoreanDay(LocalDate date) {
-        return date.atStartOfDay(clock.getZone()).toInstant();
     }
 }
