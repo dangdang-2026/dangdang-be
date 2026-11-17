@@ -14,6 +14,7 @@ public enum FoodOrigin {
             case 2 -> FRANCHISE;
             case 3, 4 -> RESTAURANT;
             case 5, 6, 7 -> MEAL_SERVICE;
+            // DB에 CHECK (origin BETWEEN 1 AND 7)를 걸어 둬서 여기 올 수 없음 (잘못된 데이터는 넣을 때 막힘)
             default -> throw new IllegalStateException("알 수 없는 식품기원코드: " + code);
         };
     }

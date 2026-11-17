@@ -6,9 +6,9 @@ CREATE TABLE foods (
    name VARCHAR(100) NOT NULL,                     -- 식품명 (예: 가래떡_흑미)
    rep_name VARCHAR(100),                          -- 대표식품명 (예: 가래떡). 검색·AI 후보 이름 맞출 때 씀
    category VARCHAR(30),                           -- 식품대분류명 (예: 빵 및 과자류)
-   origin SMALLINT NOT NULL,                       -- 식품기원코드 1 가정식 / 2 프랜차이즈 / 3 외식(분석) / 4 외식(산출) / 5 초등급식 / 6 중고등급식 / 7 산업체급식
+   origin SMALLINT NOT NULL CHECK (origin BETWEEN 1 AND 7), -- 식품기원코드 1 가정식 / 2 프랜차이즈 / 3 외식(분석) / 4 외식(산출) / 5 초등급식 / 6 중고등급식 / 7 산업체급식
    maker VARCHAR(100),                             -- 업체명 (프랜차이즈만, 나머지 null)
-   base_unit VARCHAR(2) NOT NULL,                  -- g / ml (영양값 기준이 100g인지 100ml인지)
+   base_unit VARCHAR(2) NOT NULL CHECK (base_unit IN ('g', 'ml')), -- g / ml (영양값 기준이 100g인지 100ml인지)
    serving_amount NUMERIC(7,1),                    -- 1인분 양 (식품중량, base_unit 단위). 모르면 null
    kcal NUMERIC(7,2),                              -- 아래 다섯 값은 기준량당. 모르면 null
    carb_g NUMERIC(7,2),
