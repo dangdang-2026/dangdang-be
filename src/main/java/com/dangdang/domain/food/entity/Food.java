@@ -1,0 +1,165 @@
+package com.dangdang.domain.food.entity;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+import lombok.AccessLevel;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import org.hibernate.annotations.Immutable;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Set;
+
+// foods 테이블 한 줄 = 식약처 음식 하나. 마이그레이션으로만 넣는 공공 데이터라 앱에서는 읽기만 함
+// 영양값은 기준량(100g 또는 100ml)당 값이고, 모르는 값은 null (0과 구분)
+@Getter
+@Entity
+@Immutable
+@Table(name = "foods")
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
+public class Food {
+
+    @Id
+    @Column(length = 30)
+    private String foodCode;                 // 식약처 식품코드 (예: D102-053000000-0001)
+
+    @Column(nullable = false, length = 100)
+    private String name;                     // 식품명 (예: 가래떡_흑미)
+
+    @Column(length = 100)
+    private String repName;                  // 대표식품명 (예: 가래떡)
+
+    @Column(length = 30)
+    private String category;                 // 식품대분류명
+
+    @Column(nullable = false)
+    private Short origin;                    // 식품기원코드 1 가정식 / 2 프랜차이즈 / 3·4 외식 / 5~7 급식
+
+    @Column(length = 100)
+    private String maker;                    // 업체명 (프랜차이즈만)
+
+    @Column(nullable = false, length = 2)
+    private String baseUnit;                 // g / ml
+
+    @Column(precision = 7, scale = 1)
+    private BigDecimal servingAmount;        // 1인분 양 (baseUnit 단위). 모르면 null
+
+    @Column(precision = 7, scale = 2)
+    private BigDecimal kcal;
+
+    @Column(name = "carb_g", precision = 7, scale = 2)   // 이름 끝 대문자 하나는 자동으로 _g가 안 돼서 직접 적음
+    private BigDecimal carbG;
+
+    @Column(name = "sugar_g", precision = 7, scale = 2)   // 이름 끝 대문자 하나는 자동으로 _g가 안 돼서 직접 적음
+    private BigDecimal sugarG;
+
+    @Column(name = "protein_g", precision = 7, scale = 2)   // 이름 끝 대문자 하나는 자동으로 _g가 안 돼서 직접 적음
+    private BigDecimal proteinG;
+
+    @Column(name = "fat_g", precision = 7, scale = 2)   // 이름 끝 대문자 하나는 자동으로 _g가 안 돼서 직접 적음
+    private BigDecimal fatG;
+
+    @Column(nullable = false)
+    private LocalDate sourceVersion;         // 데이터기준일
+
+    private static final short FRANCHISE = 2;
+    private static final String MEAL_KIT = "간편조리세트";
+    // 이름 뒤 조각 중 이것들은 재료가 아니라 양념이라 괄호로 뺌 (쑥갓나물_고춧가루 → 쑥갓나물 (고춧가루))
+    private static final Set<String> SEASONINGS = Set.of("간장", "소금", "된장", "고추장", "고춧가루", "양념");
+
+    // 화면에 보여 줄 이름. 식약처 이름은 "종류_재료" 순서라서 사람이 부르는 순서로 바꿈
+    //   재료 하나: 볶음밥_김치 → 김치볶음밥 (붙여 씀. 원래 이름에 띄어쓰기가 있으면 띄움: 김치 볶음밥_모듬 → 모듬 김치 볶음밥)
+    //   재료 둘 이상: 샌드위치_햄_치즈 → 샌드위치 (햄, 치즈) (앞에 다 붙이면 "햄치즈채소샌드위치"처럼 길어져서)
+    //   뒤 조각에 종류가 들어 있으면 그 조각이 이름, 나머지는 괄호: 식빵_통밀식빵 → 통밀식빵, 냉면_회냉면_홍어 → 회냉면 (홍어)
+    //   종류에 이미 든 재료는 뺌: 부추무침_부추_채소 → 채소부추무침
+    //     단, 재료가 전부 빠지면 괄호로 남김 (김밥_김 → 김밥 (김)). 안 그러면 그냥 "김밥"과 이름이 같아짐
+    //   2글자 이상 겹치면 한 단어로: 버섯볶음_새송이버섯 → 새송이버섯볶음
+    //   양념은 괄호로: 쑥갓나물_고춧가루 → 쑥갓나물 (고춧가루)
+    //   간편조리세트는 뒤가 상품명이라 상품명만 + 표시: 칼국수_간편조리세트_원주식장칼국수 → 원주식장칼국수 (간편조리세트)
+    //   프랜차이즈는 뒤가 상품명이라 상품명만: 커피_아메리카노 핫(HOT) → 아메리카노 핫(HOT)
+    public String displayName() {
+        List<String> parts = Arrays.stream(name.split("_")).map(String::trim).filter(s -> !s.isEmpty()).toList();
+        if (parts.size() < 2) {
+            return name.trim();
+        }
+        String kind = parts.get(0);
+        List<String> rest = parts.subList(1, parts.size());
+
+        boolean mealKit = rest.contains(MEAL_KIT);
+        if (origin == FRANCHISE || mealKit) {
+            List<String> product = rest.stream().filter(p -> !p.equals(MEAL_KIT)).toList();
+            String shown = product.isEmpty() ? kind : String.join(" ", product);
+            return mealKit ? shown + " (" + MEAL_KIT + ")" : shown;
+        }
+
+        List<String> seasonings = rest.stream().filter(SEASONINGS::contains).toList();
+        List<String> inKind = rest.stream().filter(p -> !SEASONINGS.contains(p) && kind.contains(p)).toList();
+        List<String> others = rest.stream().filter(p -> !SEASONINGS.contains(p) && !kind.contains(p)).toList();
+
+        if (others.isEmpty()) {
+            // 종류가 "파이/만주"처럼 여러 개고 뒤 조각이 그중 하나면 그게 이름 (파이/만주_만주 → 만주)
+            if (inKind.size() == 1 && kind.contains("/")
+                    && Arrays.stream(kind.split("/")).map(String::trim).anyMatch(inKind.get(0)::equals)) {
+                return withDetails(inKind.get(0), List.of(), seasonings);
+            }
+            // 재료가 전부 종류 이름에 들어 있음 (굴무침_무, 감자볶음_감자). 지우면 그냥 "굴무침"과 같아지니 괄호로 남김
+            return withDetails(kind, inKind, seasonings);
+        }
+
+        // 뒤 조각에 종류가 들어 있으면 그 조각이 진짜 이름 (식빵_통밀식빵 → 통밀식빵, 샌드위치_햄샌드위치_치즈 → 햄샌드위치 (치즈))
+        int named = indexContainingKind(others, kind);
+        if (named >= 0) {
+            List<String> extra = new ArrayList<>(others);
+            String main = extra.remove(named);
+            return withDetails(main, extra, seasonings);
+        }
+
+        if (others.size() >= 2) {
+            // 재료가 2개 이상이면 앞에 다 붙이면 길고 어색해서 메뉴판처럼 종류 (재료, 양념)
+            // 골뱅이무침_채소_소면 → 골뱅이무침 (채소, 소면), 달걀_삶은것_노른자 → 달걀 (삶은것, 노른자)
+            return withDetails(kind, others, seasonings);
+        }
+
+        // 재료 하나: 사람이 부르는 순서로 붙임
+        return withDetails(joinIngredient(others.get(0), kind), List.of(), seasonings);
+    }
+
+    // 이름 (재료들, 양념들). 괄호에 넣을 게 없으면 이름만
+    private static String withDetails(String main, List<String> details, List<String> seasonings) {
+        List<String> all = new ArrayList<>(details);
+        all.addAll(seasonings);
+        return all.isEmpty() ? main : main + " (" + String.join(", ", all) + ")";
+    }
+
+    // 재료 + 종류를 한 이름으로. 조각끼리는 붙여 씀 (김치볶음밥)
+    // 단, 조각 안에 원래 띄어쓰기가 있으면 반만 붙어 어색해서 띄어 씀 (아이스 카페모카_카라멜 → 카라멜 아이스 카페모카)
+    // 재료 끝과 종류 앞이 2글자 이상 겹치면 겹친 부분을 한 번만 씀 (버섯볶음_새송이버섯 → 새송이버섯볶음)
+    // 1글자 겹침은 "미음_현미 → 현미음"처럼 틀린 말이 돼서 안 겹침
+    private static String joinIngredient(String ingredient, String kind) {
+        for (int len = Math.min(ingredient.length() - 1, kind.length() - 1); len >= 2; len--) {
+            if (kind.startsWith(ingredient.substring(ingredient.length() - len))) {
+                return ingredient + kind.substring(len);
+            }
+        }
+        String sep = kind.contains(" ") || ingredient.contains(" ") ? " " : "";
+        return ingredient + sep + kind;
+    }
+
+    // 뒤 조각 중 종류 이름이 들어 있는 첫 조각의 위치 (없으면 -1). 종류가 "파이/만주"처럼 여러 개면 하나라도 들어 있으면 됨
+    private static int indexContainingKind(List<String> others, String kind) {
+        String[] kinds = kind.split("/");
+        for (int i = 0; i < others.size(); i++) {
+            String p = others.get(i);
+            if (Arrays.stream(kinds).anyMatch(k -> !k.isBlank() && p.contains(k.trim()))) {
+                return i;
+            }
+        }
+        return -1;
+    }
+}
