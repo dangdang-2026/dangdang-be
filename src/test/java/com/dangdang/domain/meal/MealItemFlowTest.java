@@ -421,6 +421,33 @@ class MealItemFlowTest {
     }
 
     @Test
+    void 같은_시각으로_두_요청이_동시에_와도_하나만_통과하고_하나는_409() throws Exception {
+        Object[] added = addWithMealTime("{\"foodCode\":\"" + JJOLMYEON + "\"}");
+        long itemId = (long) added[0];
+        int threads = 2;
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(threads);
+        java.util.concurrent.CountDownLatch ready = new java.util.concurrent.CountDownLatch(threads);
+        java.util.concurrent.CountDownLatch go = new java.util.concurrent.CountDownLatch(1);
+        java.util.List<java.util.concurrent.Future<Integer>> results = new java.util.ArrayList<>();
+        for (int t = 0; t < threads; t++) {
+            int carb = 40 + t;
+            results.add(pool.submit(() -> {
+                ready.countDown();
+                go.await();   // 둘이 같은 순간에 출발
+                return postNutrition(access, mealId, itemId,
+                                "{\"nutritionOverride\":{\"carbG\":" + carb + "},\"expectedUpdatedAt\":\"" + added[1] + "\"}")
+                        .andReturn().getResponse().getStatus();
+            }));
+        }
+        ready.await();
+        go.countDown();
+        java.util.List<Integer> statuses = new java.util.ArrayList<>();
+        for (java.util.concurrent.Future<Integer> f : results) statuses.add(f.get());
+        pool.shutdown();
+        assertThat(statuses).containsExactlyInAnyOrder(200, 409);   // 잠금이 없으면 둘 다 200이 될 수 있음
+    }
+
+    @Test
     void 그_사이_식사가_바뀌었으면_409() throws Exception {
         Object[] added = addWithMealTime("{\"foodCode\":\"" + JJOLMYEON + "\"}");
         patchItem(access, mealId, (long) added[0], "{\"servings\":2}").andExpect(status().isOk());   // 다른 곳에서 먼저 고침

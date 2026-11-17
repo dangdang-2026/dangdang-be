@@ -86,7 +86,9 @@ public class MealItemService {
         if (req.getNutritionOverride().toNutrition().isEmpty()) {
             throw new CustomException(MealErrorCode.ITEM_NUTRITION_EMPTY);
         }
-        Meal meal = findMyMeal(userId, mealId);
+        // 식사 줄을 잠그고 확인해서, 확인한 뒤 쓰기 전에 다른 요청이 끼어들지 못하게 함 (두 요청이 동시에 와도 하나는 409)
+        Meal meal = mealRepository.findMineForUpdate(mealId, userId)
+                .orElseThrow(() -> new CustomException(MealErrorCode.MEAL_NOT_FOUND));
         if (!sameMoment(meal.getUpdatedAt(), req.getExpectedUpdatedAt())) {
             throw new CustomException(MealErrorCode.MEAL_CHANGED);
         }

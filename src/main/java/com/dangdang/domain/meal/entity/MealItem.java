@@ -35,8 +35,8 @@ public class MealItem extends BaseTimeEntity {
     @Column(length = 30)
     private String foodCode;                 // 식약처 음식이면 코드, 직접 적은 음식이면 null
 
-    @Column(nullable = false, length = 100)
-    private String name;                     // 보이는 이름
+    @Column(nullable = false, length = 150)
+    private String name;                     // 보이는 이름. displayName은 식품명(100자)보다 길어질 수 있어 150자 (직접 적는 이름은 요청에서 100자 제한)
 
     @Column(nullable = false, precision = 4, scale = 2)
     private BigDecimal servings;             // 먹은 양 (인분)

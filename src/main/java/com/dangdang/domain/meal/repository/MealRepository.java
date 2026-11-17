@@ -1,8 +1,10 @@
 package com.dangdang.domain.meal.repository;
 
 import com.dangdang.domain.meal.entity.Meal;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 
@@ -16,6 +18,12 @@ public interface MealRepository extends JpaRepository<Meal, Long> {
 
     // 하나 찾기: 이 id + 내 것 + 삭제 안 된 것만 (아니면 Optional.empty)
     Optional<Meal> findByIdAndUserIdAndDeletedAtIsNull(Long id, Long userId);
+
+    // 하나 찾으면서 이 식사 줄을 잠금 (트랜잭션이 끝날 때까지 다른 요청이 이 식사를 못 바꿈)
+    // 영양값 직접 입력에서 "수정 시각 확인 → 쓰기"를 한 번에 처리하려고 씀. 다른 항목 수정도 touch에서 이 줄을 바꾸므로 순서대로 기다림
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select m from Meal m where m.id = :id and m.user.id = :userId and m.deletedAt is null")
+    Optional<Meal> findMineForUpdate(Long id, Long userId);
 
     // 여러 개 찾기: 이 id들 중 내 것 + 삭제 안 된 것만 (지운 식사는 빠짐)
     List<Meal> findAllByIdInAndUserIdAndDeletedAtIsNull(Collection<Long> ids, Long userId);
