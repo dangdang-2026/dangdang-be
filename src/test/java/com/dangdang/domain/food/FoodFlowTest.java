@@ -19,6 +19,7 @@ import java.time.Instant;
 
 import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.greaterThan;
+import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
@@ -113,11 +114,16 @@ class FoodFlowTest {
 
     @Test
     void 프랜차이즈는_일반_음식_뒤에_나온다() throws Exception {
-        mvc.perform(get("/api/foods").cookie(access).param("q", "피자").param("size", "5"))
+        // 피자 검색 결과 중 프랜차이즈가 아닌 음식은 36개 (피자빵 포함). 프랜차이즈 피자 수천 개보다 전부 먼저 나와야 함
+        mvc.perform(get("/api/foods").cookie(access).param("q", "피자").param("size", "36"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.items", hasSize(5)))
+                .andExpect(jsonPath("$.data.items", hasSize(36)))
                 .andExpect(jsonPath("$.data.items[*].foodCode", everyItem(not(startsWith("D2")))))
+                .andExpect(jsonPath("$.data.items[*].name", hasItem("피자빵")))
                 .andExpect(jsonPath("$.data.hasNext").value(true));
+        mvc.perform(get("/api/foods").cookie(access).param("q", "피자").param("size", "1").param("page", "36"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].foodCode", startsWith("D2")));
     }
 
     @Test
