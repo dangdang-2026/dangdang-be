@@ -1,5 +1,6 @@
 package com.dangdang.domain.meal.dto.request;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
@@ -27,6 +28,7 @@ public class MealItemUpdateRequest {
     @Digits(integer = 4, fraction = 1, message = "먹은 무게는 소수 첫째 자리까지예요.")
     private BigDecimal weightG;
 
+    @JsonIgnore   // 서버 내부 표시라 JSON으로 받지 않음 (안 막으면 "weightGSent": true만 보내도 무게가 지워짐)
     private boolean weightGSent;     // weightG 칸을 보냈는지 (null을 보낸 것도 보낸 것)
 
     @Size(max = 100, message = "음식 이름은 100자까지예요.")

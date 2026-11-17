@@ -262,6 +262,9 @@ class MealItemFlowTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.weightG").value(300))
                 .andExpect(jsonPath("$.data.nutrition.carbG").value(69.8));
+        patchItem(access, mealId, itemId, "{\"servings\":1,\"weightGSent\":true}")   // 내부 칸 이름을 보내도 무게는 안 지워짐
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.weightG").value(300));
         patchItem(access, mealId, itemId, "{\"weightG\":null}")               // null을 보내면 무게를 지움
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.weightG").value(nullValue()))
@@ -395,8 +398,8 @@ class MealItemFlowTest {
     @Test
     void 무게는_안_보내면_그대로_null을_보내면_지운다() throws Exception {
         Object[] added = addWithMealTime("{\"foodCode\":\"" + JJOLMYEON + "\",\"weightG\":300}");
-        String r1 = postNutrition(access, mealId, (long) added[0],
-                        "{\"nutritionOverride\":{\"carbG\":45},\"expectedUpdatedAt\":\"" + added[1] + "\"}")
+        String r1 = postNutrition(access, mealId, (long) added[0],     // 내부 칸 이름(weightGSent)을 보내도 무게는 그대로
+                        "{\"weightGSent\":true,\"nutritionOverride\":{\"carbG\":45},\"expectedUpdatedAt\":\"" + added[1] + "\"}")
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.weightG").value(300))
                 .andReturn().getResponse().getContentAsString();
