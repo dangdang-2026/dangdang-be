@@ -73,6 +73,13 @@ public class MealItemService {
         return MealItemResponse.from(item);
     }
 
+    // 항목 삭제 (soft delete). 이미 지운 항목을 또 지우면 404
+    @Transactional
+    public void delete(Long userId, Long mealId, Long itemId) {
+        findMyItem(userId, mealId, itemId).delete(clock.instant());
+        mealRepository.touch(mealId, clock.instant());   // 항목이 바뀌면 식사도 바뀐 것
+    }
+
     // 내 식사의 살아 있는 항목. 식사·항목이 없거나 남의 것이면 404
     private MealItem findMyItem(Long userId, Long mealId, Long itemId) {
         findMyMeal(userId, mealId);

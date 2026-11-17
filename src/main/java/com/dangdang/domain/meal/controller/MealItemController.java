@@ -65,4 +65,21 @@ public class MealItemController {
         return ResponseEntity.ok(BaseResponse.success(200, "식사 항목을 수정했습니다.",
                 mealItemService.update(principal.userId(), mealId, itemId, request)));
     }
+
+    @Operation(
+            summary = "[ 사용자 | 토큰 O | 식사 항목 삭제 ]",
+            description =
+                    """
+                    **Parameters** mealId, itemId
+                    **Returns** 성공 시 data 없음. 식사 수정 시각(updatedAt)도 바뀜.
+                    식사가 없거나 남의 것이면 MEAL_40401, 항목이 없거나 이미 지워졌거나 다른 식사의 항목이면 MEAL_40402
+                    """)
+    @DeleteMapping("/{itemId}")
+    public ResponseEntity<BaseResponse<Void>> delete(
+            @AuthenticationPrincipal AuthPrincipal principal,
+            @PathVariable Long mealId,
+            @PathVariable Long itemId) {
+        mealItemService.delete(principal.userId(), mealId, itemId);
+        return ResponseEntity.ok(BaseResponse.success(200, "식사 항목을 삭제했습니다.", null));
+    }
 }

@@ -312,8 +312,52 @@ class MealItemFlowTest {
                 .andExpect(jsonPath("$.errorCode").value("MEAL_40402"));
     }
 
+    // ---------- 삭제 ----------
+
+    @Test
+    void 항목을_지우면_지운_시각만_적히고_다시_지우면_404() throws Exception {
+        long itemId = addAndGetId(mealId, "{\"name\":\"떡\"}");
+        Instant past = Instant.parse("2026-01-01T00:00:00Z");
+        jdbc.update("UPDATE meals SET updated_at = ? WHERE id = ?", Timestamp.from(past), mealId);
+
+        mvc.perform(delete("/api/meals/" + mealId + "/items/" + itemId).cookie(access))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").doesNotExist());   // data가 없으면 칸 자체를 안 보냄
+
+        // 줄은 남고 지운 시각만 적힘, 식사 수정 시각도 바뀜
+        Timestamp deletedAt = jdbc.queryForObject("SELECT deleted_at FROM meal_items WHERE id = ?", Timestamp.class, itemId);
+        assertThat(deletedAt).isNotNull();
+        Timestamp updated = jdbc.queryForObject("SELECT updated_at FROM meals WHERE id = ?", Timestamp.class, mealId);
+        assertThat(updated.toInstant()).isAfter(past);
+
+        // 지운 항목은 또 지우거나 고칠 수 없음
+        mvc.perform(delete("/api/meals/" + mealId + "/items/" + itemId).cookie(access))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("MEAL_40402"));
+        patchItem(access, mealId, itemId, "{\"servings\":2}")
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("MEAL_40402"));
+    }
+
+    @Test
+    void 남의_항목이나_다른_식사의_항목은_지울_수_없다() throws Exception {
+        long itemId = addAndGetId(mealId, "{\"name\":\"떡\"}");
+        mvc.perform(delete("/api/meals/" + mealId + "/items/" + itemId).cookie(other))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("MEAL_40401"));
+        long otherMeal = createMeal(access);
+        mvc.perform(delete("/api/meals/" + otherMeal + "/items/" + itemId).cookie(access))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("MEAL_40402"));
+        // 그대로 살아 있음
+        Timestamp deletedAt = jdbc.queryForObject("SELECT deleted_at FROM meal_items WHERE id = ?", Timestamp.class, itemId);
+        assertThat(deletedAt).isNull();
+    }
+
     @Test
     void 로그인_안_하면_401() throws Exception {
+        mvc.perform(delete("/api/meals/" + mealId + "/items/1"))
+                .andExpect(status().isUnauthorized());
         mvc.perform(post("/api/meals/" + mealId + "/items")
                         .contentType(MediaType.APPLICATION_JSON).content("{\"name\":\"떡\"}"))
                 .andExpect(status().isUnauthorized());

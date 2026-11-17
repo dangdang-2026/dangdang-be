@@ -114,6 +114,11 @@ public class MealItem extends BaseTimeEntity {
         if (name != null) this.name = name;
     }
 
+    // 삭제 (soft delete). 줄을 지우지 않고 지운 시각만 적어 둠
+    public void delete(Instant now) {
+        this.deletedAt = now;
+    }
+
     // 직접 적은 음식인지 (식약처 음식을 고른 게 아님)
     public boolean isCustom() {
         return foodCode == null;
