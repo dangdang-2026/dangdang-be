@@ -28,7 +28,7 @@ public record MealItemCreateRequest(
         BigDecimal weightG,          // 직접 잰 무게 (음료는 ml). 보내면 servings 대신 씀
 
         @Valid
-        MealNutritionRequest nutrition) {   // 직접 적은 음식의 영양값 (먹은 양 전체 기준). foodCode와 같이 못 보냄
+        MealNutritionRequest nutrition) {   // 직접 적은 음식의 영양값 (지금 먹은 양 전체 기준, 나중에 양을 바꾸면 비율만큼 바뀜). foodCode와 같이 못 보냄
 
     // 안 보낸 경우 1인분
     public BigDecimal servingsOrDefault() {

@@ -71,7 +71,10 @@ public class MealItem extends BaseTimeEntity {
     private NutritionSource nutritionSource;
 
     @JdbcTypeCode(SqlTypes.JSON)             // DB 칸이 JSONB라서
-    private MealNutrition nutritionOverride; // 직접 적은 영양값 (먹은 양 전체 기준)
+    private MealNutrition nutritionOverride; // 직접 적은 영양값 (적을 때의 먹은 양 전체 기준)
+
+    @Column(precision = 10, scale = 3)
+    private BigDecimal overrideAmount;       // 직접 적을 때의 먹은 양. 나중에 양이 바뀌면 이 비율로 적은 값도 바뀜
 
     private Instant deletedAt;               // null = 살아 있음, 값 있음 = 삭제됨
 
@@ -103,7 +106,10 @@ public class MealItem extends BaseTimeEntity {
         i.weight = weight;
         i.unit = "g";
         i.nutritionSource = NutritionSource.USER;
-        i.nutritionOverride = nutrition == null || nutrition.isEmpty() ? null : nutrition;
+        if (nutrition != null && !nutrition.isEmpty()) {
+            i.nutritionOverride = nutrition;
+            i.overrideAmount = i.eatenAmount();   // 적은 값은 지금 먹은 양 기준
+        }
         return i;
     }
 
@@ -116,16 +122,19 @@ public class MealItem extends BaseTimeEntity {
 
     // 영양값 직접 입력. 적은 칸만 사용자 값으로 쓰고, 안 적은 칸은 계속 공공 값으로 계산함
     // 무게는 바꾸라고 했을 때만 바꿈 (null이면 무게를 지우고 인분으로 계산)
+    // 적은 값은 무게까지 바꾼 뒤의 먹은 양 기준으로 기억함 → 적은 직후엔 적은 값 그대로 (명세: 다시 곱하지 않음)
     public void overrideNutrition(MealNutrition nutrition, boolean changeWeight, BigDecimal weight) {
-        this.nutritionOverride = nutrition;
-        this.nutritionSource = NutritionSource.USER;
         if (changeWeight) this.weight = weight;
+        this.nutritionOverride = nutrition;
+        this.overrideAmount = eatenAmount();
+        this.nutritionSource = NutritionSource.USER;
     }
 
     // 공공 영양값으로 되돌리기. 직접 적은 값을 지우고, 추가할 때 복사해 둔 공공 값으로 다시 계산함
     // 먹은 양(인분·무게)은 그대로. 이미 공공 값이어도 그대로 두면 됨 (여러 번 해도 같음)
     public void revertNutrition() {
         this.nutritionOverride = null;
+        this.overrideAmount = null;
         this.nutritionSource = NutritionSource.DB;
     }
 
@@ -140,16 +149,19 @@ public class MealItem extends BaseTimeEntity {
     }
 
     // 먹은 양 전체의 영양값 (소수 첫째 자리)
-    // 직접 적은 값이 있으면 그 값을 그대로 쓰고, 안 적은 항목만 복사해 둔 공공 값 × 먹은 양으로 계산함
+    // 직접 적은 칸: 적은 값 × (지금 먹은 양 ÷ 적을 때 먹은 양). 적은 뒤 양을 안 바꿨으면 적은 값 그대로
+    //   예) 1인분일 때 탄수화물 40g으로 적고 2인분으로 바꾸면 80g
+    // 안 적은 칸: 복사해 둔 공공 값(100당) × 먹은 양 ÷ 100
     public MealNutrition eatenNutrition() {
-        BigDecimal ratio = eatenAmount().divide(HUNDRED);
+        BigDecimal amount = eatenAmount();
+        BigDecimal ratio = amount.divide(HUNDRED);
         MealNutrition o = nutritionOverride;
         return new MealNutrition(
-                pick(o == null ? null : o.kcal(), kcal, ratio),
-                pick(o == null ? null : o.carbG(), carbG, ratio),
-                pick(o == null ? null : o.proteinG(), proteinG, ratio),
-                pick(o == null ? null : o.fatG(), fatG, ratio),
-                pick(o == null ? null : o.sugarG(), sugarG, ratio));
+                pick(o == null ? null : o.kcal(), kcal, amount, ratio),
+                pick(o == null ? null : o.carbG(), carbG, amount, ratio),
+                pick(o == null ? null : o.proteinG(), proteinG, amount, ratio),
+                pick(o == null ? null : o.fatG(), fatG, amount, ratio),
+                pick(o == null ? null : o.sugarG(), sugarG, amount, ratio));
     }
 
     // 먹은 양 (unit 단위). 잰 무게가 있으면 그것, 없으면 1인분 양(모르면 100) × 인분
@@ -159,8 +171,11 @@ public class MealItem extends BaseTimeEntity {
         return perServing.multiply(servings);
     }
 
-    private static BigDecimal pick(BigDecimal override, BigDecimal per100, BigDecimal ratio) {
-        if (override != null) return override.setScale(1, RoundingMode.HALF_UP);
+    private BigDecimal pick(BigDecimal override, BigDecimal per100, BigDecimal amount, BigDecimal ratio) {
+        if (override != null) {
+            if (overrideAmount == null || overrideAmount.signum() == 0) return override.setScale(1, RoundingMode.HALF_UP);
+            return override.multiply(amount).divide(overrideAmount, 1, RoundingMode.HALF_UP);
+        }
         if (per100 == null) return null;
         return per100.multiply(ratio).setScale(1, RoundingMode.HALF_UP);
     }

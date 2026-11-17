@@ -151,7 +151,7 @@ class MealItemFlowTest {
         long itemId = addAndGetId(mealId, "{\"name\":\"잡채\",\"nutrition\":{\"carbG\":40}}");
         patchItem(access, mealId, itemId, "{\"servings\":2}")
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.nutrition.carbG").value(40.0));     // 직접 적은 값은 먹은 양 전체 기준이라 인분이 바뀌어도 그대로
+                .andExpect(jsonPath("$.data.nutrition.carbG").value(80.0));     // 1인분일 때 40g으로 적었으니 2인분이면 80g
         // 영양값을 하나도 안 적어도 추가는 됨 (전부 모름)
         add(access, mealId, "{\"name\":\"떡\"}")
                 .andExpect(status().isCreated())
@@ -379,6 +379,45 @@ class MealItemFlowTest {
                         "{\"nutritionOverride\":{\"carbG\":55},\"expectedUpdatedAt\":\"" + mealUpdatedAt + "\"}")
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.nutrition.carbG").value(55.0));
+    }
+
+    @Test
+    void 직접_적은_값은_적은_뒤_먹은_양을_바꾸면_그_비율만큼_바뀐다() throws Exception {
+        // 250g일 때 탄수화물 45g으로 적음
+        Object[] added = addWithMealTime("{\"foodCode\":\"" + JJOLMYEON + "\"}");
+        long itemId = (long) added[0];
+        postNutrition(access, mealId, itemId,
+                        "{\"weightG\":250,\"nutritionOverride\":{\"carbG\":45},\"expectedUpdatedAt\":\"" + added[1] + "\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.nutrition.carbG").value(45.0));           // 적은 직후엔 그대로 (다시 곱하지 않음)
+        // 500g으로 바꾸면 두 배
+        patchItem(access, mealId, itemId, "{\"weightG\":500}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.nutrition.carbG").value(90.0))
+                .andExpect(jsonPath("$.data.nutrition.kcal").value(645.0))            // 안 적은 칸은 원래대로 공공 값 × 500g
+                .andExpect(jsonPath("$.data.nutritionOverride.carbG").value(45));     // 적은 값 자체는 그대로 기억
+        // 무게를 지우고 반 인분(275g)이면 45 × 275 / 250
+        patchItem(access, mealId, itemId, "{\"weightG\":null,\"servings\":0.5}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.nutrition.carbG").value(49.5));
+    }
+
+    @Test
+    void 되돌린_뒤_다시_적으면_그때_먹은_양이_새_기준이_된다() throws Exception {
+        Object[] added = addWithMealTime("{\"foodCode\":\"" + JJOLMYEON + "\",\"servings\":2}");
+        long itemId = (long) added[0];
+        String r1 = postNutrition(access, mealId, itemId,
+                        "{\"nutritionOverride\":{\"carbG\":100},\"expectedUpdatedAt\":\"" + added[1] + "\"}")
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        revert(access, mealId, itemId).andExpect(status().isOk());
+        patchItem(access, mealId, itemId, "{\"servings\":1}").andExpect(status().isOk());
+        String meal = mvc.perform(get("/api/meals/" + mealId).cookie(access)).andReturn().getResponse().getContentAsString();
+        postNutrition(access, mealId, itemId,
+                        "{\"nutritionOverride\":{\"carbG\":60},\"expectedUpdatedAt\":\"" + JsonPath.read(meal, "$.data.updatedAt") + "\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.nutrition.carbG").value(60.0));           // 1인분 기준으로 새로 적음
+        assertThat(r1).contains("\"carbG\":100");
     }
 
     @Test

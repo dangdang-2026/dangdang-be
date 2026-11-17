@@ -30,7 +30,7 @@ public class MealItemController {
                     """
                     **Parameters** mealId, foodCode(식약처 음식을 고를 때) 또는 name(직접 적을 때, 100자) 중 하나만,
                     servings(먹은 양 인분, 기본 1, 0 초과 20 이하), weightG(직접 잰 무게, 음료는 ml, 보내면 servings 대신 씀),
-                    nutrition{kcal, carbG, proteinG, fatG, sugarG}(직접 적은 음식만, 먹은 양 전체 기준, 모르는 칸은 생략)
+                    nutrition{kcal, carbG, proteinG, fatG, sugarG}(직접 적은 음식만, 지금 먹은 양 전체 기준 — 나중에 양을 바꾸면 비율만큼 바뀜, 모르는 칸은 생략)
                     **Returns** itemId, mealId, foodCode, name, servings, weightG, unit(g·ml), nutritionSource(DB·USER),
                     nutrition(먹은 양 전체의 영양값, 모르는 값은 null), nutritionOverride(직접 적은 값만, 없으면 null), createdAt, updatedAt,
                     mealUpdatedAt(바뀐 뒤 식사 수정 시각 — 영양값 직접 입력의 expectedUpdatedAt으로 씀).
@@ -72,7 +72,7 @@ public class MealItemController {
             summary = "[ 사용자 | 토큰 O | 식사 항목 영양값 직접 입력 ]",
             description =
                     """
-                    **Parameters** mealId, itemId, nutritionOverride{kcal, carbG, proteinG, fatG, sugarG}(필수, 최소 1칸, 0 이상, 소수 첫째 자리, 먹은 양 전체 기준),
+                    **Parameters** mealId, itemId, nutritionOverride{kcal, carbG, proteinG, fatG, sugarG}(필수, 최소 1칸, 0 이상, 소수 첫째 자리, 이번에 적는 먹은 양 전체 기준 — 나중에 양을 바꾸면 비율만큼 바뀜),
                     weightG(선택, 영양성분표 기준 무게. null을 보내면 무게를 지움, 안 보내면 그대로),
                     expectedUpdatedAt(필수, 화면을 열 때 받은 식사 updatedAt 또는 항목 응답의 mealUpdatedAt)
                     **Returns** 바뀐 항목. nutritionSource=USER, nutrition은 적은 칸은 그 값, 안 적은 칸은 공공 값 × 먹은 양.

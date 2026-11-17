@@ -29,7 +29,7 @@ public class MealItemNutritionRequest {
 
     @NotNull(message = "직접 적을 영양값을 보내 주세요.")
     @Valid
-    private MealNutritionRequest nutritionOverride;   // 먹은 양 전체 기준. 적은 칸만 바뀌고 안 적은 칸은 공공 값으로 계산
+    private MealNutritionRequest nutritionOverride;   // 이번에 적는 먹은 양 전체 기준 (나중에 양을 바꾸면 비율만큼 바뀜). 적은 칸만 바뀌고 안 적은 칸은 공공 값으로 계산
 
     @NotNull(message = "식사의 마지막 수정 시각(expectedUpdatedAt)을 보내 주세요.")
     private Instant expectedUpdatedAt;    // 화면을 열 때 받은 식사 updatedAt. 그 사이 다른 곳에서 바뀌었으면 409

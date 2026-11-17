@@ -4,6 +4,7 @@
 -- 직접 적은 음식이면 food_code와 복사한 영양값은 null, 사용자가 적은 값은 nutrition_override에 둠
 -- 먹은 양: weight가 있으면 그 무게, 없으면 1인분 양(serving_amount, 모르면 100) × servings
 --   먹은 영양값 = 100당 값 × 먹은 양 ÷ 100
+--   직접 적은 값은 적을 때의 먹은 양(override_amount) 기준이라, 양을 바꾸면 그 비율만큼 바뀜 (1인분 40g → 2인분 80g)
 CREATE TABLE meal_items (
    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
    meal_id BIGINT NOT NULL REFERENCES meals(id) ON DELETE CASCADE,
@@ -20,7 +21,8 @@ CREATE TABLE meal_items (
    protein_g NUMERIC(7,2),
    fat_g NUMERIC(7,2),
    nutrition_source VARCHAR(4) NOT NULL CHECK (nutrition_source IN ('DB', 'USER')), -- DB 공공 값 / USER 직접 고친 값
-   nutrition_override JSONB,                        -- 직접 적은 영양값 {kcal, carbG, sugarG, proteinG, fatG}. 먹은 양 전체 기준
+   nutrition_override JSONB,                        -- 직접 적은 영양값 {kcal, carbG, sugarG, proteinG, fatG}. 적을 때 먹은 양 전체 기준
+   override_amount NUMERIC(10,3),                   -- 직접 적을 때의 먹은 양. 나중에 양을 바꾸면 적은 값 × (지금 먹은 양 ÷ 이 양)으로 늘리거나 줄임
    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
    deleted_at TIMESTAMPTZ                           -- null = 살아 있음 (식사처럼 지운 시각만 적음)

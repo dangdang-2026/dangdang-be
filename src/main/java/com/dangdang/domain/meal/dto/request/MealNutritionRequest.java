@@ -7,7 +7,7 @@ import jakarta.validation.constraints.Digits;
 
 import java.math.BigDecimal;
 
-// 직접 적는 영양값 (먹은 양 전체 기준, g · kcal). 모르는 칸은 안 보내면 됨
+// 직접 적는 영양값 (적는 그때의 먹은 양 전체 기준, g · kcal). 모르는 칸은 안 보내면 됨
 public record MealNutritionRequest(
         @DecimalMin(value = "0", message = "영양값은 0 이상이에요.")
         @DecimalMax(value = "9999.9", message = "영양값은 9999.9까지예요.")
