@@ -11,6 +11,7 @@ import org.hibernate.annotations.Immutable;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
@@ -73,7 +74,8 @@ public class Food {
     private static final Set<String> SEASONINGS = Set.of("간장", "소금", "된장", "고추장", "고춧가루", "양념");
 
     // 화면에 보여 줄 이름. 식약처 이름은 "종류_재료" 순서라서 사람이 부르는 순서로 바꿈
-    //   볶음밥_김치 → 김치 볶음밥 / 샌드위치_햄_치즈 → 햄 치즈 샌드위치
+    //   재료 하나: 볶음밥_김치 → 김치 볶음밥
+    //   재료 둘 이상: 샌드위치_햄_치즈 → 샌드위치 (햄, 치즈) (앞에 다 붙이면 "햄 치즈 채소 샌드위치"처럼 길어져서)
     //   뒤 조각에 종류가 이미 들어 있으면 뒤 조각만: 식빵_통밀식빵 → 통밀식빵, 파이/만주_사과파이 → 사과파이
     //   종류에 이미 든 조각은 뺌: 부추무침_부추_채소 → 채소 부추무침
     //   2글자 이상 겹치면 한 단어로: 버섯볶음_새송이버섯 → 새송이버섯볶음
@@ -98,6 +100,13 @@ public class Food {
         List<String> seasonings = rest.stream().filter(SEASONINGS::contains).toList();
         // 종류 이름에 이미 들어 있는 조각은 뺌 (부추무침_부추_채소 → 채소 부추무침, "부추"가 두 번 안 나오게)
         List<String> others = rest.stream().filter(p -> !SEASONINGS.contains(p) && !kind.contains(p)).toList();
+        if (others.size() >= 2 && !containsKind(others, kind)) {
+            // 재료가 2개 이상이면 앞에 다 붙이면 길고 어색해서 메뉴판처럼 종류 (재료, 양념)
+            // 골뱅이무침_채소_소면 → 골뱅이무침 (채소, 소면), 달걀_삶은것_노른자 → 달걀 (삶은것, 노른자)
+            List<String> details = new ArrayList<>(others);
+            details.addAll(seasonings);
+            return kind + " (" + String.join(", ", details) + ")";
+        }
         String core;
         if (others.isEmpty()) {
             core = kind;
