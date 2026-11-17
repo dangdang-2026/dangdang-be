@@ -1,6 +1,7 @@
 package com.dangdang.domain.food.dto.response;
 
 import com.dangdang.domain.food.entity.Food;
+import com.dangdang.domain.food.enums.FoodOrigin;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -12,6 +13,8 @@ import java.time.LocalDate;
 public record FoodResponse(
         String foodCode,
         String name,
+        FoodOrigin origin,          // 어디 기준 값인지 (HOME 가정식 / RESTAURANT 외식 / MEAL_SERVICE 급식 / FRANCHISE 프랜차이즈). 같은 이름이 여러 줄일 때 구분용
+        String maker,               // 업체명 (프랜차이즈만, 나머지 null)
         BigDecimal servingG,        // 1인분 양. 이름은 명세대로 servingG지만 단위는 servingUnit을 봐야 함
         String servingUnit,         // g / ml
         BigDecimal kcal,
@@ -28,6 +31,8 @@ public record FoodResponse(
         return new FoodResponse(
                 f.getFoodCode(),
                 f.getName(),
+                FoodOrigin.fromCode(f.getOrigin()),
+                f.getMaker(),
                 serving,
                 f.getBaseUnit(),
                 perServing(f.getKcal(), serving),
