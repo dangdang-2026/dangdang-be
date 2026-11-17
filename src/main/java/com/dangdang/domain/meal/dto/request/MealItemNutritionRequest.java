@@ -40,12 +40,10 @@ public class MealItemNutritionRequest {
         this.weightGSent = true;
     }
 
-    @JsonProperty("nutritionOverride")
     public void setNutritionOverride(MealNutritionRequest nutritionOverride) {
         this.nutritionOverride = nutritionOverride;
     }
 
-    @JsonProperty("expectedUpdatedAt")
     public void setExpectedUpdatedAt(Instant expectedUpdatedAt) {
         this.expectedUpdatedAt = expectedUpdatedAt;
     }

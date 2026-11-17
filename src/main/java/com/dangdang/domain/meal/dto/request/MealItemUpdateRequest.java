@@ -34,7 +34,6 @@ public class MealItemUpdateRequest {
     @Size(max = 100, message = "음식 이름은 100자까지예요.")
     private String name;             // 직접 적은 음식만 바꿀 수 있음
 
-    @JsonProperty("servings")
     public void setServings(BigDecimal servings) {
         this.servings = servings;
     }
@@ -45,7 +44,6 @@ public class MealItemUpdateRequest {
         this.weightGSent = true;
     }
 
-    @JsonProperty("name")
     public void setName(String name) {
         this.name = name;
     }

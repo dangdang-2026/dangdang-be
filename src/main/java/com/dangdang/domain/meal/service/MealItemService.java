@@ -19,6 +19,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Collection;
@@ -87,8 +88,7 @@ public class MealItemService {
             throw new CustomException(MealErrorCode.ITEM_NUTRITION_EMPTY);
         }
         // 식사 줄을 잠그고 확인해서, 확인한 뒤 쓰기 전에 다른 요청이 끼어들지 못하게 함 (두 요청이 동시에 와도 하나는 409)
-        Meal meal = mealRepository.findMineForUpdate(mealId, userId)
-                .orElseThrow(() -> new CustomException(MealErrorCode.MEAL_NOT_FOUND));
+        Meal meal = findMyMeal(userId, mealId);
         if (!sameMoment(meal.getUpdatedAt(), req.getExpectedUpdatedAt())) {
             throw new CustomException(MealErrorCode.MEAL_CHANGED);
         }
@@ -106,7 +106,10 @@ public class MealItemService {
         if (item.isCustom()) {
             throw new CustomException(MealErrorCode.NO_PUBLIC_NUTRITION);
         }
-        item.revertNutrition();
+        if (!item.revertNutrition()) {
+            // 이미 공공 값이라 바뀐 게 없음 → 식사 수정 시각도 그대로 (다른 기기가 괜히 409를 받지 않게)
+            return MealItemResponse.from(item, item.getMeal().getUpdatedAt());
+        }
         return MealItemResponse.from(item, touchMeal(mealId));
     }
 
@@ -142,9 +145,11 @@ public class MealItemService {
         return now;
     }
 
-    // 두 시각이 같은지 밀리초까지 비교 (DB·JSON을 거치며 마이크로초 아래 자릿수가 달라질 수 있어서)
+    // 두 시각이 같은지 (1밀리초 안쪽 차이는 같다고 봄)
+    // 식사 수정 응답의 updatedAt은 메모리 값(나노초)이고 DB는 마이크로초로 반올림해 저장해서, 아래 자릿수가 조금 다를 수 있음
+    //   밀리초로 잘라 비교하면 반올림이 밀리초 경계를 넘을 때 멀쩡한 요청도 409가 남
     private static boolean sameMoment(Instant a, Instant b) {
-        return a.truncatedTo(ChronoUnit.MILLIS).equals(b.truncatedTo(ChronoUnit.MILLIS));
+        return Duration.between(a, b).abs().compareTo(Duration.ofMillis(1)) < 0;
     }
 
     // 내 식사의 살아 있는 항목. 식사·항목이 없거나 남의 것이면 404
@@ -159,9 +164,12 @@ public class MealItemService {
                 .orElseThrow(() -> new CustomException(MealErrorCode.ITEM_NOT_FOUND));
     }
 
-    // 내 식사 + 삭제 안 된 것만. 없음·삭제됨·남의 것은 전부 404
+    // 내 식사 + 삭제 안 된 것만, 이 식사 줄을 잠그면서 찾음. 없음·삭제됨·남의 것은 전부 404
+    // 항목을 바꾸는 요청은 모두 "식사 잠금 → 항목 변경" 순서로 잠가서, 요청끼리 서로 기다리다 막히는 일(데드락)이 없음
+    //   잠금 순서가 섞이면 같은 항목에 수정과 영양값 입력이 동시에 올 때 DB가 한쪽을 끊어서 500이 남
+    // 식사를 지우는 요청과도 순서대로 처리돼서, 지운 식사에 새 항목이 붙지 않음
     private Meal findMyMeal(Long userId, Long mealId) {
-        return mealRepository.findByIdAndUserIdAndDeletedAtIsNull(mealId, userId)
+        return mealRepository.findMineForUpdate(mealId, userId)
                 .orElseThrow(() -> new CustomException(MealErrorCode.MEAL_NOT_FOUND));
     }
 }

@@ -258,17 +258,38 @@ class MealItemFlowTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.weightG").value(300))
                 .andExpect(jsonPath("$.data.nutrition.carbG").value(69.8));    // 300g
-        patchItem(access, mealId, itemId, "{\"servings\":1}")                 // 무게를 안 보내면 무게는 그대로
+        patchItem(access, mealId, itemId, "{\"servings\":2,\"weightGSent\":true}")   // 내부 칸 이름을 보내도 무게는 안 지워짐 (인분은 그대로 2라 무게도 그대로)
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.weightG").value(300))
-                .andExpect(jsonPath("$.data.nutrition.carbG").value(69.8));
-        patchItem(access, mealId, itemId, "{\"servings\":1,\"weightGSent\":true}")   // 내부 칸 이름을 보내도 무게는 안 지워짐
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.weightG").value(300));
+                .andExpect(jsonPath("$.data.weightG").value(300.0));
         patchItem(access, mealId, itemId, "{\"weightG\":null}")               // null을 보내면 무게를 지움
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.weightG").value(nullValue()))
-                .andExpect(jsonPath("$.data.nutrition.carbG").value(127.9));   // 1인분 550g
+                .andExpect(jsonPath("$.data.nutrition.carbG").value(255.9));   // 2인분 1100g
+    }
+
+    @Test
+    void 무게가_있는데_인분만_바꾸면_무게도_같은_비율로_바뀐다() throws Exception {
+        long itemId = addAndGetId(mealId, "{\"foodCode\":\"" + JJOLMYEON + "\",\"weightG\":300}");   // 1인분, 잰 무게 300g
+        patchItem(access, mealId, itemId, "{\"servings\":2}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.servings").value(2))
+                .andExpect(jsonPath("$.data.weightG").value(600.0))                   // 300 × 2 / 1
+                .andExpect(jsonPath("$.data.nutrition.carbG").value(139.6));          // 23.26 × 6
+        patchItem(access, mealId, itemId, "{\"servings\":0.5}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.weightG").value(150.0));                  // 600 × 0.5 / 2
+        // 인분과 무게를 같이 보내면 보낸 값 그대로
+        patchItem(access, mealId, itemId, "{\"servings\":3,\"weightG\":250}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.servings").value(3))
+                .andExpect(jsonPath("$.data.weightG").value(250))
+                .andExpect(jsonPath("$.data.nutrition.carbG").value(58.2));           // 23.26 × 2.5
+        // 무게가 없는 항목은 지금처럼 인분으로만 계산
+        long noWeight = addAndGetId(mealId, "{\"foodCode\":\"" + JJOLMYEON + "\"}");
+        patchItem(access, mealId, noWeight, "{\"servings\":2}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.weightG").value(nullValue()))
+                .andExpect(jsonPath("$.data.nutrition.carbG").value(255.9));
     }
 
     @Test
@@ -530,10 +551,59 @@ class MealItemFlowTest {
                 .andExpect(jsonPath("$.data.servings").value(2))                       // 먹은 양은 그대로
                 .andExpect(jsonPath("$.data.nutrition.carbG").value(255.9));           // 23.26 × 1100 / 100
 
-        // 이미 공공 값이어도 다시 하면 200
-        revert(access, mealId, (long) added[0])
+        // 이미 공공 값이어도 다시 하면 200. 바뀐 게 없으니 식사 수정 시각도 그대로 (다른 기기가 괜히 409를 받지 않게)
+        Timestamp before = jdbc.queryForObject("SELECT updated_at FROM meals WHERE id = ?", Timestamp.class, mealId);
+        String again = revert(access, mealId, (long) added[0])
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.nutritionSource").value("DB"));
+                .andExpect(jsonPath("$.data.nutritionSource").value("DB"))
+                .andReturn().getResponse().getContentAsString();
+        Timestamp after = jdbc.queryForObject("SELECT updated_at FROM meals WHERE id = ?", Timestamp.class, mealId);
+        assertThat(after).isEqualTo(before);
+        assertThat(Instant.parse(JsonPath.read(again, "$.data.mealUpdatedAt"))).isEqualTo(before.toInstant());
+    }
+
+    @Test
+    void 음식_항목만_바꾼_식사는_기록_화면에서_수정됨이_아니다() throws Exception {
+        long itemId = addAndGetId(mealId, "{\"foodCode\":\"" + JJOLMYEON + "\"}");
+        patchItem(access, mealId, itemId, "{\"servings\":2}").andExpect(status().isOk());
+        String today = java.time.LocalDate.now(com.dangdang.global.config.ClockConfig.KST).toString();
+        String yesterday = java.time.LocalDate.now(com.dangdang.global.config.ClockConfig.KST).minusDays(1).toString();
+        mvc.perform(get("/api/records").cookie(access).param("from", yesterday).param("to", today))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.days[*].events[?(@.type == 'MEAL' && @.id == " + mealId + ")].modified",
+                        contains(false)));
+        // 식사 자체(메모)를 고치면 수정됨
+        mvc.perform(patch("/api/meals/" + mealId).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"note\":\"점심\"}"))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/records").cookie(access).param("from", yesterday).param("to", today))
+                .andExpect(jsonPath("$.data.days[*].events[?(@.type == 'MEAL' && @.id == " + mealId + ")].modified",
+                        contains(true)));
+    }
+
+    @Test
+    void 같은_항목에_수정과_영양값_입력이_동시에_와도_500이_나지_않는다() throws Exception {
+        // 잠그는 순서가 섞이면 DB가 한쪽을 끊어서(데드락) 500이 남. 지금은 둘 다 식사부터 잠가서 차례로 처리됨
+        for (int round = 0; round < 5; round++) {
+            Object[] added = addWithMealTime("{\"foodCode\":\"" + JJOLMYEON + "\"}");
+            long itemId = (long) added[0];
+            java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(2);
+            java.util.concurrent.CountDownLatch go = new java.util.concurrent.CountDownLatch(1);
+            java.util.concurrent.Future<Integer> patchResult = pool.submit(() -> {
+                go.await();
+                return patchItem(access, mealId, itemId, "{\"servings\":2}").andReturn().getResponse().getStatus();
+            });
+            java.util.concurrent.Future<Integer> nutritionResult = pool.submit(() -> {
+                go.await();
+                return postNutrition(access, mealId, itemId,
+                                "{\"nutritionOverride\":{\"carbG\":40},\"expectedUpdatedAt\":\"" + added[1] + "\"}")
+                        .andReturn().getResponse().getStatus();
+            });
+            go.countDown();
+            assertThat(patchResult.get()).isEqualTo(200);
+            assertThat(nutritionResult.get()).isIn(200, 409);   // 수정이 먼저 끝나면 409, 아니면 200. 500은 안 됨
+            pool.shutdown();
+        }
     }
 
     @Test

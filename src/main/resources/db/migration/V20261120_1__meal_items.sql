@@ -8,7 +8,8 @@
 CREATE TABLE meal_items (
    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
    meal_id BIGINT NOT NULL REFERENCES meals(id) ON DELETE CASCADE,
-   food_code VARCHAR(30) REFERENCES foods(food_code), -- 식약처 음식이면 코드, 직접 적은 음식이면 null
+   food_code VARCHAR(30),                           -- 식약처 음식이면 코드, 직접 적은 음식이면 null
+                                                    -- 영양값은 아래에 복사해 두므로 foods에 외래키를 걸지 않음 (식약처 데이터를 새로 넣을 때 기록이 막지 않게)
    name VARCHAR(150) NOT NULL,                      -- 보이는 이름 (고른 그때의 displayName 또는 직접 적은 이름, 직접 적는 건 100자까지)
                                                     -- displayName은 괄호·"(간편조리세트)"가 붙어 식품명(100자)보다 길어질 수 있어서 여유를 둠
    servings NUMERIC(4,2) NOT NULL DEFAULT 1 CHECK (servings > 0), -- 먹은 양 (인분)

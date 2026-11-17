@@ -114,9 +114,15 @@ public class MealItem extends BaseTimeEntity {
     }
 
     // 수정. servings·name은 null이면 그대로, weight는 바꾸라고 했을 때만 바꿈 (null이면 무게를 지우고 인분으로 계산)
+    // 무게가 있는 항목에서 인분만 바꾸면 무게도 같은 비율로 바꿈 (1인분 300g → 2인분이면 600g)
+    //   무게가 있으면 영양값은 무게로 계산해서, 무게를 안 바꾸면 "2인분"인데 1인분 값이 나옴
     public void update(BigDecimal servings, boolean changeWeight, BigDecimal weight, String name) {
+        if (changeWeight) {
+            this.weight = weight;
+        } else if (servings != null && this.weight != null && this.servings.signum() > 0) {
+            this.weight = this.weight.multiply(servings).divide(this.servings, 1, RoundingMode.HALF_UP);
+        }
         if (servings != null) this.servings = servings;
-        if (changeWeight) this.weight = weight;
         if (name != null) this.name = name;
     }
 
@@ -131,11 +137,15 @@ public class MealItem extends BaseTimeEntity {
     }
 
     // 공공 영양값으로 되돌리기. 직접 적은 값을 지우고, 추가할 때 복사해 둔 공공 값으로 다시 계산함
-    // 먹은 양(인분·무게)은 그대로. 이미 공공 값이어도 그대로 두면 됨 (여러 번 해도 같음)
-    public void revertNutrition() {
+    // 먹은 양(인분·무게)은 그대로. 이미 공공 값이면 아무것도 안 바꾸고 false (여러 번 해도 같음)
+    public boolean revertNutrition() {
+        if (nutritionSource == NutritionSource.DB && nutritionOverride == null) {
+            return false;
+        }
         this.nutritionOverride = null;
         this.overrideAmount = null;
         this.nutritionSource = NutritionSource.DB;
+        return true;
     }
 
     // 삭제 (soft delete). 줄을 지우지 않고 지운 시각만 적어 둠
