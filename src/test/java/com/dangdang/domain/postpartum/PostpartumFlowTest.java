@@ -254,6 +254,25 @@ class PostpartumFlowTest extends ReminderTestBase {
     }
 
     @Test
+    void 한_사람_발송이_터져도_다른_사람은_받고_같은_알림이_다시_가지_않는다() throws Exception {
+        subscribe(minjiId, ENDPOINT_B);
+        fakeSender.explodes.add(ENDPOINT_B);                     // 민지 기기만 푸시 서버 오류
+        deliver(minji, "2026-11-01");
+        deliver(jisu, "2026-11-01");
+        addTest(minji, "당화혈색소", "2026-11-09");
+        addTest(jisu, "당화혈색소", "2026-11-09");
+
+        scheduler.run();
+        scheduler.run();                                         // 30초 뒤 한 바퀴 더
+
+        assertThat(fakeSender.sent).hasSize(1);                  // 지수만, 한 번만
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM postpartum_tests WHERE same_day_sent_at IS NULL",
+                Integer.class)).isZero();                        // 둘 다 처리됨 (되돌아가지 않음)
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM notifications WHERE type = 'POSTPARTUM'", Integer.class))
+                .isEqualTo(2);                                   // 알림함에는 둘 다
+    }
+
+    @Test
     void 날짜를_바꾸면_알림을_다시_보낸다() throws Exception {
         deliver(jisu, "2026-11-01");
         Long id = addTest(jisu, "당화혈색소", "2026-11-09");
