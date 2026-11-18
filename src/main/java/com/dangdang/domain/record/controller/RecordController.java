@@ -31,7 +31,7 @@ public class RecordController {
                     **Parameters** from·to(한국 날짜 yyyy-MM-dd, 필수, 둘 다 포함, 최대 31일)
                     **Returns** 날짜별 days[]. 기록 없는 날도 events=[]로 들어감. events는 시각 오래된 순이고
                     type=READING이면 reading, type=MEAL이면 meal 칸만 들어감. modified는 저장 후 고친 적이 있는지.
-                    meal.items는 음식 항목 기능 전이라 항상 []. 날짜 형식이 틀리거나 from > to 거나 31일 넘으면 GLOBAL_40001
+                    meal.items는 먹은 음식 목록(추가한 순서, 지운 항목 빼고, 없으면 []). 날짜 형식이 틀리거나 from > to 거나 31일 넘으면 GLOBAL_40001
                     """)
     @GetMapping
     public ResponseEntity<BaseResponse<RecordsResponse>> records(

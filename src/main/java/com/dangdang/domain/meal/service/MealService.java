@@ -32,6 +32,7 @@ public class MealService {
     private final MealRepository mealRepository;
     private final UserRepository userRepository;
     private final ReminderService reminderService;
+    private final MealItemService mealItemService;
     private final Clock clock;
 
     private static final int MAX_PAGE_SIZE = 100;
@@ -45,12 +46,12 @@ public class MealService {
                 user, req.mealSlot(), req.startedAt(), req.isStartedOffline(), req.note()));
         // 식후 측정 알림 예약. 간식이거나 병원 기준(식후 n분·잴 때)이 없으면 예약 안 함
         reminderService.scheduleAfterMeal(userId, saved.getId(), saved.getMealSlot(), saved.getStartedAt());
-        return MealResponse.from(saved);
+        return MealResponse.from(saved, List.of());   // 방금 만든 식사라 항목 없음
     }
 
     // 상세
     public MealResponse get(Long userId, Long mealId) {
-        return MealResponse.from(findMine(userId, mealId));
+        return MealResponse.from(findMine(userId, mealId), mealItemService.itemsOf(mealId));
     }
 
     // 목록 (기간 + 커서). from·to는 한국 날짜, 둘 다 포함. 첫 페이지는 cursorAt·cursorId 없이 부름
@@ -72,7 +73,8 @@ public class MealService {
         // 하나 더 받아서 다음 페이지가 있는지 확인함 (count 쿼리 안 씀)
         List<Meal> fetched = mealRepository.findPage(
                 userId, fromAt, afterAt, afterId, Limit.of(pageSize + 1));
-        return MealPageResponse.of(fetched, pageSize);
+        return MealPageResponse.of(fetched, pageSize,
+                mealItemService.itemsByMeal(fetched.stream().map(Meal::getId).toList()));   // 항목은 한 번에 읽음
     }
 
     // 수정 (보낸 칸만)
@@ -84,13 +86,13 @@ public class MealService {
         Meal meal = findMine(userId, mealId);
         boolean timingChanged = (req.mealSlot() != null && req.mealSlot() != meal.getMealSlot())
                 || (req.startedAt() != null && !req.startedAt().equals(meal.getStartedAt()));
-        meal.update(req.mealSlot(), req.startedAt(), req.note());
+        meal.update(req.mealSlot(), req.startedAt(), req.note(), clock.instant());
         if (timingChanged) {   // 끼니나 시작 시각이 바뀌면 알림 시각·종류도 바뀜. 메모만 바꾸면 그대로 둠
             reminderService.rescheduleAfterMeal(userId, mealId, meal.getMealSlot(), meal.getStartedAt());
         }
         // 변경 감지로 트랜잭션 끝날 때 반영되지만, 응답에 새 updatedAt을 담으려고 먼저 DB에 씀
         mealRepository.flush();
-        return MealResponse.from(meal);
+        return MealResponse.from(meal, mealItemService.itemsOf(mealId));
     }
 
     // 삭제 (soft delete). 이미 지운 식사를 또 지우면 findMine에서 404
