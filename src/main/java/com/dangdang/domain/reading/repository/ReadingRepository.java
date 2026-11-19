@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -64,6 +65,10 @@ public interface ReadingRepository extends JpaRepository<Reading, Long> {
               and r.measuredAt < :to
             """)
     List<Instant> findMeasuredAtsInRange(Long userId, Instant from, Instant to);
+
+    // 여러 식사에 연결된(meal_id) 내 혈당을 한 번에 (같은 음식 지난 기록용). 잰 시각 순
+    // 시간이 가깝다고 붙이지 않고 meal_id로 연결된 것만 씀
+    List<Reading> findAllByUserIdAndMealIdInAndDeletedAtIsNullOrderByMeasuredAtAscIdAsc(Long userId, Collection<Long> mealIds);
 
     // 가장 처음 잰 시각 (기록이 하나도 없으면 null)
     @Query("""

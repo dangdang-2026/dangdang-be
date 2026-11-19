@@ -15,4 +15,7 @@ public interface MealItemRepository extends JpaRepository<MealItem, Long> {
 
     // 여러 식사의 살아 있는 항목을 한 번에 (식사마다 따로 조회하지 않게). 추가한 순서대로
     List<MealItem> findAllByMealIdInAndDeletedAtIsNullOrderByIdAsc(Collection<Long> mealIds);
+
+    // 여러 식사의 살아 있는 항목 중 이 음식(foodCode)만 한 번에 (같은 음식 지난 기록용). 추가한 순서대로
+    List<MealItem> findAllByMealIdInAndFoodCodeAndDeletedAtIsNullOrderByIdAsc(Collection<Long> mealIds, String foodCode);
 }
