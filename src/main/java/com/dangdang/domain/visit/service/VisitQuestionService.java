@@ -33,13 +33,12 @@ public class VisitQuestionService {
                 .toList();
     }
 
-    // 등록. source는 항상 USER (클라이언트가 정하지 않음). 정렬 순서를 안 보내면 맨 뒤
+    // 등록. source는 항상 USER (클라이언트가 정하지 않음)
+    // 정렬 순서를 안 보내면 맨 뒤 = 지금 가장 큰 정렬 순서 + 1 (개수로 정하면 앞 질문이 10처럼 큰 값일 때 그 앞에 끼어듦)
     @Transactional
     public VisitQuestionResponse create(Long userId, Long visitId, VisitQuestionCreateRequest req) {
         Visit visit = visitService.findMine(userId, visitId);
-        int sortOrder = req.sortOrder() != null
-                ? req.sortOrder()
-                : (int) visitQuestionRepository.countByVisitIdAndDeletedAtIsNull(visitId);
+        int sortOrder = req.sortOrder() != null ? req.sortOrder() : nextSortOrder(visitId);
         VisitQuestion saved = visitQuestionRepository.saveAndFlush(
                 VisitQuestion.ofUser(visit, req.trimmedContent(), sortOrder));
         return VisitQuestionResponse.from(saved);
@@ -54,5 +53,11 @@ public class VisitQuestionService {
                 .orElseThrow(() -> new CustomException(VisitErrorCode.QUESTION_NOT_FOUND));
         question.delete(clock.instant());   // 변경 감지로 트랜잭션 끝날 때 반영됨
         return VisitQuestionDeleteResponse.from(question);
+    }
+
+    // 맨 뒤 정렬 순서. 가장 큰 값이 int 끝이면 +1 하면 음수가 되니 그대로 씀 (같은 값이면 먼저 만든 순이라 그래도 맨 뒤)
+    private int nextSortOrder(Long visitId) {
+        int max = visitQuestionRepository.findMaxSortOrder(visitId);
+        return max == Integer.MAX_VALUE ? max : max + 1;
     }
 }

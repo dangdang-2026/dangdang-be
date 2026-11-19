@@ -92,6 +92,19 @@ class VisitFlowTest {
                 .andExpect(jsonPath("$.errorCode").value("CARE_SITE_40401"));
     }
 
+    @Test
+    void 진료_날짜가_2000년에서_2100년_밖이면_400() throws Exception {
+        create(access, "{\"visitAt\":\"+300000-01-01T00:00:00Z\"}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("GLOBAL_40001"));
+        create(access, "{\"visitAt\":\"1999-12-31T09:00:00+09:00\"}").andExpect(status().isBadRequest());
+        create(access, "{\"visitAt\":\"2101-01-01T09:00:00+09:00\"}").andExpect(status().isBadRequest());
+        create(access, "{\"visitAt\":\"2000-01-01T00:00:00+09:00\"}").andExpect(status().isCreated());
+
+        long id = createAndGetId(access, "{}");
+        update(access, id, "{\"visitAt\":\"+300000-01-01T00:00:00Z\"}").andExpect(status().isBadRequest());
+    }
+
     // ---------- 목록 ----------
 
     @Test
@@ -187,6 +200,24 @@ class VisitFlowTest {
                 .andExpect(jsonPath("$.data.careSiteId").value(careSiteId));
         update(access, id, "{\"careSiteId\":null}")
                 .andExpect(jsonPath("$.data.careSiteId").value(nullValue()));
+    }
+
+    @Test
+    void 병원이_지워졌어도_같은_병원_id를_다시_보내면_수정된다() throws Exception {
+        long id = createAndGetId(access, "{\"careSiteId\":" + careSiteId + ",\"visitAt\":\"" + DEC_3 + "\"}");
+        mvc.perform(delete("/api/care-sites/" + careSiteId).cookie(access)).andExpect(status().isOk());
+
+        // 화면이 원래 값을 그대로 같이 보내는 경우
+        update(access, id, "{\"careSiteId\":" + careSiteId + ",\"visitAt\":\"" + DEC_17 + "\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.careSiteId").value(careSiteId))
+                .andExpect(jsonPath("$.data.visitAt").value(Instant.parse("2026-12-17T05:00:00Z").toString()));
+
+        // 지운 병원으로 새로 바꾸는 건 안 됨
+        long another = createAndGetId(access, "{}");
+        update(access, another, "{\"careSiteId\":" + careSiteId + "}")
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("CARE_SITE_40401"));
     }
 
     @Test

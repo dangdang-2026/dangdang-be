@@ -2,6 +2,7 @@ package com.dangdang.domain.visit.repository;
 
 import com.dangdang.domain.visit.entity.VisitQuestion;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
 
 import java.util.List;
 import java.util.Optional;
@@ -16,6 +17,11 @@ public interface VisitQuestionRepository extends JpaRepository<VisitQuestion, Lo
     // 다른 일정의 질문 id로는 못 찾음
     Optional<VisitQuestion> findByIdAndVisitId(Long id, Long visitId);
 
-    // 이 일정의 살아 있는 질문 수 (정렬 순서를 안 보내면 맨 뒤로 넣으려고)
-    long countByVisitIdAndDeletedAtIsNull(Long visitId);
+    // 이 일정의 살아 있는 질문 중 가장 큰 정렬 순서. 질문이 없으면 -1 (정렬 순서를 안 보내면 맨 뒤로 넣으려고)
+    @Query("""
+            select coalesce(max(q.sortOrder), -1) from VisitQuestion q
+            where q.visit.id = :visitId
+              and q.deletedAt is null
+            """)
+    int findMaxSortOrder(Long visitId);
 }

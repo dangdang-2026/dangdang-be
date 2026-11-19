@@ -17,14 +17,18 @@ import com.dangdang.domain.visit.exception.VisitErrorCode;
 import com.dangdang.domain.visit.repository.VisitNoteRepository;
 import com.dangdang.domain.visit.repository.VisitQuestionRepository;
 import com.dangdang.domain.visit.repository.VisitRepository;
+import com.dangdang.global.config.ClockConfig;
 import com.dangdang.global.exception.CustomException;
+import com.dangdang.global.exception.GlobalErrorCode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -38,12 +42,16 @@ public class VisitService {
     private final VisitNoteRepository visitNoteRepository;
     private final Clock clock;
 
+    private static final int MIN_YEAR = 2000;
+    private static final int MAX_YEAR = 2100;
+
     // 일정 등록. 병원을 고르면 내 병원(삭제 안 된 것)인지 확인
     @Transactional
     public VisitResponse create(Long userId, VisitCreateRequest req) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
         checkMyCareSite(userId, req.careSiteId());
+        checkVisitAt(req.visitAt());
         Visit visit = visitRepository.saveAndFlush(Visit.of(user, req.careSiteId(), req.visitAt()));
         return VisitResponse.from(visit);
     }
@@ -75,11 +83,14 @@ public class VisitService {
             throw new CustomException(VisitErrorCode.NOTHING_TO_UPDATE);
         }
         Visit visit = findMine(userId, visitId);
-        if (req.isCareSiteIdSent()) {
+        // 병원은 실제로 바꿀 때만 확인함. 화면이 원래 병원 id를 그대로 다시 보냈는데
+        // 그 병원이 그사이 지워졌다고 수정 전체가 404로 실패하면 안 돼서
+        if (req.isCareSiteIdSent() && !Objects.equals(req.getCareSiteId(), visit.getCareSiteId())) {
             checkMyCareSite(userId, req.getCareSiteId());
             visit.changeCareSite(req.getCareSiteId());
         }
         if (req.isVisitAtSent()) {
+            checkVisitAt(req.getVisitAt());
             visit.changeVisitAt(req.getVisitAt());
         }
         // 변경 감지로 트랜잭션 끝날 때 반영되지만, 응답에 새 updatedAt을 담으려고 먼저 DB에 씀
@@ -97,6 +108,19 @@ public class VisitService {
     Visit findMine(Long userId, Long visitId) {
         return visitRepository.findByIdAndUserIdAndDeletedAtIsNull(visitId, userId)
                 .orElseThrow(() -> new CustomException(VisitErrorCode.VISIT_NOT_FOUND));
+    }
+
+    // 진료 날짜는 한국 기준 2000~2100년만 받음 (다른 날짜 입력 QueryParams와 같은 범위)
+    // "+300000-01-01T00:00:00Z" 같은 값도 Instant로 읽혀서, 그대로 두면 DB(TIMESTAMPTZ)에 못 넣어 500이 남
+    private void checkVisitAt(Instant visitAt) {
+        if (visitAt == null) {
+            return;
+        }
+        int year = visitAt.atZone(ClockConfig.KST).getYear();
+        if (year < MIN_YEAR || year > MAX_YEAR) {
+            throw new CustomException(GlobalErrorCode.INVALID_INPUT,
+                    "진료 날짜는 " + MIN_YEAR + "~" + MAX_YEAR + "년 사이로 보내 주세요.");
+        }
     }
 
     // 병원을 골랐으면 내 병원(삭제 안 된 것)이어야 함. 없음·삭제됨·남의 병원은 병원 API와 같은 404

@@ -79,6 +79,26 @@ class VisitQuestionFlowTest {
     }
 
     @Test
+    void 정렬_순서를_안_보내면_지금_가장_큰_값_다음() throws Exception {
+        long big = addAndGetId("{\"content\":\"앞 질문\",\"sortOrder\":10}");
+        String body = add(access, visitId, "{\"content\":\"새 질문\"}")
+                .andExpect(jsonPath("$.data.sortOrder").value(11))
+                .andReturn().getResponse().getContentAsString();
+        long added = ((Number) JsonPath.read(body, "$.data.questionId")).longValue();
+
+        list(access, visitId).andExpect(jsonPath("$.data[*].questionId").value(contains((int) big, (int) added)));
+    }
+
+    @Test
+    void 길이는_앞뒤_공백을_뺀_뒤로_잰다() throws Exception {
+        add(access, visitId, "{\"content\":\"" + " ".repeat(10) + "가".repeat(500) + "\"}")
+                .andExpect(status().isCreated());
+        add(access, visitId, "{\"content\":\"" + "가".repeat(501) + "\"}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("질문은 500자까지 쓸 수 있어요."));
+    }
+
+    @Test
     void 목록은_정렬_순서_다음_먼저_만든_순() throws Exception {
         long c = addAndGetId("{\"content\":\"C\",\"sortOrder\":2}");
         long a = addAndGetId("{\"content\":\"A\",\"sortOrder\":0}");
