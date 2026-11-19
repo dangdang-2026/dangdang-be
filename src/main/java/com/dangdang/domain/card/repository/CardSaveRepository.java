@@ -9,12 +9,9 @@ import org.springframework.data.repository.query.Param;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 
 public interface CardSaveRepository extends JpaRepository<CardSave, Long> {
-
-    Optional<CardSave> findByUserIdAndCardId(Long userId, Long cardId);
 
     boolean existsByUserIdAndCardId(Long userId, Long cardId);
 
@@ -26,6 +23,11 @@ public interface CardSaveRepository extends JpaRepository<CardSave, Long> {
             ON CONFLICT (user_id, card_id) DO NOTHING
             """)
     void addIfAbsent(@Param("userId") Long userId, @Param("cardId") Long cardId, @Param("now") Instant now);
+
+    // 저장 취소 — 없으면 0줄. 두 번 빠르게 눌러도 둘 다 성공한다 (읽고 지우면 두 번째가 0줄 삭제로 500)
+    @Modifying
+    @Query("delete from CardSave s where s.user.id = :userId and s.card.id = :cardId")
+    void remove(@Param("userId") Long userId, @Param("cardId") Long cardId);
 
     // 내가 저장한 카드 — 최근에 저장한 순 (카드도 같이 읽는다)
     @Query("select s from CardSave s join fetch s.card where s.user.id = :userId order by s.createdAt desc, s.id desc")
