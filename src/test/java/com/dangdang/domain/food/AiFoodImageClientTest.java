@@ -19,6 +19,7 @@ class AiFoodImageClientTest {
 
     HttpServer server;
     final AtomicReference<String> token = new AtomicReference<>();
+    final AtomicReference<String> requestId = new AtomicReference<>();
     final AtomicReference<String> contentType = new AtomicReference<>();
     final AtomicReference<String> body = new AtomicReference<>();
     AiFoodImageClient client;
@@ -28,6 +29,7 @@ class AiFoodImageClientTest {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/internal/food-candidates", exchange -> {
             token.set(exchange.getRequestHeaders().getFirst("X-Internal-Token"));
+            requestId.set(exchange.getRequestHeaders().getFirst("X-Request-Id"));
             contentType.set(exchange.getRequestHeaders().getFirst("Content-Type"));
             body.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.ISO_8859_1));
             byte[] res = "{\"candidates\":[{\"name\":\"김밥\",\"confidence\":0.9972}]}".getBytes(StandardCharsets.UTF_8);
@@ -48,9 +50,10 @@ class AiFoodImageClientTest {
 
     @Test
     void 사진을_image_필드에_고정_파일_이름으로_보내고_토큰을_붙인다() {
-        FoodImageClient.Result result = client.candidates(new byte[]{1, 2, 3}, "image/jpeg");
+        FoodImageClient.Result result = client.candidates("req-1", new byte[]{1, 2, 3}, "image/jpeg");
 
         assertThat(token.get()).isEqualTo("test-token");
+        assertThat(requestId.get()).isEqualTo("req-1");
         assertThat(contentType.get()).startsWith("multipart/form-data");
         assertThat(body.get())
                 .contains("name=\"image\"")
@@ -63,10 +66,10 @@ class AiFoodImageClientTest {
 
     @Test
     void 형식_값이_깨졌거나_없으면_그냥_파일로_보낸다() {
-        client.candidates(new byte[]{1}, "jpeg;;");
+        client.candidates("req-1", new byte[]{1}, "jpeg;;");
         assertThat(body.get()).contains("Content-Type: application/octet-stream");
 
-        client.candidates(new byte[]{1}, null);
+        client.candidates("req-1", new byte[]{1}, null);
         assertThat(body.get()).contains("Content-Type: application/octet-stream");
     }
 }

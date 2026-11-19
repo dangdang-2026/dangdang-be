@@ -73,7 +73,7 @@ class FoodImageFlowTest {
 
     @Test
     void 후보마다_식약처_음식을_붙여서_돌려준다() throws Exception {
-        given(foodImageClient.candidates(any(), any())).willReturn(new FoodImageClient.Result(List.of(
+        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(List.of(
                 new Candidate("김밥", 0.9972), new Candidate("김치볶음밥", 0.0019), new Candidate("비빔밥", 0.0007))));
 
         analyze(PHOTO)
@@ -90,7 +90,7 @@ class FoodImageFlowTest {
 
     @Test
     void 식약처에_없는_이름이면_foods는_빈_배열() throws Exception {
-        given(foodImageClient.candidates(any(), any())).willReturn(new FoodImageClient.Result(List.of(
+        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(List.of(
                 new Candidate("없는음식이름쀍", 0.95))));
 
         analyze(PHOTO)
@@ -100,7 +100,7 @@ class FoodImageFlowTest {
 
     @Test
     void 일등_확신도가_낮으면_이름으로_적기() throws Exception {
-        given(foodImageClient.candidates(any(), any())).willReturn(new FoodImageClient.Result(List.of(
+        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(List.of(
                 new Candidate("김밥", 0.69), new Candidate("비빔밥", 0.2))));
 
         analyze(PHOTO)
@@ -111,7 +111,7 @@ class FoodImageFlowTest {
 
     @Test
     void 일등_확신도가_딱_기준값이면_후보_화면() throws Exception {
-        given(foodImageClient.candidates(any(), any())).willReturn(new FoodImageClient.Result(List.of(
+        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(List.of(
                 new Candidate("김밥", 0.7))));
 
         analyze(PHOTO).andExpect(jsonPath("$.data.fallback").value(false));
@@ -119,7 +119,7 @@ class FoodImageFlowTest {
 
     @Test
     void AI_서버에_연결이_안_되면_이름으로_적기() throws Exception {
-        given(foodImageClient.candidates(any(), any())).willThrow(new ResourceAccessException("timeout"));
+        given(foodImageClient.candidates(any(), any(), any())).willThrow(new ResourceAccessException("timeout"));
 
         analyze(PHOTO)
                 .andExpect(status().isOk())
@@ -128,7 +128,7 @@ class FoodImageFlowTest {
 
     @Test
     void AI_서버_모델이_없으면_이름으로_적기() throws Exception {
-        given(foodImageClient.candidates(any(), any()))
+        given(foodImageClient.candidates(any(), any(), any()))
                 .willThrow(HttpServerErrorException.create(HttpStatus.SERVICE_UNAVAILABLE, "", null, null, null));
 
         analyze(PHOTO).andExpect(jsonPath("$.data.fallback").value(true));
@@ -136,7 +136,7 @@ class FoodImageFlowTest {
 
     @Test
     void AI_서버_토큰이_틀려도_이름으로_적기() throws Exception {
-        given(foodImageClient.candidates(any(), any()))
+        given(foodImageClient.candidates(any(), any(), any()))
                 .willThrow(HttpClientErrorException.create(HttpStatus.UNAUTHORIZED, "", null, null, null));
 
         analyze(PHOTO).andExpect(jsonPath("$.data.fallback").value(true));
@@ -144,12 +144,42 @@ class FoodImageFlowTest {
 
     @Test
     void 사진으로_열_수_없는_파일이면_400() throws Exception {
-        given(foodImageClient.candidates(any(), any()))
+        given(foodImageClient.candidates(any(), any(), any()))
                 .willThrow(HttpClientErrorException.create(HttpStatus.BAD_REQUEST, "", null, null, null));
 
         analyze(new MockMultipartFile("image", "a.heic", "image/heic", new byte[]{1}))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errorCode").value("FOOD_40002"));
+    }
+
+    @Test
+    void AI_서버가_용량_초과로_거절하면_413() throws Exception {
+        given(foodImageClient.candidates(any(), any(), any()))
+                .willThrow(HttpClientErrorException.create(HttpStatus.CONTENT_TOO_LARGE, "", null, null, null));
+
+        analyze(PHOTO)
+                .andExpect(status().isContentTooLarge())
+                .andExpect(jsonPath("$.errorCode").value("GLOBAL_41301"));
+    }
+
+    @Test
+    void AI_서버가_요청_형식을_거절하면_이름으로_적기() throws Exception {
+        given(foodImageClient.candidates(any(), any(), any()))
+                .willThrow(HttpClientErrorException.create(HttpStatus.UNPROCESSABLE_CONTENT, "", null, null, null));
+
+        analyze(PHOTO)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.fallback").value(true));
+    }
+
+    @Test
+    void 확신도가_0에서_1_밖이면_뺀다() throws Exception {
+        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(List.of(
+                new Candidate("김밥", 45), new Candidate("라면", Double.NaN), new Candidate("비빔밥", 0.2))));
+
+        analyze(PHOTO)   // 남는 건 비빔밥 0.2뿐이라 기준 0.7 미만
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.fallback").value(true));
     }
 
     @Test
@@ -160,7 +190,7 @@ class FoodImageFlowTest {
         analyze(new MockMultipartFile("image", "empty.jpg", "image/jpeg", new byte[0]))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errorCode").value("FOOD_40001"));
-        verify(foodImageClient, never()).candidates(any(), any());
+        verify(foodImageClient, never()).candidates(any(), any(), any());
     }
 
     @Test
@@ -168,7 +198,7 @@ class FoodImageFlowTest {
         analyze(new MockMultipartFile("image", "big.jpg", "image/jpeg", new byte[10 * 1024 * 1024 + 1]))
                 .andExpect(status().isContentTooLarge())
                 .andExpect(jsonPath("$.errorCode").value("GLOBAL_41301"));
-        verify(foodImageClient, never()).candidates(any(), any());
+        verify(foodImageClient, never()).candidates(any(), any(), any());
     }
 
     @Test
@@ -192,7 +222,7 @@ class FoodImageFlowTest {
         analyze(PHOTO)
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.errorCode").value("FOOD_40301"));
-        verify(foodImageClient, never()).candidates(any(), any());
+        verify(foodImageClient, never()).candidates(any(), any(), any());
     }
 
     @Test
@@ -202,12 +232,12 @@ class FoodImageFlowTest {
         analyze(PHOTO)
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.errorCode").value("FOOD_40301"));
-        verify(foodImageClient, never()).candidates(any(), any());
+        verify(foodImageClient, never()).candidates(any(), any(), any());
     }
 
     @Test
     void AI_후보를_확신도_순으로_다시_세우고_3개까지만() throws Exception {
-        given(foodImageClient.candidates(any(), any())).willReturn(new FoodImageClient.Result(List.of(
+        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(List.of(
                 new Candidate("비빔밥", 0.01), new Candidate("김밥", 0.9), new Candidate("라면", 0.02),
                 new Candidate("김치볶음밥", 0.05), new Candidate("떡볶이", 0.001))));
 
@@ -220,7 +250,7 @@ class FoodImageFlowTest {
 
     @Test
     void 이름이_빈_후보는_뺀다() throws Exception {
-        given(foodImageClient.candidates(any(), any())).willReturn(new FoodImageClient.Result(java.util.Arrays.asList(
+        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(java.util.Arrays.asList(
                 new Candidate(null, 0.95), new Candidate(" ", 0.9), new Candidate("김밥", 0.8))));
 
         analyze(PHOTO)
@@ -231,7 +261,7 @@ class FoodImageFlowTest {
 
     @Test
     void 이름이_빈_후보만_오면_이름으로_적기() throws Exception {
-        given(foodImageClient.candidates(any(), any())).willReturn(new FoodImageClient.Result(List.of(
+        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(List.of(
                 new Candidate(null, 0.95))));
 
         analyze(PHOTO)

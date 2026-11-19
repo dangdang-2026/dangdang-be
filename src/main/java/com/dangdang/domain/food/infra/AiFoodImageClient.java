@@ -29,9 +29,9 @@ public class AiFoodImageClient implements FoodImageClient {
     }
 
     // AI 서버 /internal/food-candidates 에 사진을 multipart(필드 image)로 보냄
-    // 사진은 메모리에서만 넘기고 서버에 저장하지 않음. 사용자 쿠키는 보내지 않음
+    // 사진은 메모리에서만 넘기고 저장하지 않음. 사용자 쿠키는 보내지 않음
     @Override
-    public Result candidates(byte[] image, String contentType) {
+    public Result candidates(String requestId, byte[] image, String contentType) {
         HttpHeaders partHeaders = new HttpHeaders();
         partHeaders.setContentType(safeMediaType(contentType));
         // 파일 이름이 있어야 multipart에서 "파일"로 보내짐 (없으면 AI 서버가 image 필드를 글자로 받음)
@@ -48,6 +48,7 @@ public class AiFoodImageClient implements FoodImageClient {
         return restClient.post()
                 .uri("/internal/food-candidates")
                 .header("X-Internal-Token", properties.internalToken())
+                .header("X-Request-Id", requestId)        // AI 서버 로그와 맞춰 보는 번호 (챗봇과 같은 방식)
                 .contentType(MediaType.MULTIPART_FORM_DATA)
                 .body(body)
                 .retrieve()

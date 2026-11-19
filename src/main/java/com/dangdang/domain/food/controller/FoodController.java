@@ -42,7 +42,7 @@ public class FoodController {
             summary = "[ 사용자 | 토큰 O | 음식 검색 ]",
             description =
                     """
-                    **Parameters** q(필수, 1~100자, 식품명·대표식품명 부분 검색, 띄어쓰기 무시, "볶음밥_김치"처럼 순서가 바뀐 이름도 "김치볶음밥"으로 찾음), page(기본 0), size(기본 20, 1~100)
+                    **Parameters** q(필수, 1~100자, 식품명·대표식품명 부분 검색, 띄어쓰기 무시, "볶음밥_김치"처럼 순서가 바뀐 이름도 "김치볶음밥"으로 찾음), page(기본 0, 0~10000), size(기본 20, 1~100)
                     **Returns** items[]{foodCode, name, displayName, origin, maker, servingG, servingUnit(g·ml), kcal, carbG, proteinG, fatG, sugarG, sourceVersion}·page·size·totalElements·hasNext.
                     name은 식약처 원래 이름(볶음밥_김치), displayName은 화면용 이름(김치 볶음밥). 화면에는 displayName을 씀.
                     origin(HOME 가정식 · RESTAURANT 외식 · MEAL_SERVICE 급식 · FRANCHISE 프랜차이즈)은 같은 이름이 여러 줄일 때 구분용, maker는 프랜차이즈 업체명(나머지 null).
@@ -56,7 +56,8 @@ public class FoodController {
             @NotBlank(message = "검색어를 입력해 주세요.")
             @Size(max = 100, message = "검색어는 100자까지예요.") String q,
             @RequestParam(defaultValue = "0")
-            @Min(value = 0, message = "page는 0부터예요.") int page,
+            @Min(value = 0, message = "page는 0~10000이에요.")
+            @Max(value = 10000, message = "page는 0~10000이에요.") int page,
             @RequestParam(defaultValue = "20")
             @Min(value = 1, message = "size는 1~100이에요.")
             @Max(value = 100, message = "size는 1~100이에요.") int size) {
@@ -84,7 +85,7 @@ public class FoodController {
             summary = "[ 사용자 | 토큰 O | 같은 음식 지난 기록 ]",
             description =
                     """
-                    **Parameters** code(식약처 식품코드, 1~30자), page(기본 0), size(기본 20, 1~100)
+                    **Parameters** code(식약처 식품코드, 1~30자), page(기본 0, 0~10000), size(기본 20, 1~100)
                     **Returns** items[]{mealId, startedAt, mealSlot, items[](이 식사에서 이 음식을 먹은 항목: 먹은 양·영양값), readings[](이 식사에 연결된 혈당, 잰 시각 순)}·page·size·totalElements·hasNext.
                     내가 이 음식을 먹은 식사만, 식사 시작 시각 최신순. 지운 식사·항목은 빠짐. 한 식사에 같은 음식이 여러 번 있어도 식사 1개로 묶음.
                     혈당은 식사에 연결된(mealId) 것만 붙임 (시간이 가까워도 연결 안 된 혈당은 안 붙임).
@@ -96,7 +97,8 @@ public class FoodController {
             @AuthenticationPrincipal AuthPrincipal principal,
             @PathVariable @Size(max = 30, message = "식품코드는 30자까지예요.") String code,
             @RequestParam(defaultValue = "0")
-            @Min(value = 0, message = "page는 0부터예요.") int page,
+            @Min(value = 0, message = "page는 0~10000이에요.")
+            @Max(value = 10000, message = "page는 0~10000이에요.") int page,
             @RequestParam(defaultValue = "20")
             @Min(value = 1, message = "size는 1~100이에요.")
             @Max(value = 100, message = "size는 1~100이에요.") int size) {

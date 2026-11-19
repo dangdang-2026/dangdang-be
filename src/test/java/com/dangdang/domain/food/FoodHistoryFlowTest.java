@@ -161,6 +161,7 @@ class FoodHistoryFlowTest {
     void 페이지_범위가_틀리면_400() throws Exception {
         history(access, JJOLMYEON, "?size=101").andExpect(status().isBadRequest());
         history(access, JJOLMYEON, "?page=-1").andExpect(status().isBadRequest());
+        history(access, JJOLMYEON, "?page=2147483647&size=100").andExpect(status().isBadRequest());   // offset이 int를 넘는 값
     }
 
     @Test
