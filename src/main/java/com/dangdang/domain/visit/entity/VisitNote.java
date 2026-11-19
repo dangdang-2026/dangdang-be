@@ -42,11 +42,17 @@ public class VisitNote extends BaseTimeEntity {
     }
 
     // 내용 고치기. 내용이 실제로 바뀌면 AI 정리 결과를 비움 (옛 메모 기준 결과라 근거 문장이 안 맞음)
+    // 앞뒤 공백·줄바꿈만 달라진 건 같은 메모로 봄 (AI 정리에도 앞뒤 공백을 뺀 메모를 보내서)
     public void changeContent(String content) {
-        if (!content.equals(this.content)) {
+        if (!hasSameContent(content)) {
             this.aiExtract = null;
         }
         this.content = content;
+    }
+
+    // 앞뒤 공백을 뺀 내용이 같은지 (메모 수정과 AI 정리 저장이 같은 기준으로 "바뀌었는지"를 봄)
+    public boolean hasSameContent(String other) {
+        return other != null && this.content.strip().equals(other.strip());
     }
 
     // AI 정리 결과 저장 (다시 정리하면 새 결과로 바꿈)

@@ -197,6 +197,44 @@ class VisitNoteOrganizeFlowTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.errorCode").value("VISIT_40901"));
         assertThat(jdbc.queryForObject("SELECT ai_extract FROM visit_notes WHERE id = ?", String.class, noteId)).isNull();
+        assertThat(usedToday()).isEqualTo("0");   // 결과를 못 받았으니 오늘 횟수를 돌려줌
+    }
+
+    @Test
+    void 정리하는_동안_앞뒤_공백만_바뀌면_같은_메모로_보고_저장한다() throws Exception {
+        given(organizeClient.organize(anyString(), any(), any())).willAnswer(inv -> {
+            jdbc.update("UPDATE visit_notes SET content = ? WHERE id = ?", MEMO + "\n\n", noteId);
+            return EXTRACT;
+        });
+
+        organize(access, visitId, noteId).andExpect(status().isOk());
+        assertThat(jdbc.queryForObject("SELECT ai_extract FROM visit_notes WHERE id = ?", String.class, noteId)).isNotNull();
+        assertThat(usedToday()).isEqualTo("1");
+    }
+
+    @Test
+    void AI_응답의_빈_칸은_null로_상태가_없거나_범위_밖이면_확인_필요로() throws Exception {
+        given(organizeClient.organize(anyString(), any(), any())).willReturn(new VisitNoteExtract(
+                new Field<>(List.of(), "…", ExtractStatus.FOUND),                  // 빈 목록 → 칸 없음
+                new Field<>(95, "공복은 95 미만", null),                            // 상태 없음 → 확인 필요
+                new Field<>(null, "식후는…", ExtractStatus.FOUND),                  // 값 없음 → 칸 없음
+                new Field<>(999, "식후 999분", ExtractStatus.FOUND),                // 범위 밖 → 확인 필요
+                new Field<>(LocalDate.of(2026, 11, 27), "2주 뒤", ExtractStatus.FOUND),   // 정상 → 그대로
+                false, "visit-note-v1"));
+
+        organize(access, visitId, noteId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.aiExtract.measureSlots").value(nullValue()))
+                .andExpect(jsonPath("$.data.aiExtract.fastingTarget.value").value(95))
+                .andExpect(jsonPath("$.data.aiExtract.fastingTarget.status").value("CHECK_NEEDED"))
+                .andExpect(jsonPath("$.data.aiExtract.postMealTarget").value(nullValue()))
+                .andExpect(jsonPath("$.data.aiExtract.postMealMinutes.value").value(999))
+                .andExpect(jsonPath("$.data.aiExtract.postMealMinutes.status").value("CHECK_NEEDED"))
+                .andExpect(jsonPath("$.data.aiExtract.nextVisitDate.status").value("FOUND"));
+        // 저장된 것도 정리된 모양
+        mvc.perform(get("/api/visits/" + visitId + "/notes").cookie(access))
+                .andExpect(jsonPath("$.data[0].aiExtract.fastingTarget.status").value("CHECK_NEEDED"))
+                .andExpect(jsonPath("$.data[0].aiExtract.measureSlots").value(nullValue()));
     }
 
     @Test
@@ -227,6 +265,16 @@ class VisitNoteOrganizeFlowTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.aiExtract").value(nullValue()));
         assertThat(jdbc.queryForObject("SELECT ai_extract FROM visit_notes WHERE id = ?", String.class, noteId)).isNull();
+    }
+
+    @Test
+    void 앞뒤_공백만_바꿔_고치면_정리_결과는_그대로() throws Exception {
+        given(organizeClient.organize(anyString(), any(), any())).willReturn(EXTRACT);
+        organize(access, visitId, noteId).andExpect(status().isOk());
+
+        updateNote(noteId, "  " + MEMO + "  ")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.aiExtract.fastingTarget.value").value(95));
     }
 
     @Test
