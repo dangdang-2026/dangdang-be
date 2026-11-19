@@ -1,7 +1,9 @@
 package com.dangdang.domain.visit.controller;
 
 import com.dangdang.domain.visit.dto.request.VisitNoteRequest;
+import com.dangdang.domain.visit.dto.response.VisitNoteOrganizeResponse;
 import com.dangdang.domain.visit.dto.response.VisitNoteResponse;
+import com.dangdang.domain.visit.service.VisitNoteOrganizeService;
 import com.dangdang.domain.visit.service.VisitNoteService;
 import com.dangdang.global.common.BaseResponse;
 import com.dangdang.global.security.AuthPrincipal;
@@ -23,6 +25,7 @@ import java.util.List;
 public class VisitNoteController {
 
     private final VisitNoteService visitNoteService;
+    private final VisitNoteOrganizeService visitNoteOrganizeService;
 
     @Operation(
             summary = "[ 사용자 | 토큰 O | 진료 메모 등록 ]",
@@ -70,5 +73,28 @@ public class VisitNoteController {
             @PathVariable Long noteId, @Valid @RequestBody VisitNoteRequest request) {
         return ResponseEntity.ok(BaseResponse.success(200, "진료 메모를 수정했습니다.",
                 visitNoteService.update(principal.userId(), visitId, noteId, request)));
+    }
+
+    @Operation(
+            summary = "[ 사용자 | 토큰 O | 진료 메모 AI 정리 ]",
+            description =
+                    """
+                    **Parameters** visitId, noteId (본문 없음)
+                    **Returns** {noteId, aiExtract{measureSlots, fastingTarget, postMealTarget, postMealMinutes, nextVisitDate, insulinSkipped, promptVersion}}.
+                    칸마다 {value, evidence(메모의 근거 문장 그대로), status(FOUND 체크된 채로 / CHECK_NEEDED 「확인 필요」+체크 해제)}, 메모에 없는 칸은 null(화면에 안 보임).
+                    measureSlots.value는 FASTING·BREAKFAST_AFTER·LUNCH_AFTER·DINNER_AFTER·BEDTIME, nextVisitDate.value는 yyyy-MM-dd.
+                    insulinSkipped=true면 「약은 직접 적어 주세요」 (인슐린·약 문장은 AI에 안 보냄). 결과는 메모에 저장되고 다시 정리하면 바뀜.
+                    체크한 기준은 POST /api/criteria-versions, 다음 진료일은 POST /api/visits로 보냄 (이 API는 적용하지 않음).
+                    진료 날짜가 미정인 일정이면 오늘을 진료일로 보고 정리함.
+                    국외 이전 동의가 없으면 AI_40301, 오늘 10번을 넘으면 AI_42901, 메모가 3000자를 넘으면 VISIT_40002,
+                    정리하는 동안 메모가 바뀌면 VISIT_40901, AI 실패·시간 초과면 VISIT_50201(횟수는 안 셈, 다시 해 보기),
+                    없거나 삭제됐거나 남의 일정이면 VISIT_40401, 없는 메모이거나 다른 일정의 메모면 VISIT_40403
+                    """)
+    @PostMapping("/{noteId}/organize")
+    public ResponseEntity<BaseResponse<VisitNoteOrganizeResponse>> organize(
+            @AuthenticationPrincipal AuthPrincipal principal, @PathVariable Long visitId,
+            @PathVariable Long noteId) {
+        return ResponseEntity.ok(BaseResponse.success(200, "진료 메모를 정리했습니다.",
+                visitNoteOrganizeService.organize(principal.userId(), visitId, noteId)));
     }
 }

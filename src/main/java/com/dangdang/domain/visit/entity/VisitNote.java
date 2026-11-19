@@ -5,6 +5,8 @@ import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 
@@ -27,6 +29,9 @@ public class VisitNote extends BaseTimeEntity {
     @Column(nullable = false, length = 5000)
     private String content;                  // 사용자가 적은 그대로 (앞뒤 공백·줄바꿈도 안 건드림)
 
+    @JdbcTypeCode(SqlTypes.JSON)             // DB 칸이 JSONB라서
+    private VisitNoteExtract aiExtract;      // AI 정리 결과. 정리한 적 없으면 null
+
     private Instant deletedAt;               // null = 살아 있음 (메모 삭제 API는 아직 없음)
 
     public static VisitNote of(Visit visit, String content) {
@@ -39,5 +44,10 @@ public class VisitNote extends BaseTimeEntity {
     // 내용 고치기
     public void changeContent(String content) {
         this.content = content;
+    }
+
+    // AI 정리 결과 저장 (다시 정리하면 새 결과로 바꿈)
+    public void saveExtract(VisitNoteExtract extract) {
+        this.aiExtract = extract;
     }
 }
