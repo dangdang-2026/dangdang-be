@@ -12,8 +12,9 @@ public final class QueryParams {
 
     // 받을 수 있는 연도 범위. "+999999999-12-31" 같은 값도 날짜로 읽혀서,
     // 그대로 두면 하루 더하기(plusDays) 같은 계산에서 터져 500이 나기 때문에 미리 막음
-    private static final int MIN_YEAR = 2000;
-    private static final int MAX_YEAR = 2100;
+    // 진료 날짜(VisitService)도 같은 범위를 씀
+    public static final int MIN_YEAR = 2000;
+    public static final int MAX_YEAR = 2100;
 
     private QueryParams() {
     }

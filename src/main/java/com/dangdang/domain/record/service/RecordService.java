@@ -12,6 +12,7 @@ import com.dangdang.domain.record.enums.CalendarDayStatus;
 import com.dangdang.domain.user.entity.User;
 import com.dangdang.domain.user.exception.UserErrorCode;
 import com.dangdang.domain.user.repository.UserRepository;
+import com.dangdang.domain.visit.repository.VisitRepository;
 import com.dangdang.global.common.KoreanTime;
 import com.dangdang.global.exception.CustomException;
 import com.dangdang.global.exception.GlobalErrorCode;
@@ -52,6 +53,7 @@ public class RecordService {
     private final MealRepository mealRepository;
     private final MealItemService mealItemService;
     private final UserRepository userRepository;
+    private final VisitRepository visitRepository;
     private final Clock clock;
 
     // 기록 통합 조회. from·to 둘 다 포함, 기록 없는 날도 days에 빈 events로 들어감
@@ -105,9 +107,14 @@ public class RecordService {
         readingRepository.findMeasuredAtsInRange(userId, start, end).forEach(at -> recordedDates.add(KoreanTime.dateOf(at)));
         mealRepository.findStartedAtsInRange(userId, start, end).forEach(at -> recordedDates.add(KoreanTime.dateOf(at)));
 
+        // 그 달에 진료 일정이 있는 날짜들 (기록 상태와 따로 봄: 미래 날짜도 진료일이면 표시)
+        Set<LocalDate> visitDates = new HashSet<>();
+        visitRepository.findVisitAtsInRange(userId, start, end).forEach(at -> visitDates.add(KoreanTime.dateOf(at)));
+
         List<CalendarResponse.Day> days = new ArrayList<>();
         for (LocalDate date = first; !date.isAfter(last); date = date.plusDays(1)) {
-            days.add(new CalendarResponse.Day(date, statusOf(date, today, startDate, recordedDates), false));
+            days.add(new CalendarResponse.Day(date, statusOf(date, today, startDate, recordedDates),
+                    visitDates.contains(date)));
         }
 
         return new CalendarResponse(
