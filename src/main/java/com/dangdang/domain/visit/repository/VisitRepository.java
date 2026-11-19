@@ -5,6 +5,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
 import java.util.List;
@@ -24,7 +25,7 @@ public interface VisitRepository extends JpaRepository<Visit, Long> {
               and v.deletedAt is null
             order by v.visitAt asc nulls last, v.id asc
             """)
-    Slice<Visit> findPage(Long userId, Pageable pageable);
+    Slice<Visit> findPage(@Param("userId") Long userId, Pageable pageable);
 
     // 기간 안 진료 시각만 (기록 달력에서 진료일 표시용). from 이상 to 미만, 날짜 미정은 빠짐
     @Query("""
@@ -34,5 +35,6 @@ public interface VisitRepository extends JpaRepository<Visit, Long> {
               and v.visitAt >= :from
               and v.visitAt < :to
             """)
-    List<Instant> findVisitAtsInRange(Long userId, Instant from, Instant to);
+    List<Instant> findVisitAtsInRange(@Param("userId") Long userId, @Param("from") Instant from,
+                                      @Param("to") Instant to);
 }

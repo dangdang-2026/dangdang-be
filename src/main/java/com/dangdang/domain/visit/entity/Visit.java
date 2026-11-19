@@ -49,7 +49,7 @@ public class Visit extends BaseTimeEntity {
         this.visitAt = visitAt;
     }
 
-    // 삭제 (soft delete). 줄을 지우지 않고 지운 시각만 적어 둠. 질문·메모는 일정이 안 보이면 같이 안 보임
+    // 삭제 (soft delete). 줄을 지우지 않고 지운 시각만 적어 둠. 질문·메모는 VisitService.delete에서 같이 지움
     public void delete(Instant now) {
         this.deletedAt = now;
     }

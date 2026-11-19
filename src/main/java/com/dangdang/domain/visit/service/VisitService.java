@@ -29,6 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Objects;
 
@@ -102,9 +103,14 @@ public class VisitService {
     }
 
     // 삭제 (soft delete). 이미 지운 일정을 또 지우면 findMine에서 404
+    // 그 일정의 질문·메모도 같은 시각으로 같이 지움 (나중에 질문·메모를 직접 읽는 기능에서 섞이지 않게)
+    // 일정을 먼저 지움 표시 → 질문·메모 일괄 수정이 그 변경을 먼저 DB에 써 주고(flushAutomatically) 실행됨
     @Transactional
     public void delete(Long userId, Long visitId) {
-        findMine(userId, visitId).delete(clock.instant());   // 변경 감지로 트랜잭션 끝날 때 반영됨
+        Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);   // DB(TIMESTAMPTZ)와 같은 정밀도
+        findMine(userId, visitId).delete(now);
+        visitQuestionRepository.deleteAllOfVisit(visitId, now);
+        visitNoteRepository.deleteAllOfVisit(visitId, now);
     }
 
     // 내 것 + 삭제 안 된 것만. 없음·삭제됨·남의 것은 전부 404

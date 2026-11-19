@@ -19,6 +19,7 @@ import org.springframework.test.web.servlet.ResultActions;
 
 import java.time.Instant;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.nullValue;
@@ -257,6 +258,25 @@ class VisitFlowTest {
         mvc.perform(delete("/api/visits/" + id).cookie(access))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.errorCode").value("VISIT_40401"));
+    }
+
+    @Test
+    void 일정을_지우면_질문과_메모도_같은_시각으로_지워진다() throws Exception {
+        long id = createAndGetId(access, "{}");
+        mvc.perform(post("/api/visits/" + id + "/questions").cookie(access)
+                .contentType(MediaType.APPLICATION_JSON).content("{\"content\":\"질문\"}")).andExpect(status().isCreated());
+        mvc.perform(post("/api/visits/" + id + "/notes").cookie(access)
+                .contentType(MediaType.APPLICATION_JSON).content("{\"content\":\"메모\"}")).andExpect(status().isCreated());
+
+        mvc.perform(delete("/api/visits/" + id).cookie(access)).andExpect(status().isOk());
+
+        java.sql.Timestamp visitDeleted = jdbc.queryForObject(
+                "SELECT deleted_at FROM visits WHERE id = ?", java.sql.Timestamp.class, id);
+        assertThat(visitDeleted).isNotNull();
+        assertThat(jdbc.queryForList("SELECT deleted_at FROM visit_questions WHERE visit_id = ?", java.sql.Timestamp.class, id))
+                .containsExactly(visitDeleted);
+        assertThat(jdbc.queryForList("SELECT deleted_at FROM visit_notes WHERE visit_id = ?", java.sql.Timestamp.class, id))
+                .containsExactly(visitDeleted);
     }
 
     @Test
