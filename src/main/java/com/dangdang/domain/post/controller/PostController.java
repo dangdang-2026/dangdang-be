@@ -32,8 +32,10 @@ public class PostController {
             summary = "[ 사용자 | 토큰 O | 글 목록 ]",
             description =
                     """
-                    **Parameters** category, q, cursor, size(1~100, 기본 20). sort는 LATEST만, audience는 ALL만
-                    **Returns** items, nextCursor, hasNext. POPULAR·period·PREGNANT·POSTPARTUM은 아직 POST_40002
+                    **Parameters** category, q, cursor, size(1~100, 기본 20) · sort(LATEST 기본 · POPULAR) · audience(ALL · PREGNANT · POSTPARTUM)
+                    · period(POPULAR일 때만: REALTIME 기본 24시간 · WEEK 7일 · MONTH 30일)
+                    **Returns** items, nextCursor, hasNext. POPULAR는 공감+댓글 많은 순 최대 50개, 다음 페이지 없음(nextCursor null)
+                    식단(MEAL)·진료 후기(VISIT)에 POPULAR면 400 POST_40002 (최신순만). 모르는 값은 400 GLOBAL_40001
                     """)
     @GetMapping
     public ResponseEntity<BaseResponse<PostListResponse>> list(
