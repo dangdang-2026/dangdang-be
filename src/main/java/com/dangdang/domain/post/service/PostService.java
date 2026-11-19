@@ -16,9 +16,11 @@ import com.dangdang.domain.post.entity.Post;
 import com.dangdang.domain.post.enums.PopularPeriod;
 import com.dangdang.domain.post.enums.PostAudience;
 import com.dangdang.domain.post.enums.PostCategory;
+import com.dangdang.domain.post.enums.PostSort;
 import com.dangdang.domain.post.exception.PostErrorCode;
 import com.dangdang.domain.post.repository.PollVoteRepository;
 import com.dangdang.domain.post.repository.PostDraftRepository;
+import com.dangdang.domain.post.repository.PostPopularQuery;
 import com.dangdang.domain.post.repository.PostReactionRepository;
 import com.dangdang.domain.post.repository.PostRepository;
 import com.dangdang.domain.post.repository.PostSpecifications;
@@ -26,7 +28,6 @@ import com.dangdang.domain.user.enums.Role;
 import com.dangdang.global.common.IdCount;
 import com.dangdang.global.common.TimeCursor;
 import com.dangdang.global.exception.CustomException;
-import com.dangdang.global.exception.GlobalErrorCode;
 import com.dangdang.global.security.AuthPrincipal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Sort;
@@ -36,7 +37,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -48,10 +48,12 @@ import java.util.stream.Collectors;
 public class PostService {
 
     private static final Sort LATEST = Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
-    static final int POPULAR_MAX = 50;          // 인기 게시판은 한 번에 50개까지 (다음 페이지 없음)
-    static final int POPULAR_CANDIDATES = 500;  // 기간 안 최근 글 500개 중에서 고른다
+    static final int POPULAR_MAX = 50;          // 인기 게시판은 한 번에 50개 (size 무시, 다음 페이지 없음)
+    private static final List<PostCategory> LATEST_ONLY_CATEGORIES =
+            List.of(PostCategory.MEAL, PostCategory.VISIT, PostCategory.NEWS);
 
     private final PostRepository postRepository;
+    private final PostPopularQuery popularQuery;
     private final PostDraftRepository draftRepository;
     private final PostReactionRepository reactionRepository;
     private final CommentRepository commentRepository;
@@ -61,15 +63,12 @@ public class PostService {
     private final SanctionService sanctionService;
     private final Clock clock;
 
-    public PostListResponse list(Long userId, PostCategory category, String sort, String period, String audience,
-                                 String rawQ, String rawCursor, int size) {
-        boolean popular = parseSort(sort);
-        PostAudience who = parse(PostAudience.class, audience, PostAudience.ALL);
+    public PostListResponse list(Long userId, PostCategory category, PostSort sort, PopularPeriod period,
+                                 PostAudience who, String rawQ, String rawCursor, int size) {
         String q = normalizeSearch(rawQ);
         Long myProfileId = profileService.findMyProfileId(userId).orElse(null);
-        if (popular) {
-            return popular(category, who, parse(PopularPeriod.class, period, PopularPeriod.REALTIME), q,
-                    Math.min(size, POPULAR_MAX), myProfileId);
+        if (sort == PostSort.POPULAR) {
+            return popular(category, who, period, q, myProfileId);
         }
         String filter = category + "|" + q + "|" + who;
         TimeCursor cursor = rawCursor == null ? null
@@ -124,6 +123,7 @@ public class PostService {
             throw new CustomException(PostErrorCode.EMPTY_UPDATE);
         }
         CommunityProfile profile = profileService.requireProfile(principal.userId());
+        sanctionService.assertCanWrite(principal.userId());   // 이용 제한 중이면 고치기도 403 (U-17)
         Post post = findMine(postId, profile.getId());
         if (post.isHidden()) {   // 가려진 글을 고쳐서 다시 드러내는 것을 막는다
             throw new CustomException(PostErrorCode.POST_NOT_FOUND);
@@ -204,48 +204,20 @@ public class PostService {
         return myProfileId == null ? -1L : myProfileId;
     }
 
-    // 인기 게시판 (U-23~U-25): 기간 안 글을 모아 공감+댓글 수로 줄 세운다. 같으면 최신 먼저
-    // 식단·진료 후기는 최신순만 (COM-13 — 비교·따라 하기 줄이기), 당당 소식(공식 카드)은 인기에서 뺀다
+    // 인기 게시판 (U-23~U-25): 기간 안 글을 공감+댓글 수로 DB에서 줄 세워 위 50개. 같으면 최신 먼저
+    // 식단·진료 후기는 최신순만 (COM-13 — 비교·따라 하기 줄이기), 당당 소식(공식 카드)은 인기 경쟁 대상이 아니다
     private PostListResponse popular(PostCategory category, PostAudience who, PopularPeriod period, String q,
-                                     int size, Long myProfileId) {
-        if (category == PostCategory.MEAL || category == PostCategory.VISIT) {
+                                     Long myProfileId) {
+        if (category != null && LATEST_ONLY_CATEGORIES.contains(category)) {
             throw new CustomException(PostErrorCode.LATEST_ONLY);
         }
         Instant since = clock.instant().minus(period.window());
-        Specification<Post> spec = PostSpecifications.feed(category, q, null, myProfileId, who)
+        Specification<Post> filter = PostSpecifications.feed(category, q, null, myProfileId, who)
                 .and((root, query, cb) -> cb.and(
                         cb.greaterThanOrEqualTo(root.<Instant>get("createdAt"), since),
-                        root.get("category").in(PostCategory.MEAL, PostCategory.VISIT, PostCategory.NEWS).not()));
-        List<Post> candidates = postRepository.findBy(spec,
-                query -> query.sortBy(LATEST).limit(POPULAR_CANDIDATES).all());
-        List<PostSummaryResponse> ranked = toSummaries(candidates, myProfileId).stream()
-                .sorted(Comparator.comparingLong((PostSummaryResponse p) -> p.reactionCount() + p.commentCount())
-                        .reversed()
-                        .thenComparing(PostSummaryResponse::createdAt, Comparator.reverseOrder()))
-                .limit(size)
-                .toList();
-        return new PostListResponse(ranked, null, false);
-    }
-
-    private boolean parseSort(String sort) {
-        if (sort == null || "LATEST".equals(sort)) {
-            return false;
-        }
-        if ("POPULAR".equals(sort)) {
-            return true;
-        }
-        throw new CustomException(GlobalErrorCode.INVALID_INPUT);
-    }
-
-    private static <E extends Enum<E>> E parse(Class<E> type, String raw, E fallback) {
-        if (raw == null) {
-            return fallback;
-        }
-        try {
-            return Enum.valueOf(type, raw);
-        } catch (IllegalArgumentException e) {
-            throw new CustomException(GlobalErrorCode.INVALID_INPUT);
-        }
+                        root.get("category").in(LATEST_ONLY_CATEGORIES).not()));
+        List<Post> top = popularQuery.findTop(filter, viewerKey(myProfileId), POPULAR_MAX);
+        return new PostListResponse(toSummaries(top, myProfileId), null, false);
     }
 
     private String normalizeSearch(String rawQ) {
