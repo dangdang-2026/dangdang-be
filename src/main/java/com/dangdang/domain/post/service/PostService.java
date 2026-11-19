@@ -4,6 +4,7 @@ import com.dangdang.domain.comment.repository.CommentRepository;
 import com.dangdang.domain.community.entity.CommunityProfile;
 import com.dangdang.domain.community.service.BlockService;
 import com.dangdang.domain.community.service.CommunityProfileService;
+import com.dangdang.domain.community.service.SanctionService;
 import com.dangdang.domain.post.dto.request.PostCreateRequest;
 import com.dangdang.domain.post.dto.request.PostUpdateRequest;
 import com.dangdang.domain.post.dto.response.PollResponse;
@@ -12,6 +13,8 @@ import com.dangdang.domain.post.dto.response.PostListResponse;
 import com.dangdang.domain.post.dto.response.PostSummaryResponse;
 import com.dangdang.domain.post.entity.PollVote;
 import com.dangdang.domain.post.entity.Post;
+import com.dangdang.domain.post.enums.PopularPeriod;
+import com.dangdang.domain.post.enums.PostAudience;
 import com.dangdang.domain.post.enums.PostCategory;
 import com.dangdang.domain.post.exception.PostErrorCode;
 import com.dangdang.domain.post.repository.PollVoteRepository;
@@ -27,10 +30,13 @@ import com.dangdang.global.exception.GlobalErrorCode;
 import com.dangdang.global.security.AuthPrincipal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -42,6 +48,8 @@ import java.util.stream.Collectors;
 public class PostService {
 
     private static final Sort LATEST = Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
+    static final int POPULAR_MAX = 50;          // 인기 게시판은 한 번에 50개까지 (다음 페이지 없음)
+    static final int POPULAR_CANDIDATES = 500;  // 기간 안 최근 글 500개 중에서 고른다
 
     private final PostRepository postRepository;
     private final PostDraftRepository draftRepository;
@@ -50,20 +58,26 @@ public class PostService {
     private final PollVoteRepository pollVoteRepository;
     private final BlockService blockService;
     private final CommunityProfileService profileService;
+    private final SanctionService sanctionService;
     private final Clock clock;
 
     public PostListResponse list(Long userId, PostCategory category, String sort, String period, String audience,
                                  String rawQ, String rawCursor, int size) {
-        rejectDeferredFilters(sort, period, audience);
+        boolean popular = parseSort(sort);
+        PostAudience who = parse(PostAudience.class, audience, PostAudience.ALL);
         String q = normalizeSearch(rawQ);
-        String filter = category + "|" + q;
+        Long myProfileId = profileService.findMyProfileId(userId).orElse(null);
+        if (popular) {
+            return popular(category, who, parse(PopularPeriod.class, period, PopularPeriod.REALTIME), q,
+                    Math.min(size, POPULAR_MAX), myProfileId);
+        }
+        String filter = category + "|" + q + "|" + who;
         TimeCursor cursor = rawCursor == null ? null
                 : TimeCursor.decode(rawCursor, filter, PostErrorCode.INVALID_CURSOR);
-        Long myProfileId = profileService.findMyProfileId(userId).orElse(null);
 
         // size보다 하나 더 읽어서 다음 페이지가 있는지 본다
         List<Post> found = postRepository.findBy(
-                PostSpecifications.feed(category, q, cursor, myProfileId),
+                PostSpecifications.feed(category, q, cursor, myProfileId, who),
                 query -> query.sortBy(LATEST).limit(size + 1).all());
         boolean hasNext = found.size() > size;
         List<Post> page = hasNext ? found.subList(0, size) : found;
@@ -80,6 +94,7 @@ public class PostService {
     @Transactional
     public PostDetailResponse create(AuthPrincipal principal, PostCreateRequest request) {
         CommunityProfile profile = profileService.requireProfile(principal.userId());
+        sanctionService.assertCanWrite(principal.userId());   // 이용 제한 중이면 403 (U-17)
         checkCategoryAllowed(request.category(), principal.role());
         Post post = Post.of(profile, request.category(), request.title().trim(), request.content().trim(),
                 Boolean.TRUE.equals(request.isAnonymous()), request.poll(), clock.instant());
@@ -189,18 +204,47 @@ public class PostService {
         return myProfileId == null ? -1L : myProfileId;
     }
 
-    private void rejectDeferredFilters(String sort, String period, String audience) {
-        if (period != null) {
-            throw new CustomException(PostErrorCode.DEFERRED_FILTER);
+    // 인기 게시판 (U-23~U-25): 기간 안 글을 모아 공감+댓글 수로 줄 세운다. 같으면 최신 먼저
+    // 식단·진료 후기는 최신순만 (COM-13 — 비교·따라 하기 줄이기), 당당 소식(공식 카드)은 인기에서 뺀다
+    private PostListResponse popular(PostCategory category, PostAudience who, PopularPeriod period, String q,
+                                     int size, Long myProfileId) {
+        if (category == PostCategory.MEAL || category == PostCategory.VISIT) {
+            throw new CustomException(PostErrorCode.LATEST_ONLY);
         }
-        if (sort != null && !"LATEST".equals(sort)) {
-            throw "POPULAR".equals(sort) ? new CustomException(PostErrorCode.DEFERRED_FILTER)
-                    : new CustomException(GlobalErrorCode.INVALID_INPUT);
+        Instant since = clock.instant().minus(period.window());
+        Specification<Post> spec = PostSpecifications.feed(category, q, null, myProfileId, who)
+                .and((root, query, cb) -> cb.and(
+                        cb.greaterThanOrEqualTo(root.<Instant>get("createdAt"), since),
+                        root.get("category").in(PostCategory.MEAL, PostCategory.VISIT, PostCategory.NEWS).not()));
+        List<Post> candidates = postRepository.findBy(spec,
+                query -> query.sortBy(LATEST).limit(POPULAR_CANDIDATES).all());
+        List<PostSummaryResponse> ranked = toSummaries(candidates, myProfileId).stream()
+                .sorted(Comparator.comparingLong((PostSummaryResponse p) -> p.reactionCount() + p.commentCount())
+                        .reversed()
+                        .thenComparing(PostSummaryResponse::createdAt, Comparator.reverseOrder()))
+                .limit(size)
+                .toList();
+        return new PostListResponse(ranked, null, false);
+    }
+
+    private boolean parseSort(String sort) {
+        if (sort == null || "LATEST".equals(sort)) {
+            return false;
         }
-        if (audience != null && !"ALL".equals(audience)) {
-            throw "PREGNANT".equals(audience) || "POSTPARTUM".equals(audience)
-                    ? new CustomException(PostErrorCode.DEFERRED_FILTER)
-                    : new CustomException(GlobalErrorCode.INVALID_INPUT);
+        if ("POPULAR".equals(sort)) {
+            return true;
+        }
+        throw new CustomException(GlobalErrorCode.INVALID_INPUT);
+    }
+
+    private static <E extends Enum<E>> E parse(Class<E> type, String raw, E fallback) {
+        if (raw == null) {
+            return fallback;
+        }
+        try {
+            return Enum.valueOf(type, raw);
+        } catch (IllegalArgumentException e) {
+            throw new CustomException(GlobalErrorCode.INVALID_INPUT);
         }
     }
 
