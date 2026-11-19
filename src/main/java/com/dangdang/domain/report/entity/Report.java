@@ -2,6 +2,7 @@ package com.dangdang.domain.report.entity;
 
 import com.dangdang.domain.community.entity.CommunityProfile;
 import com.dangdang.domain.report.enums.ReportReason;
+import com.dangdang.domain.report.enums.ReportStatus;
 import com.dangdang.domain.report.enums.ReportTargetType;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
@@ -38,8 +39,9 @@ public class Report {
     @Column(length = 200)
     private String detail;
 
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 10)
-    private String status;            // RECEIVED / HIDDEN / DISMISSED (처리는 6주차 운영자 화면)
+    private ReportStatus status;      // 바꾸는 건 운영자 처리함(ReportRepository.moveStatus)에서만
 
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
