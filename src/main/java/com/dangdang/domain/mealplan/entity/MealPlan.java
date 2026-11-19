@@ -39,19 +39,5 @@ public class MealPlan {
     @Column(nullable = false)
     private Instant updatedAt;
 
-    public static MealPlan of(User user, Instant now) {
-        MealPlan p = new MealPlan();
-        p.user = user;
-        p.createdAt = now;
-        return p;
-    }
-
-    // PUT — 통째로 바꾼다 (안 보낸 칸은 비움)
-    public void replace(Long careSiteId, LocalDate receivedOn, String mealGuide, String snackGuide, Instant now) {
-        this.careSiteId = careSiteId;
-        this.receivedOn = receivedOn;
-        this.mealGuide = mealGuide;
-        this.snackGuide = snackGuide;
-        this.updatedAt = now;
-    }
+    // 저장은 MealPlanRepository.upsert (한 사람 한 장, 동시 저장에도 한 줄)
 }

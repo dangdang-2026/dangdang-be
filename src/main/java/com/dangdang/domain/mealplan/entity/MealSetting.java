@@ -30,16 +30,5 @@ public class MealSetting {
     @Column(nullable = false)
     private Instant updatedAt;
 
-    public static MealSetting of(Long userId, Instant now) {
-        MealSetting s = new MealSetting();
-        s.userId = userId;
-        s.portionUnit = PortionUnit.SERVING;
-        s.updatedAt = now;
-        return s;
-    }
-
-    public void changePortionUnit(PortionUnit portionUnit, Instant now) {
-        this.portionUnit = portionUnit;
-        this.updatedAt = now;
-    }
+    // 저장은 MealSettingRepository.upsert (처음 바꾸는 요청이 동시에 와도 한 줄)
 }

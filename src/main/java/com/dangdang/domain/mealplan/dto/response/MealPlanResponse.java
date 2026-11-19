@@ -14,8 +14,9 @@ public record MealPlanResponse(
         String snackGuide,
         Instant updatedAt) {
 
-    public static MealPlanResponse from(MealPlan p) {
-        return new MealPlanResponse(p.getId(), p.getCareSiteId(), p.getReceivedOn(), p.getMealGuide(),
+    // careSiteId는 따로 받는다 — 지운 병원이면 서비스가 null로 넘김
+    public static MealPlanResponse from(MealPlan p, Long careSiteId) {
+        return new MealPlanResponse(p.getId(), careSiteId, p.getReceivedOn(), p.getMealGuide(),
                 p.getSnackGuide(), p.getUpdatedAt());
     }
 }

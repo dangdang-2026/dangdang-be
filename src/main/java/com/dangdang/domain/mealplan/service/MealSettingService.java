@@ -12,7 +12,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
-import java.time.Instant;
 
 // 식사 기록 설정 (M-20). 양은 참고 영양값 계산에만 쓰고, 많다·적다를 말하지 않는다
 @Service
@@ -36,10 +35,7 @@ public class MealSettingService {
         if (!userRepository.existsById(userId)) {
             throw new CustomException(UserErrorCode.USER_NOT_FOUND);
         }
-        Instant now = clock.instant();
-        MealSetting setting = mealSettingRepository.findById(userId)
-                .orElseGet(() -> mealSettingRepository.save(MealSetting.of(userId, now)));
-        setting.changePortionUnit(portionUnit, now);
-        return new MealSettingResponse(setting.getPortionUnit());
+        mealSettingRepository.upsert(userId, portionUnit.name(), clock.instant());
+        return new MealSettingResponse(portionUnit);
     }
 }
