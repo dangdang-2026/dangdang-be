@@ -40,6 +40,10 @@ public class Meal extends BaseTimeEntity {
 
     private Instant deletedAt;               // null = 살아 있음, 값 있음 = 삭제됨
 
+    // 식사 자체(끼니·시작 시각·메모)를 마지막으로 고친 시각. 한 번도 안 고쳤으면 null
+    // updatedAt은 음식 항목이 바뀌어도 올라가서(충돌 확인용) "수정됨" 표시는 이 칸으로 판단함
+    private Instant editedAt;
+
     // 새 식사 만들기
     public static Meal of(User user, MealSlot mealSlot, Instant startedAt, boolean startedOffline, String note) {
         Meal m = new Meal();
@@ -51,12 +55,19 @@ public class Meal extends BaseTimeEntity {
         return m;
     }
 
-    // 수정. null로 온 칸은 그대로 둠
+    // 수정. null로 온 칸은 그대로 둠. 실제로 값이 바뀐 칸이 있을 때만 고친 시각(editedAt)을 적음
     // startedOffline은 "그때 오프라인이었는지"라는 사실이라 안 바꿈
-    public void update(MealSlot mealSlot, Instant startedAt, String note) {
-        if (mealSlot != null) this.mealSlot = mealSlot;
-        if (startedAt != null) this.startedAt = startedAt;
-        if (note != null) this.note = note;
+    public void update(MealSlot mealSlot, Instant startedAt, String note, Instant now) {
+        boolean changed = false;
+        if (mealSlot != null && mealSlot != this.mealSlot) { this.mealSlot = mealSlot; changed = true; }
+        if (startedAt != null && !startedAt.equals(this.startedAt)) { this.startedAt = startedAt; changed = true; }
+        if (note != null && !note.equals(this.note)) { this.note = note; changed = true; }
+        if (changed) this.editedAt = now;
+    }
+
+    // 식사 자체를 고친 적이 있는지 (음식 항목 변경은 안 셈)
+    public boolean isEdited() {
+        return editedAt != null;
     }
 
     // 삭제 (soft delete). 줄을 지우지 않고 지운 시각만 적어 둠

@@ -1,6 +1,9 @@
 package com.dangdang.domain.record.service;
 
+import com.dangdang.domain.meal.dto.response.MealItemSummaryResponse;
+import com.dangdang.domain.meal.entity.Meal;
 import com.dangdang.domain.meal.repository.MealRepository;
+import com.dangdang.domain.meal.service.MealItemService;
 import com.dangdang.domain.reading.repository.ReadingRepository;
 import com.dangdang.domain.record.dto.response.CalendarResponse;
 import com.dangdang.domain.record.dto.response.RecordEventResponse;
@@ -9,6 +12,7 @@ import com.dangdang.domain.record.enums.CalendarDayStatus;
 import com.dangdang.domain.user.entity.User;
 import com.dangdang.domain.user.exception.UserErrorCode;
 import com.dangdang.domain.user.repository.UserRepository;
+import com.dangdang.domain.visit.repository.VisitRepository;
 import com.dangdang.global.common.KoreanTime;
 import com.dangdang.global.exception.CustomException;
 import com.dangdang.global.exception.GlobalErrorCode;
@@ -47,7 +51,9 @@ public class RecordService {
 
     private final ReadingRepository readingRepository;
     private final MealRepository mealRepository;
+    private final MealItemService mealItemService;
     private final UserRepository userRepository;
+    private final VisitRepository visitRepository;
     private final Clock clock;
 
     // 기록 통합 조회. from·to 둘 다 포함, 기록 없는 날도 days에 빈 events로 들어감
@@ -61,10 +67,15 @@ public class RecordService {
         Instant start = KoreanTime.startOfDay(from);
         Instant end = KoreanTime.endOfDay(to);
 
+        // 식사의 음식 항목은 기간 안 식사들 것을 한 번에 읽음 (식사마다 따로 조회하지 않게)
+        List<Meal> meals = mealRepository.findAllInRange(userId, start, end);
+        Map<Long, List<MealItemSummaryResponse>> itemsByMeal =
+                mealItemService.itemsByMeal(meals.stream().map(Meal::getId).toList());
+
         // 혈당·식사를 한 줄로 합친 뒤 한국 날짜별로 나눔
         Map<LocalDate, List<RecordEventResponse>> byDate = Stream.concat(
                         readingRepository.findAllInRange(userId, start, end).stream().map(RecordEventResponse::from),
-                        mealRepository.findAllInRange(userId, start, end).stream().map(RecordEventResponse::from))
+                        meals.stream().map(m -> RecordEventResponse.from(m, itemsByMeal.getOrDefault(m.getId(), List.of()))))
                 .sorted(EVENT_ORDER)
                 .collect(Collectors.groupingBy(e -> KoreanTime.dateOf(e.occurredAt())));
 
@@ -96,9 +107,14 @@ public class RecordService {
         readingRepository.findMeasuredAtsInRange(userId, start, end).forEach(at -> recordedDates.add(KoreanTime.dateOf(at)));
         mealRepository.findStartedAtsInRange(userId, start, end).forEach(at -> recordedDates.add(KoreanTime.dateOf(at)));
 
+        // 그 달에 진료 일정이 있는 날짜들 (기록 상태와 따로 봄: 미래 날짜도 진료일이면 표시)
+        Set<LocalDate> visitDates = new HashSet<>();
+        visitRepository.findVisitAtsInRange(userId, start, end).forEach(at -> visitDates.add(KoreanTime.dateOf(at)));
+
         List<CalendarResponse.Day> days = new ArrayList<>();
         for (LocalDate date = first; !date.isAfter(last); date = date.plusDays(1)) {
-            days.add(new CalendarResponse.Day(date, statusOf(date, today, startDate, recordedDates), false));
+            days.add(new CalendarResponse.Day(date, statusOf(date, today, startDate, recordedDates),
+                    visitDates.contains(date)));
         }
 
         return new CalendarResponse(

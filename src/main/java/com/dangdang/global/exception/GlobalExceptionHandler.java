@@ -7,6 +7,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.MultipartException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -100,6 +101,14 @@ public class GlobalExceptionHandler {
     public ResponseEntity<BaseResponse<Void>> handleTooLarge(MaxUploadSizeExceededException e) {
         log.warn("업로드 크기 초과: {}", e.getMaxUploadSize());
         return fail(GlobalErrorCode.PAYLOAD_TOO_LARGE);
+    }
+
+    //multipart 요청 자체가 깨짐 (Content-Type은 multipart인데 boundary가 없음 등) -> 500 말고 400
+    //크기 초과(MaxUploadSizeExceededException)도 이 종류지만 위에서 더 구체적으로 잡아서 413 그대로
+    @ExceptionHandler(MultipartException.class)
+    public ResponseEntity<BaseResponse<Void>> handleMultipart(MultipartException e) {
+        log.warn("multipart 요청을 읽을 수 없음: {}", e.getMessage());
+        return fail(GlobalErrorCode.INVALID_INPUT);
     }
 
     private ResponseEntity<BaseResponse<Void>> fail(GlobalErrorCode code) {

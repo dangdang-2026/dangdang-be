@@ -31,7 +31,7 @@ public class RecordController {
                     **Parameters** from·to(한국 날짜 yyyy-MM-dd, 필수, 둘 다 포함, 최대 31일)
                     **Returns** 날짜별 days[]. 기록 없는 날도 events=[]로 들어감. events는 시각 오래된 순이고
                     type=READING이면 reading, type=MEAL이면 meal 칸만 들어감. modified는 저장 후 고친 적이 있는지.
-                    meal.items는 음식 항목 기능 전이라 항상 []. 날짜 형식이 틀리거나 from > to 거나 31일 넘으면 GLOBAL_40001
+                    meal.items는 먹은 음식 목록(추가한 순서, 지운 항목 빼고, 없으면 []). 날짜 형식이 틀리거나 from > to 거나 31일 넘으면 GLOBAL_40001
                     """)
     @GetMapping
     public ResponseEntity<BaseResponse<RecordsResponse>> records(
@@ -49,7 +49,7 @@ public class RecordController {
             description =
                     """
                     **Parameters** month(한국 기준 달 yyyy-MM, 필수)
-                    **Returns** 그 달 모든 날짜의 status(RECORDED·EMPTY·TODAY·FUTURE·BEFORE_SIGNUP)와 visit(진료일, 지금은 항상 false),
+                    **Returns** 그 달 모든 날짜의 status(RECORDED·EMPTY·TODAY·FUTURE·BEFORE_SIGNUP)와 visit(그날 진료 일정이 있으면 true, 날짜 미정·지운 일정은 안 셈),
                     firstRecordDate(처음 기록한 날, 없으면 null), hasPrevMonth·hasNextMonth. month 형식이 틀리면 GLOBAL_40001
                     """)
     @GetMapping("/calendar")

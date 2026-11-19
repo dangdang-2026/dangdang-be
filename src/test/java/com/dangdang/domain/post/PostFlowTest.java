@@ -20,7 +20,6 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.isA;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -209,14 +208,12 @@ class PostFlowTest {
     }
 
     @Test
-    void 인기순_기간_임신상태_필터는_보류라_400() throws Exception {
+    void 인기순_기간_대상에_모르는_값은_400() throws Exception {
         for (String[] param : List.of(
-                new String[] {"sort", "POPULAR"}, new String[] {"period", "WEEK"},
-                new String[] {"audience", "PREGNANT"}, new String[] {"audience", "POSTPARTUM"})) {
-            mvc.perform(get(BASE).param(param[0], param[1]).cookie(jisu))
+                new String[] {"period", "YEAR"}, new String[] {"audience", "BABY"})) {
+            mvc.perform(get(BASE).param("sort", "POPULAR").param(param[0], param[1]).cookie(jisu))
                     .andExpect(status().isBadRequest())
-                    .andExpect(jsonPath("$.errorCode").value("POST_40002"))
-                    .andExpect(jsonPath("$.message", containsString("준비 중")));
+                    .andExpect(jsonPath("$.errorCode").value("GLOBAL_40001"));
         }
     }
 

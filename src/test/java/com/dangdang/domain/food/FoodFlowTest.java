@@ -243,7 +243,7 @@ class FoodFlowTest {
                     .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.errorCode").value("GLOBAL_40001"));
         }
-        String[][] paging = {{"size", "0"}, {"size", "101"}, {"page", "-1"}};
+        String[][] paging = {{"size", "0"}, {"size", "101"}, {"page", "-1"}, {"page", "10001"}, {"page", "2147483647"}};
         for (String[] c : paging) {
             mvc.perform(get("/api/foods").cookie(access).param("q", "김치").param(c[0], c[1]))
                     .andExpect(status().isBadRequest())

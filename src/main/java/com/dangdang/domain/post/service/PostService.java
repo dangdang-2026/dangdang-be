@@ -4,6 +4,7 @@ import com.dangdang.domain.comment.repository.CommentRepository;
 import com.dangdang.domain.community.entity.CommunityProfile;
 import com.dangdang.domain.community.service.BlockService;
 import com.dangdang.domain.community.service.CommunityProfileService;
+import com.dangdang.domain.community.service.SanctionService;
 import com.dangdang.domain.post.dto.request.PostCreateRequest;
 import com.dangdang.domain.post.dto.request.PostUpdateRequest;
 import com.dangdang.domain.post.dto.response.PollResponse;
@@ -12,10 +13,14 @@ import com.dangdang.domain.post.dto.response.PostListResponse;
 import com.dangdang.domain.post.dto.response.PostSummaryResponse;
 import com.dangdang.domain.post.entity.PollVote;
 import com.dangdang.domain.post.entity.Post;
+import com.dangdang.domain.post.enums.PopularPeriod;
+import com.dangdang.domain.post.enums.PostAudience;
 import com.dangdang.domain.post.enums.PostCategory;
+import com.dangdang.domain.post.enums.PostSort;
 import com.dangdang.domain.post.exception.PostErrorCode;
 import com.dangdang.domain.post.repository.PollVoteRepository;
 import com.dangdang.domain.post.repository.PostDraftRepository;
+import com.dangdang.domain.post.repository.PostPopularQuery;
 import com.dangdang.domain.post.repository.PostReactionRepository;
 import com.dangdang.domain.post.repository.PostRepository;
 import com.dangdang.domain.post.repository.PostSpecifications;
@@ -23,14 +28,15 @@ import com.dangdang.domain.user.enums.Role;
 import com.dangdang.global.common.IdCount;
 import com.dangdang.global.common.TimeCursor;
 import com.dangdang.global.exception.CustomException;
-import com.dangdang.global.exception.GlobalErrorCode;
 import com.dangdang.global.security.AuthPrincipal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -42,28 +48,35 @@ import java.util.stream.Collectors;
 public class PostService {
 
     private static final Sort LATEST = Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
+    static final int POPULAR_MAX = 50;          // 인기 게시판은 한 번에 50개 (size 무시, 다음 페이지 없음)
+    private static final List<PostCategory> LATEST_ONLY_CATEGORIES =
+            List.of(PostCategory.MEAL, PostCategory.VISIT, PostCategory.NEWS);
 
     private final PostRepository postRepository;
+    private final PostPopularQuery popularQuery;
     private final PostDraftRepository draftRepository;
     private final PostReactionRepository reactionRepository;
     private final CommentRepository commentRepository;
     private final PollVoteRepository pollVoteRepository;
     private final BlockService blockService;
     private final CommunityProfileService profileService;
+    private final SanctionService sanctionService;
     private final Clock clock;
 
-    public PostListResponse list(Long userId, PostCategory category, String sort, String period, String audience,
-                                 String rawQ, String rawCursor, int size) {
-        rejectDeferredFilters(sort, period, audience);
+    public PostListResponse list(Long userId, PostCategory category, PostSort sort, PopularPeriod period,
+                                 PostAudience who, String rawQ, String rawCursor, int size) {
         String q = normalizeSearch(rawQ);
-        String filter = category + "|" + q;
+        Long myProfileId = profileService.findMyProfileId(userId).orElse(null);
+        if (sort == PostSort.POPULAR) {
+            return popular(category, who, period, q, myProfileId);
+        }
+        String filter = category + "|" + q + "|" + who;
         TimeCursor cursor = rawCursor == null ? null
                 : TimeCursor.decode(rawCursor, filter, PostErrorCode.INVALID_CURSOR);
-        Long myProfileId = profileService.findMyProfileId(userId).orElse(null);
 
         // size보다 하나 더 읽어서 다음 페이지가 있는지 본다
         List<Post> found = postRepository.findBy(
-                PostSpecifications.feed(category, q, cursor, myProfileId),
+                PostSpecifications.feed(category, q, cursor, myProfileId, who),
                 query -> query.sortBy(LATEST).limit(size + 1).all());
         boolean hasNext = found.size() > size;
         List<Post> page = hasNext ? found.subList(0, size) : found;
@@ -80,6 +93,7 @@ public class PostService {
     @Transactional
     public PostDetailResponse create(AuthPrincipal principal, PostCreateRequest request) {
         CommunityProfile profile = profileService.requireProfile(principal.userId());
+        sanctionService.assertCanWrite(principal.userId());   // 이용 제한 중이면 403 (U-17)
         checkCategoryAllowed(request.category(), principal.role());
         Post post = Post.of(profile, request.category(), request.title().trim(), request.content().trim(),
                 Boolean.TRUE.equals(request.isAnonymous()), request.poll(), clock.instant());
@@ -109,6 +123,7 @@ public class PostService {
             throw new CustomException(PostErrorCode.EMPTY_UPDATE);
         }
         CommunityProfile profile = profileService.requireProfile(principal.userId());
+        sanctionService.assertCanWrite(principal.userId());   // 이용 제한 중이면 고치기도 403 (U-17)
         Post post = findMine(postId, profile.getId());
         if (post.isHidden()) {   // 가려진 글을 고쳐서 다시 드러내는 것을 막는다
             throw new CustomException(PostErrorCode.POST_NOT_FOUND);
@@ -189,19 +204,20 @@ public class PostService {
         return myProfileId == null ? -1L : myProfileId;
     }
 
-    private void rejectDeferredFilters(String sort, String period, String audience) {
-        if (period != null) {
-            throw new CustomException(PostErrorCode.DEFERRED_FILTER);
+    // 인기 게시판 (U-23~U-25): 기간 안 글을 공감+댓글 수로 DB에서 줄 세워 위 50개. 같으면 최신 먼저
+    // 식단·진료 후기는 최신순만 (COM-13 — 비교·따라 하기 줄이기), 당당 소식(공식 카드)은 인기 경쟁 대상이 아니다
+    private PostListResponse popular(PostCategory category, PostAudience who, PopularPeriod period, String q,
+                                     Long myProfileId) {
+        if (category != null && LATEST_ONLY_CATEGORIES.contains(category)) {
+            throw new CustomException(PostErrorCode.LATEST_ONLY);
         }
-        if (sort != null && !"LATEST".equals(sort)) {
-            throw "POPULAR".equals(sort) ? new CustomException(PostErrorCode.DEFERRED_FILTER)
-                    : new CustomException(GlobalErrorCode.INVALID_INPUT);
-        }
-        if (audience != null && !"ALL".equals(audience)) {
-            throw "PREGNANT".equals(audience) || "POSTPARTUM".equals(audience)
-                    ? new CustomException(PostErrorCode.DEFERRED_FILTER)
-                    : new CustomException(GlobalErrorCode.INVALID_INPUT);
-        }
+        Instant since = clock.instant().minus(period.window());
+        Specification<Post> filter = PostSpecifications.feed(category, q, null, myProfileId, who)
+                .and((root, query, cb) -> cb.and(
+                        cb.greaterThanOrEqualTo(root.<Instant>get("createdAt"), since),
+                        root.get("category").in(LATEST_ONLY_CATEGORIES).not()));
+        List<Post> top = popularQuery.findTop(filter, viewerKey(myProfileId), POPULAR_MAX);
+        return new PostListResponse(toSummaries(top, myProfileId), null, false);
     }
 
     private String normalizeSearch(String rawQ) {

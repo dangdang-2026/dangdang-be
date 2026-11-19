@@ -4,6 +4,7 @@ import com.dangdang.domain.meal.entity.Meal;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 // 식사 목록 한 페이지 응답 (커서 방식)
 // 다음 페이지는 nextCursorAt, nextCursorId 를 그대로 cursorAt, cursorId 로 보내면 됨
@@ -14,11 +15,14 @@ public record MealPageResponse(
         Long nextCursorId) {
 
     // fetched = DB에서 size + 1개 요청해서 받은 결과. 넘치면 다음 페이지가 있음
-    public static MealPageResponse of(List<Meal> fetched, int size) {
+    // itemsByMeal = 식사 id별 음식 항목 (한 번에 읽어 둔 것, 항목 없는 식사는 맵에 없음)
+    public static MealPageResponse of(List<Meal> fetched, int size, Map<Long, List<MealItemSummaryResponse>> itemsByMeal) {
         boolean hasNext = fetched.size() > size;
         List<Meal> page = hasNext ? fetched.subList(0, size) : fetched;
 
-        List<MealResponse> items = page.stream().map(MealResponse::from).toList();
+        List<MealResponse> items = page.stream()
+                .map(m -> MealResponse.from(m, itemsByMeal.getOrDefault(m.getId(), List.of())))
+                .toList();
         if (!hasNext) {
             return new MealPageResponse(items, false, null, null);
         }

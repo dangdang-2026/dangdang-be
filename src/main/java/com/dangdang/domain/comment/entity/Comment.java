@@ -6,11 +6,13 @@ import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.DynamicUpdate;
 
 import java.time.Instant;
 
 @Getter
 @Entity
+@DynamicUpdate                     // 바뀐 칸만 UPDATE (Post와 같은 이유)
 @Table(name = "comments")
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Comment {
