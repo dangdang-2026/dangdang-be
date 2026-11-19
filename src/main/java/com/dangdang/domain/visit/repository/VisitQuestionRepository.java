@@ -1,7 +1,9 @@
 package com.dangdang.domain.visit.repository;
 
 import com.dangdang.domain.visit.entity.VisitQuestion;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 
 import java.util.List;
@@ -15,7 +17,11 @@ public interface VisitQuestionRepository extends JpaRepository<VisitQuestion, Lo
 
     // 이 일정에 붙은 이 질문 (지운 것도 찾음 → 다시 지우기 요청에 처음 지운 시각으로 답하려고)
     // 다른 일정의 질문 id로는 못 찾음
-    Optional<VisitQuestion> findByIdAndVisitId(Long id, Long visitId);
+    // 찾으면서 이 질문 줄을 잠금 (트랜잭션이 끝날 때까지). 같은 질문 삭제가 동시에 두 번 와도
+    // 나중 요청은 앞 요청이 끝난 뒤 "이미 지움"을 읽어서 처음 지운 시각을 덮어쓰지 않음
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select q from VisitQuestion q where q.id = :id and q.visit.id = :visitId")
+    Optional<VisitQuestion> findByIdAndVisitIdForUpdate(Long id, Long visitId);
 
     // 이 일정의 살아 있는 질문 중 가장 큰 정렬 순서. 질문이 없으면 -1 (정렬 순서를 안 보내면 맨 뒤로 넣으려고)
     @Query("""

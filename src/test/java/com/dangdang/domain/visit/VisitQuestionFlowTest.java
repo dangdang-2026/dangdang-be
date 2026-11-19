@@ -18,7 +18,14 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
 import java.time.Instant;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -153,6 +160,30 @@ class VisitQuestionFlowTest {
         list(access, visitId).andExpect(jsonPath("$.data", hasSize(0)));
         mvc.perform(get("/api/visits/" + visitId).cookie(access))
                 .andExpect(jsonPath("$.data.questions", hasSize(0)));
+    }
+
+    @Test
+    void 같은_질문을_동시에_두_번_지워도_지운_시각은_하나() throws Exception {
+        long q = addAndGetId("{\"content\":\"동시에 지울 질문\"}");
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        Callable<String> deleteOnce = () -> {
+            start.await();
+            String body = remove(access, visitId, q).andExpect(status().isOk())
+                    .andReturn().getResponse().getContentAsString();
+            return JsonPath.read(body, "$.data.deletedAt");
+        };
+        Future<String> first = pool.submit(deleteOnce);
+        Future<String> second = pool.submit(deleteOnce);
+        start.countDown();
+        String a = first.get(10, TimeUnit.SECONDS);
+        String b = second.get(10, TimeUnit.SECONDS);
+        pool.shutdown();
+
+        assertThat(a).isEqualTo(b);   // 두 응답이 같은 시각
+        Instant saved = jdbc.queryForObject("SELECT deleted_at FROM visit_questions WHERE id = ?",
+                java.sql.Timestamp.class, q).toInstant();
+        assertThat(Instant.parse(a)).isEqualTo(saved);   // DB에 남은 시각도 같음
     }
 
     @Test

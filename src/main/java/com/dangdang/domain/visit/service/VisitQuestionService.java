@@ -49,7 +49,7 @@ public class VisitQuestionService {
     @Transactional
     public VisitQuestionDeleteResponse delete(Long userId, Long visitId, Long questionId) {
         visitService.findMine(userId, visitId);
-        VisitQuestion question = visitQuestionRepository.findByIdAndVisitId(questionId, visitId)
+        VisitQuestion question = visitQuestionRepository.findByIdAndVisitIdForUpdate(questionId, visitId)
                 .orElseThrow(() -> new CustomException(VisitErrorCode.QUESTION_NOT_FOUND));
         question.delete(clock.instant());   // 변경 감지로 트랜잭션 끝날 때 반영됨
         return VisitQuestionDeleteResponse.from(question);
