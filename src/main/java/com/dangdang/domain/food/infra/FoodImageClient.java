@@ -6,7 +6,8 @@ import java.util.List;
 public interface FoodImageClient {
 
     // 사진 한 장을 보내 음식 후보를 받음. AI 서버가 실패하면 RestClientException이 그대로 나감
-    Result candidates(byte[] image, String filename, String contentType);
+    // contentType은 사용자가 보낸 값 그대로 (없거나 깨진 값이어도 됨)
+    Result candidates(byte[] image, String contentType);
 
     record Result(List<Candidate> candidates) {}
 

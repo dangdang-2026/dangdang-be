@@ -62,6 +62,7 @@ class FoodImageFlowTest {
         access = mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"jisu@x.com\",\"password\":\"abcd1234\"}"))
                 .andReturn().getResponse().getCookie("ACCESS_TOKEN");
+        consent("AI_PHOTO", true);   // 동의 확인 테스트 말고는 동의한 상태로 시작
     }
 
     @AfterEach
@@ -72,7 +73,7 @@ class FoodImageFlowTest {
 
     @Test
     void 후보마다_식약처_음식을_붙여서_돌려준다() throws Exception {
-        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(List.of(
+        given(foodImageClient.candidates(any(), any())).willReturn(new FoodImageClient.Result(List.of(
                 new Candidate("김밥", 0.9972), new Candidate("김치볶음밥", 0.0019), new Candidate("비빔밥", 0.0007))));
 
         analyze(PHOTO)
@@ -89,7 +90,7 @@ class FoodImageFlowTest {
 
     @Test
     void 식약처에_없는_이름이면_foods는_빈_배열() throws Exception {
-        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(List.of(
+        given(foodImageClient.candidates(any(), any())).willReturn(new FoodImageClient.Result(List.of(
                 new Candidate("없는음식이름쀍", 0.95))));
 
         analyze(PHOTO)
@@ -99,7 +100,7 @@ class FoodImageFlowTest {
 
     @Test
     void 일등_확신도가_낮으면_이름으로_적기() throws Exception {
-        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(List.of(
+        given(foodImageClient.candidates(any(), any())).willReturn(new FoodImageClient.Result(List.of(
                 new Candidate("김밥", 0.69), new Candidate("비빔밥", 0.2))));
 
         analyze(PHOTO)
@@ -110,7 +111,7 @@ class FoodImageFlowTest {
 
     @Test
     void 일등_확신도가_딱_기준값이면_후보_화면() throws Exception {
-        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(List.of(
+        given(foodImageClient.candidates(any(), any())).willReturn(new FoodImageClient.Result(List.of(
                 new Candidate("김밥", 0.7))));
 
         analyze(PHOTO).andExpect(jsonPath("$.data.fallback").value(false));
@@ -118,7 +119,7 @@ class FoodImageFlowTest {
 
     @Test
     void AI_서버에_연결이_안_되면_이름으로_적기() throws Exception {
-        given(foodImageClient.candidates(any(), any(), any())).willThrow(new ResourceAccessException("timeout"));
+        given(foodImageClient.candidates(any(), any())).willThrow(new ResourceAccessException("timeout"));
 
         analyze(PHOTO)
                 .andExpect(status().isOk())
@@ -127,7 +128,7 @@ class FoodImageFlowTest {
 
     @Test
     void AI_서버_모델이_없으면_이름으로_적기() throws Exception {
-        given(foodImageClient.candidates(any(), any(), any()))
+        given(foodImageClient.candidates(any(), any()))
                 .willThrow(HttpServerErrorException.create(HttpStatus.SERVICE_UNAVAILABLE, "", null, null, null));
 
         analyze(PHOTO).andExpect(jsonPath("$.data.fallback").value(true));
@@ -135,7 +136,7 @@ class FoodImageFlowTest {
 
     @Test
     void AI_서버_토큰이_틀려도_이름으로_적기() throws Exception {
-        given(foodImageClient.candidates(any(), any(), any()))
+        given(foodImageClient.candidates(any(), any()))
                 .willThrow(HttpClientErrorException.create(HttpStatus.UNAUTHORIZED, "", null, null, null));
 
         analyze(PHOTO).andExpect(jsonPath("$.data.fallback").value(true));
@@ -143,7 +144,7 @@ class FoodImageFlowTest {
 
     @Test
     void 사진으로_열_수_없는_파일이면_400() throws Exception {
-        given(foodImageClient.candidates(any(), any(), any()))
+        given(foodImageClient.candidates(any(), any()))
                 .willThrow(HttpClientErrorException.create(HttpStatus.BAD_REQUEST, "", null, null, null));
 
         analyze(new MockMultipartFile("image", "a.heic", "image/heic", new byte[]{1}))
@@ -159,7 +160,7 @@ class FoodImageFlowTest {
         analyze(new MockMultipartFile("image", "empty.jpg", "image/jpeg", new byte[0]))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errorCode").value("FOOD_40001"));
-        verify(foodImageClient, never()).candidates(any(), any(), any());
+        verify(foodImageClient, never()).candidates(any(), any());
     }
 
     @Test
@@ -167,7 +168,7 @@ class FoodImageFlowTest {
         analyze(new MockMultipartFile("image", "big.jpg", "image/jpeg", new byte[10 * 1024 * 1024 + 1]))
                 .andExpect(status().isContentTooLarge())
                 .andExpect(jsonPath("$.errorCode").value("GLOBAL_41301"));
-        verify(foodImageClient, never()).candidates(any(), any(), any());
+        verify(foodImageClient, never()).candidates(any(), any());
     }
 
     @Test
@@ -182,6 +183,66 @@ class FoodImageFlowTest {
     void 로그인하지_않으면_401() throws Exception {
         mvc.perform(multipart("/api/foods/analyze-image").file(PHOTO))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void 사진_AI_동의를_안_했으면_403이고_AI_서버로_보내지_않는다() throws Exception {
+        jdbc.update("DELETE FROM consent_events");   // 한 번도 동의 안 한 상태
+
+        analyze(PHOTO)
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("FOOD_40301"));
+        verify(foodImageClient, never()).candidates(any(), any());
+    }
+
+    @Test
+    void 사진_AI_동의를_철회했으면_403() throws Exception {
+        consent("AI_PHOTO", false);
+
+        analyze(PHOTO)
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("FOOD_40301"));
+        verify(foodImageClient, never()).candidates(any(), any());
+    }
+
+    @Test
+    void AI_후보를_확신도_순으로_다시_세우고_3개까지만() throws Exception {
+        given(foodImageClient.candidates(any(), any())).willReturn(new FoodImageClient.Result(List.of(
+                new Candidate("비빔밥", 0.01), new Candidate("김밥", 0.9), new Candidate("라면", 0.02),
+                new Candidate("김치볶음밥", 0.05), new Candidate("떡볶이", 0.001))));
+
+        analyze(PHOTO)
+                .andExpect(jsonPath("$.data.fallback").value(false))
+                .andExpect(jsonPath("$.data.candidates", hasSize(3)))
+                .andExpect(jsonPath("$.data.candidates[*].name")
+                        .value(org.hamcrest.Matchers.contains("김밥", "김치볶음밥", "라면")));
+    }
+
+    @Test
+    void 이름이_빈_후보는_뺀다() throws Exception {
+        given(foodImageClient.candidates(any(), any())).willReturn(new FoodImageClient.Result(java.util.Arrays.asList(
+                new Candidate(null, 0.95), new Candidate(" ", 0.9), new Candidate("김밥", 0.8))));
+
+        analyze(PHOTO)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.candidates", hasSize(1)))
+                .andExpect(jsonPath("$.data.candidates[0].name").value("김밥"));
+    }
+
+    @Test
+    void 이름이_빈_후보만_오면_이름으로_적기() throws Exception {
+        given(foodImageClient.candidates(any(), any())).willReturn(new FoodImageClient.Result(List.of(
+                new Candidate(null, 0.95))));
+
+        analyze(PHOTO)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.fallback").value(true));
+    }
+
+    private void consent(String type, boolean granted) throws Exception {
+        mvc.perform(post("/api/me/consents").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"items\":[{\"type\":\"" + type + "\",\"granted\":" + granted + "}]}"))
+                .andExpect(status().isOk());
     }
 
     private ResultActions analyze(MockMultipartFile file) throws Exception {

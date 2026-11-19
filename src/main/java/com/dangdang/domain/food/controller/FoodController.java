@@ -112,6 +112,7 @@ public class FoodController {
                     **Returns** fallback, candidates[]{name, confidence(0~1), foods[](그 이름으로 음식 검색한 앞쪽 3개, 검색 결과와 같은 모양, 못 찾으면 [])}.
                     candidates는 확신도 높은 순 최대 3개. name은 AI 음식 이름이라 식약처 이름과 다를 수 있어서 foods에서 골라 씀.
                     fallback=true면 후보 화면 대신 「이름으로 적기」로 넘어감 (1등 확신도 0.7 미만, AI 서버 실패·시간 초과). 이때 candidates=[].
+                    사진 AI 분석 동의(AI_PHOTO)를 안 했으면 FOOD_40301 (사진을 AI 서버로 보내지 않음, 동의 화면으로 안내).
                     사진은 저장하지 않음. image가 없거나 비었으면 FOOD_40001, 사진으로 열 수 없는 파일이면 FOOD_40002,
                     10MB를 넘으면 GLOBAL_41301, multipart가 아니면 GLOBAL_41501
                     """)
