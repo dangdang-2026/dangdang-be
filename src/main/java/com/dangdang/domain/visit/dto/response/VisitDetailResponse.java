@@ -6,18 +6,18 @@ import java.time.Instant;
 import java.util.List;
 
 // 진료 일정 상세 = 일정 + 질문 + 메모
-// 질문·메모는 다음 작업에서 채움 (지금은 항상 [])
+// 메모는 다음 작업에서 채움 (지금은 항상 [])
 public record VisitDetailResponse(
         Long visitId,
         Long careSiteId,
         Instant visitAt,
         Instant createdAt,
         Instant updatedAt,
-        List<Object> questions,
+        List<VisitQuestionResponse> questions,   // 정렬 순서 → 먼저 만든 순, 지운 질문 빠짐
         List<Object> notes) {
 
-    public static VisitDetailResponse from(Visit v) {
+    public static VisitDetailResponse of(Visit v, List<VisitQuestionResponse> questions) {
         return new VisitDetailResponse(v.getId(), v.getCareSiteId(), v.getVisitAt(),
-                v.getCreatedAt(), v.getUpdatedAt(), List.of(), List.of());
+                v.getCreatedAt(), v.getUpdatedAt(), questions, List.of());
     }
 }

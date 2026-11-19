@@ -9,9 +9,11 @@ import com.dangdang.domain.visit.dto.request.VisitCreateRequest;
 import com.dangdang.domain.visit.dto.request.VisitUpdateRequest;
 import com.dangdang.domain.visit.dto.response.VisitDetailResponse;
 import com.dangdang.domain.visit.dto.response.VisitPageResponse;
+import com.dangdang.domain.visit.dto.response.VisitQuestionResponse;
 import com.dangdang.domain.visit.dto.response.VisitResponse;
 import com.dangdang.domain.visit.entity.Visit;
 import com.dangdang.domain.visit.exception.VisitErrorCode;
+import com.dangdang.domain.visit.repository.VisitQuestionRepository;
 import com.dangdang.domain.visit.repository.VisitRepository;
 import com.dangdang.global.exception.CustomException;
 import lombok.RequiredArgsConstructor;
@@ -20,6 +22,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -29,6 +32,7 @@ public class VisitService {
     private final VisitRepository visitRepository;
     private final UserRepository userRepository;
     private final CareSiteRepository careSiteRepository;
+    private final VisitQuestionRepository visitQuestionRepository;
     private final Clock clock;
 
     // 일정 등록. 병원을 고르면 내 병원(삭제 안 된 것)인지 확인
@@ -46,9 +50,15 @@ public class VisitService {
         return VisitPageResponse.from(visitRepository.findPage(userId, PageRequest.of(page, size)));
     }
 
-    // 상세 (질문·메모 포함)
+    // 상세 (질문·메모 포함). 질문은 정렬 순서 → 먼저 만든 순
+    // 질문 서비스가 이 서비스(findMine)를 쓰므로, 서로 부르지 않게 질문은 저장소에서 바로 읽음
     public VisitDetailResponse get(Long userId, Long visitId) {
-        return VisitDetailResponse.from(findMine(userId, visitId));
+        Visit visit = findMine(userId, visitId);
+        List<VisitQuestionResponse> questions = visitQuestionRepository
+                .findAllByVisitIdAndDeletedAtIsNullOrderBySortOrderAscIdAsc(visitId).stream()
+                .map(VisitQuestionResponse::from)
+                .toList();
+        return VisitDetailResponse.of(visit, questions);
     }
 
     // 수정 (보낸 칸만). null을 보내면 병원 지우기·날짜 미정으로
