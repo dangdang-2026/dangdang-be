@@ -1,0 +1,150 @@
+package com.dangdang.domain.card.service;
+
+import com.dangdang.domain.card.dto.request.CardCorrectRequest;
+import com.dangdang.domain.card.dto.request.CardCreateRequest;
+import com.dangdang.domain.card.dto.request.CardReviewRequest;
+import com.dangdang.domain.card.dto.response.CardDetailResponse;
+import com.dangdang.domain.card.dto.response.CardSummaryResponse;
+import com.dangdang.domain.card.entity.ContentCard;
+import com.dangdang.domain.card.enums.CardStatus;
+import com.dangdang.domain.card.exception.CardErrorCode;
+import com.dangdang.domain.card.repository.CardSaveRepository;
+import com.dangdang.domain.card.repository.ContentCardRepository;
+import com.dangdang.global.exception.CustomException;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Clock;
+import java.util.List;
+import java.util.Set;
+
+// 당당 소식 카드뉴스 (COM-12 · U-26~U-28). 공식 지침 문장만, 출처·확인일 필수, 카드 안 광고 없음
+@Service
+@RequiredArgsConstructor
+public class CardService {
+
+    // 목록에 보이는 상태 — 내려간 카드는 목록에서 빠진다 (저장 목록에는 남음)
+    private static final List<CardStatus> LISTED = CardStatus.LIVE;
+
+    private final ContentCardRepository contentCardRepository;
+    private final CardSaveRepository cardSaveRepository;
+    private final Clock clock;
+
+    @Transactional(readOnly = true)
+    public List<CardSummaryResponse> list(Long userId, String series) {
+        List<ContentCard> cards = series == null
+                ? contentCardRepository.findByStatusInOrderByCreatedAtDescIdDesc(LISTED)
+                : contentCardRepository.findBySeriesAndStatusInOrderByCreatedAtDescIdDesc(series, LISTED);
+        Set<Long> saved = cards.isEmpty() ? Set.of()
+                : cardSaveRepository.findSavedCardIds(userId, cards.stream().map(ContentCard::getId).toList());
+        return cards.stream().map(c -> CardSummaryResponse.of(c, saved.contains(c.getId()))).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public CardDetailResponse detail(Long userId, Long cardId) {
+        ContentCard card = visible(cardId);
+        return CardDetailResponse.of(card, cardSaveRepository.existsByUserIdAndCardId(userId, cardId));
+    }
+
+    // 저장 (U-27) — 두 번 눌러도, 동시에 눌러도 한 줄 (ON CONFLICT DO NOTHING)
+    @Transactional
+    public CardDetailResponse save(Long userId, Long cardId) {
+        ContentCard card = visible(cardId);
+        if (card.getStatus() == CardStatus.WITHDRAWN) {
+            throw new CustomException(CardErrorCode.WITHDRAWN);
+        }
+        cardSaveRepository.addIfAbsent(userId, cardId, clock.instant());
+        return CardDetailResponse.of(card, true);
+    }
+
+    @Transactional
+    public void unsave(Long userId, Long cardId) {
+        cardSaveRepository.findByUserIdAndCardId(userId, cardId).ifPresent(cardSaveRepository::delete);
+    }
+
+    // 저장한 카드 (U-27 · 빈 상태 U-27b) — 내려간 카드도 「내려간 카드」로 남긴다
+    @Transactional(readOnly = true)
+    public List<CardSummaryResponse> mySaves(Long userId) {
+        return cardSaveRepository.findMine(userId).stream()
+                .filter(s -> s.getCard().isVisible())
+                .map(s -> CardSummaryResponse.of(s.getCard(), true)).toList();
+    }
+
+    // ── 운영자 ──
+
+    // 운영자 목록 — 쓰는 중 카드의 id도 여기서 다시 찾는다
+    @Transactional(readOnly = true)
+    public List<CardSummaryResponse> adminList() {
+        return contentCardRepository.findAllByOrderByCreatedAtDescIdDesc().stream()
+                .map(CardSummaryResponse::forAdmin).toList();
+    }
+
+    @Transactional
+    public CardDetailResponse create(CardCreateRequest req) {
+        ContentCard card = contentCardRepository.save(ContentCard.draft(req.title().strip(), req.series(),
+                req.body(), req.sources(), req.checkedOn(), clock.instant()));
+        return CardDetailResponse.of(card, false);
+    }
+
+    @Transactional
+    public CardDetailResponse publish(Long cardId) {
+        ContentCard card = locked(cardId);
+        if (card.getStatus() != CardStatus.DRAFT) {
+            throw new CustomException(CardErrorCode.WRONG_STATUS);
+        }
+        card.publish(clock.instant());
+        return CardDetailResponse.of(card, false);
+    }
+
+    @Transactional
+    public CardDetailResponse correct(Long cardId, CardCorrectRequest req) {
+        ContentCard card = locked(cardId);
+        if (card.getStatus() == CardStatus.DRAFT || card.getStatus() == CardStatus.WITHDRAWN) {
+            throw new CustomException(CardErrorCode.WRONG_STATUS);
+        }
+        card.correct(req.body(), req.note().strip(), req.checkedOn(), clock.instant());
+        return CardDetailResponse.of(card, false);
+    }
+
+    @Transactional
+    public CardDetailResponse withdraw(Long cardId) {
+        ContentCard card = locked(cardId);
+        if (card.getStatus() == CardStatus.DRAFT || card.getStatus() == CardStatus.WITHDRAWN) {
+            throw new CustomException(CardErrorCode.WRONG_STATUS);
+        }
+        card.withdraw(clock.instant());   // 이 카드를 가리키는 소식 카드는 AnnouncementRepository.findActive가 알아서 뺀다
+        return CardDetailResponse.of(card, false);
+    }
+
+    // 검수자 적기 (U-26 「검수자 · 검수일」) — 내려간 카드는 안 됨
+    @Transactional
+    public CardDetailResponse review(Long cardId, CardReviewRequest req) {
+        ContentCard card = locked(cardId);
+        if (card.getStatus() == CardStatus.WITHDRAWN) {
+            throw new CustomException(CardErrorCode.WRONG_STATUS);
+        }
+        card.review(req.reviewer().strip(), req.reviewedOn(), clock.instant());
+        return CardDetailResponse.of(card, false);
+    }
+
+    // 사용자에겐 쓰는 중(DRAFT) 카드는 없는 카드
+    private ContentCard visible(Long cardId) {
+        ContentCard card = any(cardId);
+        if (!card.isVisible()) {
+            throw new CustomException(CardErrorCode.CARD_NOT_FOUND);
+        }
+        return card;
+    }
+
+    private ContentCard any(Long cardId) {
+        return contentCardRepository.findById(cardId)
+                .orElseThrow(() -> new CustomException(CardErrorCode.CARD_NOT_FOUND));
+    }
+
+    // 운영자가 상태를 바꿀 때 — 행을 잠그고 읽는다 (동시에 정정·내리기 해도 차례로)
+    private ContentCard locked(Long cardId) {
+        return contentCardRepository.findByIdForUpdate(cardId)
+                .orElseThrow(() -> new CustomException(CardErrorCode.CARD_NOT_FOUND));
+    }
+}
