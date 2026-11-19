@@ -6,6 +6,7 @@ import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.DynamicUpdate;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
@@ -14,6 +15,7 @@ import java.util.List;
 
 @Getter
 @Entity
+@DynamicUpdate                     // 바뀐 칸만 UPDATE → 글쓴이 저장이 운영자가 가린 hidden_reason을 덮어쓰지 않는다
 @Table(name = "posts")
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Post {

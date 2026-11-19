@@ -1,0 +1,31 @@
+package com.dangdang.domain.report.dto.response;
+
+import io.swagger.v3.oas.annotations.media.Schema;
+
+import java.time.Instant;
+import java.util.List;
+
+// 원문 보기 — 가려진 글도 운영자에게는 그대로 보인다
+public record AdminReportDetailResponse(
+        String targetType,
+        String targetId,
+        String postId,
+        @Schema(description = "글 제목 (댓글이면 null)") String title,
+        String content,
+        @Schema(description = "글쓴이 회원 번호 — 이용 제한(47번 POST /api/admin/sanctions)에 그대로 넣는다. 탈퇴했으면 null")
+        Long authorUserId,
+        String authorNickname,
+        boolean anonymous,
+        Instant createdAt,
+        @Schema(description = "VISIBLE · HIDDEN · DELETED") String state,
+        String hiddenReason,
+        List<ReportLine> reports,
+        List<ActionLine> actions) {
+
+    // 신고한 사람은 운영자에게도 보여 주지 않는다 (글쓴이에게 알려지지 않게 — 31번)
+    public record ReportLine(String reason, String detail, String status, Instant createdAt) {
+    }
+
+    public record ActionLine(String action, String reason, String memo, Long adminId, Instant occurredAt) {
+    }
+}

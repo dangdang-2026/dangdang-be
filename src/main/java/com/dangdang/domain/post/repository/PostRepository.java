@@ -17,4 +17,16 @@ public interface PostRepository extends JpaRepository<Post, Long>, JpaSpecificat
     @Modifying
     @Query("update Post p set p.viewCount = p.viewCount + 1 where p.id = :id")
     void increaseViewCount(@Param("id") Long id);
+
+    // 운영자 가리기 — 아직 안 가린 글만 바꾼다. 이미 가렸거나 글이 없으면 0줄
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query(nativeQuery = true,
+            value = "UPDATE posts SET hidden_reason = :reason WHERE id = :id AND hidden_reason IS NULL")
+    int hide(@Param("id") Long id, @Param("reason") String reason);
+
+    // 운영자 되돌리기 — 가린 글만 푼다
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query(nativeQuery = true,
+            value = "UPDATE posts SET hidden_reason = NULL WHERE id = :id AND hidden_reason IS NOT NULL")
+    int unhide(@Param("id") Long id);
 }

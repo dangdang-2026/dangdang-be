@@ -3,6 +3,7 @@ package com.dangdang.domain.comment.repository;
 import com.dangdang.domain.comment.entity.Comment;
 import com.dangdang.global.common.IdCount;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -41,4 +42,16 @@ public interface CommentRepository extends JpaRepository<Comment, Long> {
             group by c.post.id
             """)
     List<IdCount> countVisibleByPostIds(@Param("postIds") Collection<Long> postIds, @Param("viewer") Long viewerProfileId);
+
+    // 운영자 가리기 — 아직 안 가린 댓글만 바꾼다. 이미 가렸거나 댓글이 없으면 0줄
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query(nativeQuery = true,
+            value = "UPDATE comments SET hidden_reason = :reason WHERE id = :id AND hidden_reason IS NULL")
+    int hide(@Param("id") Long id, @Param("reason") String reason);
+
+    // 운영자 되돌리기 — 가린 댓글만 푼다
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query(nativeQuery = true,
+            value = "UPDATE comments SET hidden_reason = NULL WHERE id = :id AND hidden_reason IS NOT NULL")
+    int unhide(@Param("id") Long id);
 }
