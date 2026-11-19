@@ -32,7 +32,7 @@ public class VisitNoteController {
             description =
                     """
                     **Parameters** visitId, content(필수, 1~5000자, 받아쓰기 결과도 글자로)
-                    **Returns** 저장된 메모 {noteId, content, createdAt, updatedAt}. 적은 그대로 저장하고, AI 정리는 자동으로 돌리지 않음.
+                    **Returns** 저장된 메모 {noteId, content, aiExtract(처음엔 null), createdAt, updatedAt}. 적은 그대로 저장하고, AI 정리는 자동으로 돌리지 않음.
                     내용이 비었거나 길면 GLOBAL_40001, 없거나 삭제됐거나 남의 일정이면 VISIT_40401
                     """)
     @PostMapping
@@ -49,7 +49,7 @@ public class VisitNoteController {
             description =
                     """
                     **Parameters** visitId
-                    **Returns** 메모 [{noteId, content, createdAt, updatedAt}]. 먼저 쓴 순, 없으면 [].
+                    **Returns** 메모 [{noteId, content, aiExtract(AI 정리 결과, 없으면 null), createdAt, updatedAt}]. 먼저 쓴 순, 없으면 [].
                     없거나 삭제됐거나 남의 일정이면 VISIT_40401
                     """)
     @GetMapping
@@ -64,7 +64,7 @@ public class VisitNoteController {
             description =
                     """
                     **Parameters** visitId, noteId, content(필수, 1~5000자, 통째로 바뀜)
-                    **Returns** 수정된 메모. 내용이 비었거나 길면 GLOBAL_40001, 없거나 삭제됐거나 남의 일정이면 VISIT_40401,
+                    **Returns** 수정된 메모. 내용이 바뀌면 aiExtract는 비워짐(옛 메모 기준이라). 내용이 비었거나 길면 GLOBAL_40001, 없거나 삭제됐거나 남의 일정이면 VISIT_40401,
                     없는 메모이거나 다른 일정의 메모면 VISIT_40403
                     """)
     @PatchMapping("/{noteId}")

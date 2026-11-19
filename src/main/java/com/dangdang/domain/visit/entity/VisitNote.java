@@ -41,8 +41,11 @@ public class VisitNote extends BaseTimeEntity {
         return n;
     }
 
-    // 내용 고치기
+    // 내용 고치기. 내용이 실제로 바뀌면 AI 정리 결과를 비움 (옛 메모 기준 결과라 근거 문장이 안 맞음)
     public void changeContent(String content) {
+        if (!content.equals(this.content)) {
+            this.aiExtract = null;
+        }
         this.content = content;
     }
 

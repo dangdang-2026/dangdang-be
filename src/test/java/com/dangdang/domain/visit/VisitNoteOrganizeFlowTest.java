@@ -38,6 +38,8 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -198,6 +200,46 @@ class VisitNoteOrganizeFlowTest {
     }
 
     @Test
+    void 정리_결과는_메모_조회와_일정_상세에도_나온다() throws Exception {
+        given(organizeClient.organize(anyString(), any(), any())).willReturn(EXTRACT);
+        organize(access, visitId, noteId).andExpect(status().isOk());
+
+        mvc.perform(get("/api/visits/" + visitId + "/notes").cookie(access))
+                .andExpect(jsonPath("$.data[0].aiExtract.fastingTarget.value").value(95))
+                .andExpect(jsonPath("$.data[0].aiExtract.nextVisitDate.value").value("2026-11-27"))   // DB에서 읽어도 날짜 글자로
+                .andExpect(jsonPath("$.data[0].aiExtract.postMealMinutes").value(nullValue()));
+        mvc.perform(get("/api/visits/" + visitId).cookie(access))
+                .andExpect(jsonPath("$.data.notes[0].aiExtract.insulinSkipped").value(true));
+    }
+
+    @Test
+    void 정리한_적_없는_메모는_aiExtract가_null() throws Exception {
+        mvc.perform(get("/api/visits/" + visitId + "/notes").cookie(access))
+                .andExpect(jsonPath("$.data[0].aiExtract").value(nullValue()));
+    }
+
+    @Test
+    void 메모_내용을_고치면_정리_결과가_비워진다() throws Exception {
+        given(organizeClient.organize(anyString(), any(), any())).willReturn(EXTRACT);
+        organize(access, visitId, noteId).andExpect(status().isOk());
+
+        updateNote(noteId, "다른 내용으로 고친 메모")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.aiExtract").value(nullValue()));
+        assertThat(jdbc.queryForObject("SELECT ai_extract FROM visit_notes WHERE id = ?", String.class, noteId)).isNull();
+    }
+
+    @Test
+    void 같은_내용을_다시_보내면_정리_결과는_그대로() throws Exception {
+        given(organizeClient.organize(anyString(), any(), any())).willReturn(EXTRACT);
+        organize(access, visitId, noteId).andExpect(status().isOk());
+
+        updateNote(noteId, MEMO)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.aiExtract.fastingTarget.value").value(95));
+    }
+
+    @Test
     void 남의_일정이나_다른_일정의_메모면_404() throws Exception {
         long othersVisit = createVisit(other, "{}");
         long othersNote = createNote(other, othersVisit, MEMO);
@@ -251,6 +293,11 @@ class VisitNoteOrganizeFlowTest {
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         return ((Number) JsonPath.read(body, "$.data.noteId")).longValue();
+    }
+
+    private ResultActions updateNote(long note, String content) throws Exception {
+        return mvc.perform(patch("/api/visits/" + visitId + "/notes/" + note).cookie(access)
+                .contentType(MediaType.APPLICATION_JSON).content("{\"content\":\"" + content + "\"}"));
     }
 
     private ResultActions organize(Cookie who, long visit, long note) throws Exception {
