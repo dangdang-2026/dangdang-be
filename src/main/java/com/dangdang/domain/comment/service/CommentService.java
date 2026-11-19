@@ -11,6 +11,7 @@ import com.dangdang.domain.comment.repository.CommentRepository;
 import com.dangdang.domain.community.entity.CommunityProfile;
 import com.dangdang.domain.community.service.BlockService;
 import com.dangdang.domain.community.service.CommunityProfileService;
+import com.dangdang.domain.community.service.SanctionService;
 import com.dangdang.domain.post.dto.response.ReactionResponse;
 import com.dangdang.domain.post.entity.Post;
 import com.dangdang.domain.post.service.PostService;
@@ -35,6 +36,7 @@ public class CommentService {
     private final CommentReactionRepository reactionRepository;
     private final PostService postService;
     private final CommunityProfileService profileService;
+    private final SanctionService sanctionService;
     private final BlockService blockService;
     private final Clock clock;
 
@@ -60,6 +62,7 @@ public class CommentService {
     @Transactional
     public CommentResponse create(Long userId, Long postId, CommentCreateRequest request) {
         CommunityProfile profile = profileService.requireProfile(userId);
+        sanctionService.assertCanWrite(userId);   // 이용 제한 중이면 403 (U-17)
         Post post = postService.findVisiblePost(postId, profile.getId());
         Comment parent = request.parentId() == null ? null : findParent(request.parentId(), postId, profile.getId());
         Comment comment = Comment.of(post, profile, parent, request.content().trim(),
@@ -71,6 +74,7 @@ public class CommentService {
     @Transactional
     public CommentResponse update(Long userId, Long commentId, CommentUpdateRequest request) {
         CommunityProfile profile = profileService.requireProfile(userId);
+        sanctionService.assertCanWrite(userId);   // 이용 제한 중이면 고치기도 403 (U-17)
         Comment comment = findMine(commentId, profile.getId());
         if (comment.isHidden()) {   // 가려진 댓글을 고쳐서 다시 드러내는 것을 막는다
             throw new CustomException(CommentErrorCode.COMMENT_NOT_FOUND);

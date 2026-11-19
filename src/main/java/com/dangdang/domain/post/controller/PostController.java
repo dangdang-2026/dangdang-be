@@ -4,7 +4,10 @@ import com.dangdang.domain.post.dto.request.PostCreateRequest;
 import com.dangdang.domain.post.dto.request.PostUpdateRequest;
 import com.dangdang.domain.post.dto.response.PostDetailResponse;
 import com.dangdang.domain.post.dto.response.PostListResponse;
+import com.dangdang.domain.post.enums.PopularPeriod;
+import com.dangdang.domain.post.enums.PostAudience;
 import com.dangdang.domain.post.enums.PostCategory;
+import com.dangdang.domain.post.enums.PostSort;
 import com.dangdang.domain.post.service.PostService;
 import com.dangdang.global.common.BaseResponse;
 import com.dangdang.global.security.AuthPrincipal;
@@ -32,16 +35,18 @@ public class PostController {
             summary = "[ 사용자 | 토큰 O | 글 목록 ]",
             description =
                     """
-                    **Parameters** category, q, cursor, size(1~100, 기본 20). sort는 LATEST만, audience는 ALL만
-                    **Returns** items, nextCursor, hasNext. POPULAR·period·PREGNANT·POSTPARTUM은 아직 POST_40002
+                    **Parameters** category, q, cursor, size(1~100, 기본 20) · sort(LATEST 기본 · POPULAR) · audience(ALL · PREGNANT · POSTPARTUM)
+                    · period(POPULAR일 때만: REALTIME 기본 24시간 · WEEK 7일 · MONTH 30일)
+                    **Returns** items, nextCursor, hasNext. POPULAR는 공감+댓글 많은 순 50개(size 무시), 다음 페이지 없음(nextCursor null)
+                    식단(MEAL)·진료 후기(VISIT)·당당 소식(NEWS)에 POPULAR면 400 POST_40002 (최신순만). 모르는 값은 sort와 상관없이 400 GLOBAL_40001
                     """)
     @GetMapping
     public ResponseEntity<BaseResponse<PostListResponse>> list(
             @AuthenticationPrincipal AuthPrincipal principal,
             @RequestParam(required = false) PostCategory category,
-            @RequestParam(required = false) String sort,
-            @RequestParam(required = false) String period,
-            @RequestParam(required = false) String audience,
+            @RequestParam(defaultValue = "LATEST") PostSort sort,
+            @RequestParam(defaultValue = "REALTIME") PopularPeriod period,
+            @RequestParam(defaultValue = "ALL") PostAudience audience,
             @RequestParam(required = false) String q,
             @RequestParam(required = false) String cursor,
             @RequestParam(defaultValue = "20")
