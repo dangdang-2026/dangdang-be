@@ -23,6 +23,6 @@ public record CalendarResponse(
     public record Day(
             LocalDate date,
             CalendarDayStatus status,
-            boolean visit) {         // 진료일인지. 진료 일정 기능 만들기 전이라 지금은 항상 false
+            boolean visit) {         // 그날 진료 일정이 있는지 (날짜 미정·지운 일정은 안 셈)
     }
 }

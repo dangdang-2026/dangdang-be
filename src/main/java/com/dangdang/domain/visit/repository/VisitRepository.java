@@ -6,6 +6,8 @@ import org.springframework.data.domain.Slice;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 // 진료 일정 DB 저장·조회
@@ -23,4 +25,14 @@ public interface VisitRepository extends JpaRepository<Visit, Long> {
             order by v.visitAt asc nulls last, v.id asc
             """)
     Slice<Visit> findPage(Long userId, Pageable pageable);
+
+    // 기간 안 진료 시각만 (기록 달력에서 진료일 표시용). from 이상 to 미만, 날짜 미정은 빠짐
+    @Query("""
+            select v.visitAt from Visit v
+            where v.user.id = :userId
+              and v.deletedAt is null
+              and v.visitAt >= :from
+              and v.visitAt < :to
+            """)
+    List<Instant> findVisitAtsInRange(Long userId, Instant from, Instant to);
 }
