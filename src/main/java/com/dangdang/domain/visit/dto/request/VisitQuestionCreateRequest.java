@@ -20,7 +20,15 @@ public record VisitQuestionCreateRequest(
         return content.strip();
     }
 
-    // 길이는 앞뒤 공백을 뺀 뒤로 잼 (저장하는 것도 뺀 값이라). 비었으면 @NotBlank가 따로 막음
+    // @NotBlank는 전각 공백(　)을 글자로 봐서 통과시킴 → 저장할 때처럼 strip()으로 빼고 다시 봄
+    // null은 @NotBlank가 따로 막음
+    @JsonIgnore
+    @AssertTrue(message = "질문을 입력해 주세요.")
+    public boolean isContentNotEmpty() {
+        return content == null || !content.strip().isEmpty();
+    }
+
+    // 길이는 앞뒤 공백을 뺀 뒤로 잼 (저장하는 것도 뺀 값이라)
     @JsonIgnore
     @AssertTrue(message = "질문은 500자까지 쓸 수 있어요.")
     public boolean isContentWithinLimit() {

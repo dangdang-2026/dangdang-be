@@ -17,7 +17,8 @@ import com.dangdang.domain.visit.exception.VisitErrorCode;
 import com.dangdang.domain.visit.repository.VisitNoteRepository;
 import com.dangdang.domain.visit.repository.VisitQuestionRepository;
 import com.dangdang.domain.visit.repository.VisitRepository;
-import com.dangdang.global.config.ClockConfig;
+import com.dangdang.global.common.KoreanTime;
+import com.dangdang.global.common.QueryParams;
 import com.dangdang.global.exception.CustomException;
 import com.dangdang.global.exception.GlobalErrorCode;
 import lombok.RequiredArgsConstructor;
@@ -27,6 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Objects;
 
@@ -42,8 +44,9 @@ public class VisitService {
     private final VisitNoteRepository visitNoteRepository;
     private final Clock clock;
 
-    private static final int MIN_YEAR = 2000;
-    private static final int MAX_YEAR = 2100;
+    // 진료 날짜로 받을 수 있는 범위: 한국 기준 2000-01-01 0시 이상 ~ 2101-01-01 0시 미만 (QueryParams와 같은 연도)
+    private static final Instant MIN_VISIT_AT = KoreanTime.startOfDay(LocalDate.of(QueryParams.MIN_YEAR, 1, 1));
+    private static final Instant MAX_VISIT_AT = KoreanTime.startOfDay(LocalDate.of(QueryParams.MAX_YEAR + 1, 1, 1));
 
     // 일정 등록. 병원을 고르면 내 병원(삭제 안 된 것)인지 확인
     @Transactional
@@ -112,14 +115,14 @@ public class VisitService {
 
     // 진료 날짜는 한국 기준 2000~2100년만 받음 (다른 날짜 입력 QueryParams와 같은 범위)
     // "+300000-01-01T00:00:00Z" 같은 값도 Instant로 읽혀서, 그대로 두면 DB(TIMESTAMPTZ)에 못 넣어 500이 남
+    // 연도를 꺼내려고 시간대를 바꾸면 Instant 끝에 가까운 값에서 그 변환이 먼저 터지므로, 경계 시각과 바로 비교함
     private void checkVisitAt(Instant visitAt) {
         if (visitAt == null) {
             return;
         }
-        int year = visitAt.atZone(ClockConfig.KST).getYear();
-        if (year < MIN_YEAR || year > MAX_YEAR) {
+        if (visitAt.isBefore(MIN_VISIT_AT) || !visitAt.isBefore(MAX_VISIT_AT)) {
             throw new CustomException(GlobalErrorCode.INVALID_INPUT,
-                    "진료 날짜는 " + MIN_YEAR + "~" + MAX_YEAR + "년 사이로 보내 주세요.");
+                    "진료 날짜는 " + QueryParams.MIN_YEAR + "~" + QueryParams.MAX_YEAR + "년 사이로 보내 주세요.");
         }
     }
 

@@ -102,6 +102,15 @@ class VisitNoteFlowTest {
     }
 
     @Test
+    void 전각_공백만_있으면_400() throws Exception {
+        add(access, visitId, "{\"content\":\"　　\"}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("메모를 입력해 주세요."));
+        long note = addAndGetId("{\"content\":\"메모\"}");
+        update(access, visitId, note, "{\"content\":\"　\"}").andExpect(status().isBadRequest());
+    }
+
+    @Test
     void 다른_일정의_메모는_못_고친다() throws Exception {
         long note = addAndGetId("{\"content\":\"메모\"}");
         long anotherVisit = createVisit(access);

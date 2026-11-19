@@ -90,6 +90,14 @@ class VisitQuestionFlowTest {
     }
 
     @Test
+    void 전각_공백만_있으면_400() throws Exception {
+        add(access, visitId, "{\"content\":\"　　\"}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("질문을 입력해 주세요."));
+        list(access, visitId).andExpect(jsonPath("$.data", hasSize(0)));
+    }
+
+    @Test
     void 길이는_앞뒤_공백을_뺀_뒤로_잰다() throws Exception {
         add(access, visitId, "{\"content\":\"" + " ".repeat(10) + "가".repeat(500) + "\"}")
                 .andExpect(status().isCreated());

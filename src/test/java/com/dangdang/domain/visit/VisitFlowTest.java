@@ -97,6 +97,10 @@ class VisitFlowTest {
         create(access, "{\"visitAt\":\"+300000-01-01T00:00:00Z\"}")
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errorCode").value("GLOBAL_40001"));
+        create(access, "{\"visitAt\":\"+1000000000-12-31T23:59:59Z\"}")   // Instant 끝 값 (시간대를 바꾸면 터지는 값)
+                .andExpect(status().isBadRequest());
+        create(access, "{\"visitAt\":\"-1000000000-01-01T00:00:00Z\"}").andExpect(status().isBadRequest());
+        create(access, "{\"visitAt\":\"2100-12-31T23:59:00+09:00\"}").andExpect(status().isCreated());   // 끝 경계
         create(access, "{\"visitAt\":\"1999-12-31T09:00:00+09:00\"}").andExpect(status().isBadRequest());
         create(access, "{\"visitAt\":\"2101-01-01T09:00:00+09:00\"}").andExpect(status().isBadRequest());
         create(access, "{\"visitAt\":\"2000-01-01T00:00:00+09:00\"}").andExpect(status().isCreated());
