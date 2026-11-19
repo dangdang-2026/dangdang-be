@@ -19,6 +19,10 @@ spring:
 
   flyway:
     locations: classpath:db/migration
+  servlet:
+    multipart:                                   # 음식 사진 AI 분석 (기본값 1MB라서 올림)
+      max-file-size: 10MB                        # AI 서버가 받는 최대 크기
+      max-request-size: 12MB                     # multipart 포장 몫만큼 여유 (Nginx client_max_body_size 12m과 같음)
   data:
     redis:
       host: ${REDIS_HOST:localhost}
