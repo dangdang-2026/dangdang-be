@@ -3,6 +3,7 @@ package com.dangdang.domain.community.repository;
 import com.dangdang.domain.community.entity.UserSanction;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
 import java.util.List;
@@ -13,5 +14,5 @@ public interface UserSanctionRepository extends JpaRepository<UserSanction, Long
     @Query("select s from UserSanction s where s.user.id = :userId and s.liftedAt is null"
             + " and s.startsAt <= :now and (s.endsAt is null or s.endsAt > :now)"
             + " order by case when s.endsAt is null then 0 else 1 end, s.endsAt desc")
-    List<UserSanction> findActive(Long userId, Instant now);
+    List<UserSanction> findActive(@Param("userId") Long userId, @Param("now") Instant now);
 }
