@@ -16,6 +16,7 @@ import java.time.Instant;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -129,6 +130,38 @@ class PopularAndRestrictionFlowTest extends ReminderTestBase {
                 .andExpect(jsonPath("$.data.items[*].title", contains("출산 후 글")));
     }
 
+    @Test
+    void 인기는_size를_안_보내도_50개까지() throws Exception {
+        for (int i = 0; i < 25; i++) {
+            write(jisu, "MIND", "글 " + i);
+        }
+        mvc.perform(get("/api/posts").param("sort", "POPULAR").cookie(jisu))
+                .andExpect(jsonPath("$.data.items.length()").value(25))
+                .andExpect(jsonPath("$.data.hasNext").value(false));
+    }
+
+    @Test
+    void 당당_소식도_인기_400_모르는_기간은_최신순에서도_400() throws Exception {
+        mvc.perform(get("/api/posts").param("sort", "POPULAR").param("category", "NEWS").cookie(jisu))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("POST_40002"));
+        mvc.perform(get("/api/posts").param("period", "FOO").cookie(jisu))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("GLOBAL_40001"));
+    }
+
+    @Test
+    void 첫째를_졸업하고_둘째_임신_중이면_임신_중에만_나온다() throws Exception {
+        jdbc.update("INSERT INTO pregnancies (user_id, due_date, delivery_date, state, created_at, updated_at)"
+                + " VALUES (?, '2025-01-10', '2025-01-10', 'ENDED', now(), now())", jisuId);
+        write(jisu, "MIND", "둘째 임신 중 글");
+
+        mvc.perform(get("/api/posts").param("audience", "PREGNANT").cookie(jisu))
+                .andExpect(jsonPath("$.data.items[*].title", contains("둘째 임신 중 글")));
+        mvc.perform(get("/api/posts").param("audience", "POSTPARTUM").cookie(jisu))
+                .andExpect(jsonPath("$.data.items.length()").value(0));
+    }
+
     // ── 이용 제한 ──
 
     @Test
@@ -154,6 +187,25 @@ class PopularAndRestrictionFlowTest extends ReminderTestBase {
                 .andExpect(status().isCreated());
         mvc.perform(get("/api/community/restriction").cookie(jisu))
                 .andExpect(jsonPath("$.data.restricted").value(false));
+    }
+
+    @Test
+    void 제한_중엔_내_글과_댓글_고치기도_막힌다() throws Exception {
+        String myPost = write(jisu, "MIND", "내 글");
+        String res = postJson(jisu, "/api/posts/" + myPost + "/comments", "{\"content\":\"내 댓글\"}")
+                .andReturn().getResponse().getContentAsString();
+        String myComment = JsonPath.read(res, "$.data.id");
+        postJson(admin, "/api/admin/sanctions", "{\"userId\":" + jisuId + ",\"reason\":\"MEDICAL_ADVICE\",\"days\":7}")
+                .andExpect(status().isCreated());
+
+        mvc.perform(patch("/api/posts/" + myPost).cookie(jisu).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"바꾼 본문\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("COMMUNITY_40301"));
+        mvc.perform(patch("/api/comments/" + myComment).cookie(jisu).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"바꾼 댓글\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("COMMUNITY_40301"));
     }
 
     @Test
