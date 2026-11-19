@@ -3,6 +3,8 @@ package com.dangdang.domain.meal.repository;
 import com.dangdang.domain.meal.entity.Meal;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Limit;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
@@ -69,6 +71,20 @@ public interface MealRepository extends JpaRepository<Meal, Long> {
               and m.deletedAt is null
             """)
     Instant findFirstStartedAt(Long userId);
+
+    // 이 음식(foodCode)을 먹은 내 식사 한 페이지 (같은 음식 지난 기록용). 시작 시각 최신순
+    // 지운 식사·지운 항목은 빠짐. 한 식사에 같은 음식 항목이 여러 개여도 식사는 한 번만 나옴 (exists라서)
+    @Query("""
+            select m from Meal m
+            where m.user.id = :userId
+              and m.deletedAt is null
+              and exists (select 1 from MealItem i
+                          where i.meal = m
+                            and i.foodCode = :foodCode
+                            and i.deletedAt is null)
+            order by m.startedAt desc, m.id desc
+            """)
+    Page<Meal> findPageEatenFood(Long userId, String foodCode, Pageable pageable);
 
     // 식사의 수정 시각만 지금으로 바꿈. 식사 항목이 바뀌면 식사도 바뀐 것으로 봄 (식사 칸 자체는 그대로라 자동으로 안 바뀜)
     @Modifying(flushAutomatically = true)
