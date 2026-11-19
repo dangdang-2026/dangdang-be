@@ -220,6 +220,86 @@ class AdminReportFlowTest extends ReminderTestBase {
     }
 
     @Test
+    void 탈퇴로_글이_통째로_지워져도_남은_신고를_문제없음으로_정리한다() throws Exception {
+        String a = write(jisu, "지워질 글");
+        report(minji, "POST", a, "ABUSE");
+        jdbc.update("DELETE FROM posts WHERE id = ?", Long.valueOf(a));                // 탈퇴하면 글 행이 실제로 지워진다
+
+        mvc.perform(get("/api/admin/reports").cookie(admin))
+                .andExpect(jsonPath("$.data.items[0].state").value("DELETED"));
+        mvc.perform(post("/api/admin/reports/POST/" + a + "/dismiss").cookie(admin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.state").value("DELETED"))
+                .andExpect(jsonPath("$.data.handledReports").value(1));
+        mvc.perform(get("/api/admin/reports").cookie(admin)).andExpect(jsonPath("$.data.totalCount").value(0));
+        postJson(admin, "/api/admin/reports/POST/" + a + "/hide", "{\"reason\":\"ABUSE\"}")
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("REPORT_40401"));
+    }
+
+    @Test
+    void 지운_글은_가리거나_되돌릴_수_없고_문제없음으로만_정리한다() throws Exception {
+        String a = write(jisu, "지운 글");
+        report(minji, "POST", a, "ABUSE");
+        jdbc.update("UPDATE posts SET deleted_at = now() WHERE id = ?", Long.valueOf(a));  // 글쓴이가 지움
+
+        postJson(admin, "/api/admin/reports/POST/" + a + "/hide", "{\"reason\":\"ABUSE\"}")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.errorCode").value("REPORT_40904"));
+        mvc.perform(post("/api/admin/reports/POST/" + a + "/unhide").cookie(admin))
+                .andExpect(jsonPath("$.errorCode").value("REPORT_40904"));
+        mvc.perform(post("/api/admin/reports/POST/" + a + "/dismiss").cookie(admin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.state").value("DELETED"));
+    }
+
+    @Test
+    void 가린_대상은_문제없음이_안_되고_되돌리면_신고가_문제없음_탭으로_간다() throws Exception {
+        String a = write(jisu, "글");
+        report(minji, "POST", a, "ABUSE");
+        postJson(admin, "/api/admin/reports/POST/" + a + "/hide", "{\"reason\":\"ABUSE\"}").andExpect(status().isOk());
+
+        mvc.perform(post("/api/admin/reports/POST/" + a + "/dismiss").cookie(admin))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.errorCode").value("REPORT_40901"));
+        mvc.perform(post("/api/admin/reports/POST/" + a + "/unhide").cookie(admin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.handledReports").value(1));
+        mvc.perform(get("/api/admin/reports").param("status", "HIDDEN").cookie(admin))
+                .andExpect(jsonPath("$.data.totalCount").value(0));
+        mvc.perform(get("/api/admin/reports").param("status", "DISMISSED").cookie(admin))
+                .andExpect(jsonPath("$.data.items[0].targetId").value(a))
+                .andExpect(jsonPath("$.data.items[0].state").value("VISIBLE"));
+    }
+
+    @Test
+    void 문제없음_뒤에_가리면_그_신고도_가림_탭으로_옮긴다() throws Exception {
+        String a = write(jisu, "글");
+        report(minji, "POST", a, "ABUSE");
+        mvc.perform(post("/api/admin/reports/POST/" + a + "/dismiss").cookie(admin)).andExpect(status().isOk());
+
+        postJson(admin, "/api/admin/reports/POST/" + a + "/hide", "{\"reason\":\"ABUSE\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.handledReports").value(1));
+        mvc.perform(get("/api/admin/reports").param("status", "DISMISSED").cookie(admin))
+                .andExpect(jsonPath("$.data.totalCount").value(0));
+        mvc.perform(get("/api/admin/reports").param("status", "HIDDEN").cookie(admin))
+                .andExpect(jsonPath("$.data.items[0].state").value("HIDDEN"));
+    }
+
+    @Test
+    void 미리보기는_이모지를_반으로_자르지_않고_원문에_고친_시각이_나온다() throws Exception {
+        String title = "가".repeat(39) + "😀😀";                                        // 글자 41개 (UTF-16으로는 43)
+        String a = write(jisu, title);
+        report(minji, "POST", a, "ABUSE");
+
+        mvc.perform(get("/api/admin/reports").cookie(admin))
+                .andExpect(jsonPath("$.data.items[0].preview").value("가".repeat(39) + "😀…"));
+        mvc.perform(get("/api/admin/reports/POST/" + a).cookie(admin))
+                .andExpect(jsonPath("$.data.updatedAt").exists());
+    }
+
+    @Test
     void 글쓴이가_읽어_둔_뒤_가려져도_글쓴이_저장이_가림을_풀지_않는다() throws Exception {
         String a = write(jisu, "원래 제목");
         report(minji, "POST", a, "MEDICAL_ADVICE");

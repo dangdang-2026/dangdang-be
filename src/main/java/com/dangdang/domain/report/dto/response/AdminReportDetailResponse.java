@@ -17,6 +17,8 @@ public record AdminReportDetailResponse(
         String authorNickname,
         boolean anonymous,
         Instant createdAt,
+        @Schema(description = "글쓴이가 마지막으로 고친 시각. 신고 시각보다 뒤면 신고 뒤에 고친 것 (지금 본문은 고친 뒤 내용)")
+        Instant updatedAt,
         @Schema(description = "VISIBLE · HIDDEN · DELETED") String state,
         String hiddenReason,
         List<ReportLine> reports,
