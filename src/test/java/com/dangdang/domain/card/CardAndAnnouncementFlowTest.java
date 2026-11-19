@@ -253,5 +253,65 @@ class CardAndAnnouncementFlowTest extends ReminderTestBase {
         postJson(admin, "/api/admin/announcements",
                 "{\"slot\":\"SPLASH\",\"kind\":\"NEWS\",\"title\":\"링크\",\"linkUrl\":\"//evil.example\"}")
                 .andExpect(status().isBadRequest());
+        postJson(admin, "/api/admin/announcements",       // 브라우저는 /\ 를 // 처럼 읽어 외부로 보낸다
+                "{\"slot\":\"SPLASH\",\"kind\":\"NEWS\",\"title\":\"링크\",\"linkUrl\":\"/\\\\evil.example\"}")
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void 카드를_건_소식은_링크를_서버가_정하고_커뮤니티는_한_칸만() throws Exception {
+        int id = publishedCard();
+        postJson(admin, "/api/admin/announcements", "{\"slot\":\"COMMUNITY\",\"kind\":\"NEWS\",\"title\":\"카드 소식\","
+                + "\"linkUrl\":\"/cards/999\",\"contentCardId\":" + id + "}")
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.linkUrl").value("/cards/" + id));
+        postJson(admin, "/api/admin/announcements", "{\"slot\":\"COMMUNITY\",\"kind\":\"AD\",\"title\":\"광고\","
+                + "\"reviewedBy\":\"다현\"}").andExpect(status().isCreated());
+
+        mvc.perform(get("/api/announcements").param("slot", "COMMUNITY").cookie(jisu))
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].title").value("카드 소식"));
+    }
+
+    @Test
+    void 시작_전_소식을_내리면_끝이_시작보다_앞서지_않는다() throws Exception {
+        String res = postJson(admin, "/api/admin/announcements", "{\"slot\":\"SPLASH\",\"kind\":\"NEWS\",\"title\":\"내일부터\","
+                + "\"activeFrom\":\"2026-11-10T00:00:00Z\"}").andReturn().getResponse().getContentAsString();
+        Integer id = JsonPath.read(res, "$.data.id");
+
+        mvc.perform(post("/api/admin/announcements/" + id + "/end").cookie(admin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.activeTo").value("2026-11-10T00:00:00Z"));
+    }
+
+    @Test
+    void 내린_카드는_정정_문구도_안_보이고_저장_취소는_동시에_두_번_해도_200() throws Exception {
+        int id = publishedCard();
+        mvc.perform(put("/api/cards/" + id + "/save").cookie(jisu)).andExpect(status().isOk());
+        postJson(admin, "/api/admin/cards/" + id + "/correct", "{\"note\":\"1장 문장을 원문대로 고쳤어요.\"}")
+                .andExpect(status().isOk());
+        mvc.perform(post("/api/admin/cards/" + id + "/withdraw").cookie(admin)).andExpect(status().isOk());
+        mvc.perform(get("/api/cards/" + id).cookie(jisu))
+                .andExpect(jsonPath("$.data.status").value("WITHDRAWN"))
+                .andExpect(jsonPath("$.data.correctionNote").doesNotExist());
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);   // 읽고 지웠으면 두 번째가 0줄 삭제로 500
+        try {
+            CountDownLatch start = new CountDownLatch(1);
+            List<Future<Integer>> futures = new ArrayList<>();
+            for (int i = 0; i < 2; i++) {
+                futures.add(pool.submit(() -> {
+                    start.await();
+                    return mvc.perform(delete("/api/cards/" + id + "/save").cookie(jisu)).andReturn().getResponse().getStatus();
+                }));
+            }
+            start.countDown();
+            for (Future<Integer> f : futures) {
+                assertThat(f.get(30, TimeUnit.SECONDS)).isEqualTo(200);
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM card_saves WHERE card_id = ?", Integer.class, id)).isZero();
     }
 }
