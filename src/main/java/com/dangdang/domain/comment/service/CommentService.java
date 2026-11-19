@@ -74,6 +74,7 @@ public class CommentService {
     @Transactional
     public CommentResponse update(Long userId, Long commentId, CommentUpdateRequest request) {
         CommunityProfile profile = profileService.requireProfile(userId);
+        sanctionService.assertCanWrite(userId);   // 이용 제한 중이면 고치기도 403 (U-17)
         Comment comment = findMine(commentId, profile.getId());
         if (comment.isHidden()) {   // 가려진 댓글을 고쳐서 다시 드러내는 것을 막는다
             throw new CustomException(CommentErrorCode.COMMENT_NOT_FOUND);
