@@ -340,6 +340,36 @@ class RecordFlowTest {
     // ---------- 기록 달력 ----------
 
     @Test
+    void 달력에_진료일이_표시된다() throws Exception {
+        YearMonth month = YearMonth.from(today()).plusMonths(1);   // 다음 달 (미래 날짜도 진료일이면 표시)
+        createVisit(access, kst(month.atDay(10), 10, 30));
+        createVisit(access, kst(month.atDay(15), 23, 30));   // 한국 밤 11시반도 15일
+        createVisit(access, kst(month.atDay(16), 0, 10));    // 한국 0시 10분 = UTC로는 전날 15:10 → 한국 날짜 16일
+        long removed = createVisit(access, kst(month.atDay(20), 9, 0));
+        mvc.perform(delete("/api/visits/" + removed).cookie(access)).andExpect(status().isOk());
+        createVisit(access, null);                            // 날짜 미정은 안 셈
+        createVisit(other, kst(month.atDay(25), 9, 0));       // 남의 일정은 안 셈
+
+        mvc.perform(get("/api/records/calendar").cookie(access).param("month", month.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.days[9].visit").value(true))     // 10일
+                .andExpect(jsonPath("$.data.days[14].visit").value(true))    // 15일
+                .andExpect(jsonPath("$.data.days[15].visit").value(true))    // 16일
+                .andExpect(jsonPath("$.data.days[16].visit").value(false))   // 17일
+                .andExpect(jsonPath("$.data.days[19].visit").value(false))   // 20일 (지운 일정)
+                .andExpect(jsonPath("$.data.days[24].visit").value(false))   // 25일 (남의 일정)
+                .andExpect(jsonPath("$.data.days[9].status").value("FUTURE"));
+    }
+
+    private long createVisit(Cookie who, Instant visitAt) throws Exception {
+        String json = visitAt == null ? "{}" : "{\"visitAt\":\"" + visitAt + "\"}";
+        String body = mvc.perform(post("/api/visits").cookie(who).contentType(MediaType.APPLICATION_JSON).content(json))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return ((Number) JsonPath.read(body, "$.data.visitId")).longValue();
+    }
+
+    @Test
     void 이번_달_달력은_오늘_미래_기록_있음_없음을_구분한다() throws Exception {
         signedUpDaysAgo("jisu@x.com", 40);
         YearMonth month = YearMonth.from(today());
