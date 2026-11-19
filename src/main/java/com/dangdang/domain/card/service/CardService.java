@@ -24,9 +24,6 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class CardService {
 
-    // 목록에 보이는 상태 — 내려간 카드는 목록에서 빠진다 (저장 목록에는 남음)
-    private static final List<CardStatus> LISTED = CardStatus.LIVE;
-
     private final ContentCardRepository contentCardRepository;
     private final CardSaveRepository cardSaveRepository;
     private final Clock clock;
@@ -34,8 +31,8 @@ public class CardService {
     @Transactional(readOnly = true)
     public List<CardSummaryResponse> list(Long userId, String series) {
         List<ContentCard> cards = series == null
-                ? contentCardRepository.findByStatusInOrderByCreatedAtDescIdDesc(LISTED)
-                : contentCardRepository.findBySeriesAndStatusInOrderByCreatedAtDescIdDesc(series, LISTED);
+                ? contentCardRepository.findByStatusInOrderByCreatedAtDescIdDesc(CardStatus.LIVE)
+                : contentCardRepository.findBySeriesAndStatusInOrderByCreatedAtDescIdDesc(series, CardStatus.LIVE);
         Set<Long> saved = cards.isEmpty() ? Set.of()
                 : cardSaveRepository.findSavedCardIds(userId, cards.stream().map(ContentCard::getId).toList());
         return cards.stream().map(c -> CardSummaryResponse.of(c, saved.contains(c.getId()))).toList();
@@ -48,9 +45,12 @@ public class CardService {
     }
 
     // 저장 (U-27) — 두 번 눌러도, 동시에 눌러도 한 줄 (ON CONFLICT DO NOTHING)
+    // 카드 줄을 공유 잠금으로 읽어서, 운영자가 내리는 중이면 끝난 뒤의 상태(WITHDRAWN)를 보고 409
     @Transactional
     public CardDetailResponse save(Long userId, Long cardId) {
-        ContentCard card = visible(cardId);
+        ContentCard card = contentCardRepository.findByIdForShare(cardId)
+                .filter(ContentCard::isVisible)
+                .orElseThrow(() -> new CustomException(CardErrorCode.CARD_NOT_FOUND));
         if (card.getStatus() == CardStatus.WITHDRAWN) {
             throw new CustomException(CardErrorCode.WITHDRAWN);
         }
@@ -60,7 +60,7 @@ public class CardService {
 
     @Transactional
     public void unsave(Long userId, Long cardId) {
-        cardSaveRepository.findByUserIdAndCardId(userId, cardId).ifPresent(cardSaveRepository::delete);
+        cardSaveRepository.remove(userId, cardId);
     }
 
     // 저장한 카드 (U-27 · 빈 상태 U-27b) — 내려간 카드도 「내려간 카드」로 남긴다
