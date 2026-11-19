@@ -67,9 +67,11 @@ public class Announcement {
     }
 
     // 내리기 = 지금으로 끝 시각을 당긴다 (기록은 남김)
+    // 아직 시작 전이면 끝을 시작 시각에 맞춘다 → 끝이 시작보다 앞서는 기간이 생기지 않는다
     public void end(Instant now) {
-        if (activeTo == null || activeTo.isAfter(now)) {
-            activeTo = now;
+        Instant end = now.isBefore(activeFrom) ? activeFrom : now;
+        if (activeTo == null || activeTo.isAfter(end)) {
+            activeTo = end;
         }
     }
 }
