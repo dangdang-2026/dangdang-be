@@ -16,7 +16,7 @@ public record CardDetailResponse(
         @Schema(description = "슬라이드 (내려간 카드면 빈 목록)") List<Slide> slides,
         @Schema(description = "출처 (내려간 카드면 빈 목록)") List<CardSource> sources,
         LocalDate checkedOn, String reviewer, LocalDate reviewedOn,
-        @Schema(description = "정정 문구 (CORRECTED일 때)") String correctionNote, Instant correctedAt,
+        @Schema(description = "정정 문구 (CORRECTED일 때, 내려간 카드면 null)") String correctionNote, Instant correctedAt,
         Instant withdrawnAt, boolean saved) {
 
     public static CardDetailResponse of(ContentCard c, boolean saved) {
@@ -24,7 +24,7 @@ public record CardDetailResponse(
         boolean gone = status == CardStatus.WITHDRAWN;
         return new CardDetailResponse(c.getId(), c.getTitle(), c.getSeries(), status,
                 gone ? List.of() : c.getBody(), gone ? List.of() : c.getSources(),
-                c.getCheckedOn(), c.getReviewer(), c.getReviewedOn(),
-                c.getCorrectionNote(), c.getCorrectedAt(), c.getWithdrawnAt(), saved);
+                c.getCheckedOn(), gone ? null : c.getReviewer(), gone ? null : c.getReviewedOn(),
+                gone ? null : c.getCorrectionNote(), gone ? null : c.getCorrectedAt(), c.getWithdrawnAt(), saved);
     }
 }
