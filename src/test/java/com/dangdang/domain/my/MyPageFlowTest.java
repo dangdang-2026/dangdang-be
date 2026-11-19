@@ -88,7 +88,8 @@ class MyPageFlowTest extends ReminderTestBase {
                 .andExpect(jsonPath("$.errorCode").value("MYFOOD_40901"));
         json(post("/api/me/foods"), jisu, "{\"name\":\" \"}").andExpect(status().isBadRequest());
         json(post("/api/me/foods"), jisu, "{\"name\":\"현미밥\",\"nutritionOverride\":{}}")
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("MYFOOD_40002"));
         json(post("/api/me/foods"), jisu, "{\"name\":\"현미밥\",\"nutritionOverride\":{\"carbG\":-1}}")
                 .andExpect(status().isBadRequest());
         json(post("/api/me/foods"), minji, "{\"name\":\"잡곡밥\"}").andExpect(status().isCreated());   // 다른 사람은 같은 이름 OK
@@ -110,6 +111,34 @@ class MyPageFlowTest extends ReminderTestBase {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errorCode").value("MYFOOD_40001"));
         json(patch("/api/me/foods/" + id), jisu, "{\"clear\":[\"name\"]}").andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void 같은_칸에_값과_clear를_같이_보내면_400() throws Exception {
+        Long id = addFood(jisu, "{\"name\":\"잡곡밥\"}");
+        // 없는 음식 코드라도 404가 아니라 400 (값과 비우기 중 무엇을 원하는지 알 수 없음)
+        json(patch("/api/me/foods/" + id), jisu, "{\"similarFoodCode\":\"NO-SUCH\",\"clear\":[\"similarFoodCode\"]}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("MYFOOD_40003"));
+        json(patch("/api/me/foods/" + id), jisu, "{\"usualGrams\":100,\"clear\":[\"usualGrams\"]}")
+                .andExpect(jsonPath("$.errorCode").value("MYFOOD_40003"));
+    }
+
+    @Test
+    void 같은_이름은_DB도_막는다_동시_요청_대비() {
+        jdbc.update("INSERT INTO my_foods (user_id, name) VALUES (?, '잡곡밥')", jisuId);
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                () -> jdbc.update("INSERT INTO my_foods (user_id, name) VALUES (?, '잡곡밥')", jisuId))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void 모르는_칸이_저장된_영양값도_읽힌다() throws Exception {
+        Long id = addFood(jisu, "{\"name\":\"잡곡밥\",\"nutritionOverride\":{\"kcal\":300}}");
+        jdbc.update("UPDATE my_foods SET nutrition_override = '{\"kcal\":300,\"fiberG\":3}'::jsonb WHERE id = ?", id);
+        mvc.perform(get("/api/me/foods").cookie(jisu))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].nutritionOverride.kcal").value(300));
     }
 
     @Test
@@ -164,6 +193,18 @@ class MyPageFlowTest extends ReminderTestBase {
                 Long.class, minjiId);
         json(put("/api/me/meal-plan"), jisu, "{\"careSiteId\":" + minjiSite + ",\"mealGuide\":\"안내\"}")
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void 받은_병원을_지우면_식사_안내의_병원은_null() throws Exception {
+        Long site = jdbc.queryForObject("INSERT INTO care_sites (user_id, name, department) VALUES (?, '지수 병원', 'OBGYN') RETURNING id",
+                Long.class, jisuId);
+        json(put("/api/me/meal-plan"), jisu, "{\"careSiteId\":" + site + ",\"mealGuide\":\"안내\"}")
+                .andExpect(jsonPath("$.data.careSiteId").value(site));
+        mvc.perform(delete("/api/care-sites/" + site).cookie(jisu)).andExpect(status().isOk());   // soft delete
+        mvc.perform(get("/api/me/meal-plan").cookie(jisu))
+                .andExpect(jsonPath("$.data.mealGuide").value("안내"))
+                .andExpect(jsonPath("$.data.careSiteId").doesNotExist());
     }
 
     // ── 식사 기록 설정 (M-20) ──
@@ -233,6 +274,23 @@ class MyPageFlowTest extends ReminderTestBase {
         json(post("/api/me/withdrawal"), jisu, "{\"password\":\"abcd1234\"}").andExpect(status().isOk());
 
         assertThat(jdbc.queryForObject("SELECT count(*) FROM posts WHERE id = ?", Integer.class, Long.valueOf(myPost))).isZero();
+        assertThat(jdbc.queryForObject("SELECT content FROM comments WHERE post_id = ?", String.class, Long.valueOf(herPost)))
+                .isEmpty();
+        assertThat(jdbc.queryForObject("SELECT deleted_at FROM comments WHERE post_id = ?", java.sql.Timestamp.class,
+                Long.valueOf(herPost)).toInstant()).isEqualTo(clock.instant());   // 앱 Clock 시각
+    }
+
+    @Test
+    void 탈퇴_전에_직접_지운_댓글도_내용을_비운다() throws Exception {
+        String herPost = profileAndPost(minji, "포근한 고구마");
+        json(post("/api/community/profiles"), jisu, "{\"nickname\":\"말랑한 두부\"}").andExpect(status().isCreated());
+        String res = json(post("/api/posts/" + herPost + "/comments"), jisu, "{\"content\":\"지울 댓글\"}")
+                .andReturn().getResponse().getContentAsString();
+        Object commentId = JsonPath.read(res, "$.data.id");
+        mvc.perform(delete("/api/comments/" + commentId).cookie(jisu)).andExpect(status().isOk());
+
+        json(post("/api/me/withdrawal"), jisu, "{\"password\":\"abcd1234\"}").andExpect(status().isOk());
+
         assertThat(jdbc.queryForObject("SELECT content FROM comments WHERE post_id = ?", String.class, Long.valueOf(herPost)))
                 .isEmpty();
     }
