@@ -1,7 +1,7 @@
 package com.dangdang.domain.myfood.dto.response;
 
 import com.dangdang.domain.myfood.entity.MyFood;
-import com.dangdang.domain.myfood.entity.Nutrition;
+import com.dangdang.domain.meal.entity.MealNutrition;
 import com.dangdang.domain.myfood.enums.UsualQuantity;
 import io.swagger.v3.oas.annotations.media.Schema;
 
@@ -13,7 +13,7 @@ public record MyFoodResponse(
         @Schema(example = "D101-017070000-0001") String similarFoodCode,
         @Schema(example = "ONE") UsualQuantity usualQuantity,
         @Schema(description = "보통 먹는 양 g (없으면 null)", example = "250") Integer usualGrams,
-        Nutrition nutritionOverride,
+        MealNutrition nutritionOverride,
         Instant updatedAt) {
 
     public static MyFoodResponse from(MyFood f) {

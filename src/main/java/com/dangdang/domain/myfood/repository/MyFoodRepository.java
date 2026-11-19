@@ -11,7 +11,7 @@ public interface MyFoodRepository extends JpaRepository<MyFood, Long> {
     List<MyFood> findByUserIdOrderByUpdatedAtDescIdDesc(Long userId);
 
     // 이름으로 찾기 (식사 내용 검색 F-14에서 「내 음식」 먼저 보여 줄 때도 쓴다)
-    List<MyFood> findByUserIdAndNameContainingIgnoreCaseOrderByUpdatedAtDesc(Long userId, String keyword);
+    List<MyFood> findByUserIdAndNameContainingIgnoreCaseOrderByUpdatedAtDescIdDesc(Long userId, String keyword);
 
     Optional<MyFood> findByIdAndUserId(Long id, Long userId);
 

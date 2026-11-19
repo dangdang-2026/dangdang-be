@@ -1,6 +1,6 @@
 package com.dangdang.domain.myfood.dto.request;
 
-import com.dangdang.domain.myfood.entity.Nutrition;
+import com.dangdang.domain.meal.dto.request.MealNutritionRequest;
 import com.dangdang.domain.myfood.enums.UsualQuantity;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
@@ -23,5 +23,5 @@ public record MyFoodCreateRequest(
         @Max(value = 2000, message = "그램은 1부터 2000까지 적을 수 있어요.")
         Integer usualGrams,
         @Schema(description = "내가 입력한 1인분 영양값 (선택, 보내면 한 칸 이상)")
-        @Valid Nutrition nutritionOverride) {
+        @Valid MealNutritionRequest nutritionOverride) {
 }

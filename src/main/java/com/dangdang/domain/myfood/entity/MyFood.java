@@ -1,5 +1,6 @@
 package com.dangdang.domain.myfood.entity;
 
+import com.dangdang.domain.meal.entity.MealNutrition;
 import com.dangdang.domain.myfood.enums.UsualQuantity;
 import com.dangdang.domain.user.entity.User;
 import jakarta.persistence.*;
@@ -39,7 +40,7 @@ public class MyFood {
     private Integer usualGrams;              // 보통 먹는 양 g (선택)
 
     @JdbcTypeCode(SqlTypes.JSON)
-    private Nutrition nutritionOverride;
+    private MealNutrition nutritionOverride;   // 식사 항목과 같은 타입 (모르는 칸은 읽을 때 무시)
 
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
@@ -48,7 +49,7 @@ public class MyFood {
     private Instant updatedAt;
 
     public static MyFood of(User user, String name, String similarFoodCode, UsualQuantity usualQuantity,
-                            Integer usualGrams, Nutrition nutrition, Instant now) {
+                            Integer usualGrams, MealNutrition nutrition, Instant now) {
         MyFood f = new MyFood();
         f.user = user;
         f.name = name;
@@ -64,7 +65,7 @@ public class MyFood {
     // PATCH: 보낸 칸만. clear… = true면 그 칸을 비운다 (null을 「안 보냄」과 구분하려고)
     public void change(String name, String similarFoodCode, boolean clearSimilar, UsualQuantity usualQuantity,
                        boolean clearQuantity, Integer usualGrams, boolean clearGrams,
-                       Nutrition nutrition, boolean clearNutrition, Instant now) {
+                       MealNutrition nutrition, boolean clearNutrition, Instant now) {
         if (name != null) this.name = name;
         if (clearSimilar) this.similarFoodCode = null;
         else if (similarFoodCode != null) this.similarFoodCode = similarFoodCode;

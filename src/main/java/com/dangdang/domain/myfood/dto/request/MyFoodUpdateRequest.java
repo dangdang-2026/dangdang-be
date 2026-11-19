@@ -1,6 +1,6 @@
 package com.dangdang.domain.myfood.dto.request;
 
-import com.dangdang.domain.myfood.entity.Nutrition;
+import com.dangdang.domain.meal.dto.request.MealNutritionRequest;
 import com.dangdang.domain.myfood.enums.UsualQuantity;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
@@ -21,7 +21,7 @@ public record MyFoodUpdateRequest(
         @Min(value = 1, message = "그램은 1부터 2000까지 적을 수 있어요.")
         @Max(value = 2000, message = "그램은 1부터 2000까지 적을 수 있어요.")
         Integer usualGrams,
-        @Valid Nutrition nutritionOverride,
+        @Valid MealNutritionRequest nutritionOverride,
         @Schema(description = "비울 칸: similarFoodCode · usualQuantity · usualGrams · nutritionOverride", example = "[\"nutritionOverride\"]")
         List<@Pattern(regexp = "similarFoodCode|usualQuantity|usualGrams|nutritionOverride", message = "비울 수 없는 칸이에요.") String> clear) {
 
@@ -33,5 +33,13 @@ public record MyFoodUpdateRequest(
 
     public boolean clears(String field) {
         return clear != null && clear.contains(field);
+    }
+
+    // 같은 칸에 값과 clear를 같이 보냈는지 (어느 쪽이 맞는지 알 수 없어서 400)
+    public boolean hasValueAndClear() {
+        return (similarFoodCode != null && clears("similarFoodCode"))
+                || (usualQuantity != null && clears("usualQuantity"))
+                || (usualGrams != null && clears("usualGrams"))
+                || (nutritionOverride != null && clears("nutritionOverride"));
     }
 }
