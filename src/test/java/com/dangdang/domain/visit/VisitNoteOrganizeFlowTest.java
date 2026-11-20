@@ -56,7 +56,7 @@ class VisitNoteOrganizeFlowTest {
 
     @MockitoBean VisitNoteOrganizeClient organizeClient;   // 진짜 AI 서버 대신
 
-    static final String MEMO = "공복은 95 미만, 식후는 140 미만으로 보자고 하셨어요. 다음 진료는 2주 뒤 금요일이에요.";
+    static final String MEMO = "공복이랑 점심 식후에 재래요. 공복은 95 미만, 식후는 140 미만으로 보자고 하셨어요. 다음 진료는 2주 뒤 금요일이에요.";
 
     // 명세 예시와 같은 모양의 AI 결과
     static final VisitNoteExtract EXTRACT = new VisitNoteExtract(
@@ -102,6 +102,7 @@ class VisitNoteOrganizeFlowTest {
                 .andExpect(jsonPath("$.data.aiExtract.fastingTarget.evidence").value("공복은 95 미만, 식후는 140 미만으로 보자고 하셨어요."))
                 .andExpect(jsonPath("$.data.aiExtract.fastingTarget.status").value("FOUND"))
                 .andExpect(jsonPath("$.data.aiExtract.measureSlots.value").value(contains("FASTING", "LUNCH_AFTER")))
+                .andExpect(jsonPath("$.data.aiExtract.measureSlots.status").value("FOUND"))
                 .andExpect(jsonPath("$.data.aiExtract.postMealMinutes").value(nullValue()))
                 .andExpect(jsonPath("$.data.aiExtract.nextVisitDate.value").value("2026-11-27"))
                 .andExpect(jsonPath("$.data.aiExtract.nextVisitDate.status").value("CHECK_NEEDED"))
@@ -112,6 +113,54 @@ class VisitNoteOrganizeFlowTest {
         assertThat((Integer) JsonPath.read(saved, "$.fastingTarget.value")).isEqualTo(95);
         assertThat((String) JsonPath.read(saved, "$.nextVisitDate.status")).isEqualTo("CHECK_NEEDED");
         assertThat(usedToday()).isEqualTo("1");   // 오늘 1번 씀
+        // AI 정리만 했으니 사용자가 고친 게 아님 → updatedAt은 그대로 (화면에 「수정됨」이 안 뜨게)
+        assertThat(jdbc.queryForObject("SELECT updated_at = created_at FROM visit_notes WHERE id = ?", Boolean.class, noteId)).isTrue();
+    }
+
+    @Test
+    void 근거가_메모에_없거나_다음_진료일이_지난_날짜면_확인_필요로_잴_때는_겹침을_빼고_하루_순서로() throws Exception {
+        given(organizeClient.organize(anyString(), any(), any())).willReturn(new VisitNoteExtract(
+                new Field<>(java.util.Arrays.asList(MeasureSlot.LUNCH_AFTER, MeasureSlot.FASTING, MeasureSlot.LUNCH_AFTER),
+                        "…점심 식후에 재래요.", ExtractStatus.FOUND),                              // 「…」로 줄인 근거도 메모에 있으면 OK
+                new Field<>(100, "공복은 100 미만이래요.", ExtractStatus.FOUND),                   // 메모에 없는 근거 → 확인 필요
+                new Field<>(140, "식후는   140 미만으로\n보자고 하셨어요.", ExtractStatus.FOUND),  // 공백·줄바꿈만 다르면 같은 문장
+                null,
+                new Field<>(LocalDate.of(2026, 11, 7), "다음 진료는 2주 뒤 금요일이에요.", ExtractStatus.FOUND),   // 진료일(11/14)보다 앞 → 확인 필요
+                false, "visit-note-v1"));
+
+        organize(access, visitId, noteId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.aiExtract.measureSlots.value").value(contains("FASTING", "LUNCH_AFTER")))
+                .andExpect(jsonPath("$.data.aiExtract.measureSlots.status").value("FOUND"))
+                .andExpect(jsonPath("$.data.aiExtract.fastingTarget.status").value("CHECK_NEEDED"))
+                .andExpect(jsonPath("$.data.aiExtract.postMealTarget.status").value("FOUND"))
+                .andExpect(jsonPath("$.data.aiExtract.nextVisitDate.status").value("CHECK_NEEDED"));
+    }
+
+    @Test
+    void 잴_때에_모르는_값이_섞이면_빼고_확인_필요로() throws Exception {
+        given(organizeClient.organize(anyString(), any(), any())).willReturn(new VisitNoteExtract(
+                new Field<>(java.util.Arrays.asList(MeasureSlot.FASTING, null), "공복이랑 점심 식후에 재래요.", ExtractStatus.FOUND),
+                null, null, null, null, false, "visit-note-v1"));
+
+        organize(access, visitId, noteId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.aiExtract.measureSlots.value").value(contains("FASTING")))
+                .andExpect(jsonPath("$.data.aiExtract.measureSlots.status").value("CHECK_NEEDED"));
+    }
+
+    @Test
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    void AI_응답을_정리하다_실패해도_502이고_오늘_횟수를_돌려준다() throws Exception {
+        // 숫자 칸에 글자가 들어온 이상한 응답 → 정리 중 예외
+        Field broken = new Field("아흔다섯", "공복은 95 미만", ExtractStatus.FOUND);
+        given(organizeClient.organize(anyString(), any(), any())).willReturn(new VisitNoteExtract(
+                null, broken, null, null, null, false, "visit-note-v1"));
+
+        organize(access, visitId, noteId)
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.errorCode").value("VISIT_50201"));
+        assertThat(usedToday()).isEqualTo("0");
     }
 
     @Test

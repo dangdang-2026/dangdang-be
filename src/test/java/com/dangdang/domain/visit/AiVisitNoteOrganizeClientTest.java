@@ -38,6 +38,7 @@ class AiVisitNoteOrganizeClientTest {
     final AtomicReference<String> token = new AtomicReference<>();
     final AtomicReference<String> requestId = new AtomicReference<>();
     final AtomicReference<String> body = new AtomicReference<>();
+    final AtomicReference<String> response = new AtomicReference<>(AI_RESPONSE);
     AiVisitNoteOrganizeClient client;
 
     @BeforeEach
@@ -47,7 +48,7 @@ class AiVisitNoteOrganizeClientTest {
             token.set(exchange.getRequestHeaders().getFirst("X-Internal-Token"));
             requestId.set(exchange.getRequestHeaders().getFirst("X-Request-Id"));
             body.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
-            byte[] res = AI_RESPONSE.getBytes(StandardCharsets.UTF_8);
+            byte[] res = response.get().getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, res.length);
             exchange.getResponseBody().write(res);
@@ -80,5 +81,24 @@ class AiVisitNoteOrganizeClientTest {
         assertThat(result.nextVisitDate().status()).isEqualTo(ExtractStatus.CHECK_NEEDED);
         assertThat(result.insulinSkipped()).isTrue();
         assertThat(result.promptVersion()).isEqualTo("visit-note-v1");
+    }
+
+    @Test
+    void 처음_보는_상태나_잴_때가_와도_응답을_읽고_그_값만_null로() {
+        // AI 서버가 새 값을 늘려도 정리 전체가 실패하지 않게 (정리할 때 「확인 필요」로 바뀜)
+        response.set("""
+                {
+                  "measureSlots": { "value": ["FASTING", "LUNCH_BEFORE"], "evidence": "공복이랑 점심 전", "status": "FOUND" },
+                  "fastingTarget": { "value": 95, "evidence": "공복은 95 미만", "status": "NOT_SURE" },
+                  "insulinSkipped": false,
+                  "promptVersion": "visit-note-v2"
+                }
+                """);
+
+        VisitNoteExtract result = client.organize("req-2", "공복은 95 미만", LocalDate.of(2026, 11, 14));
+
+        assertThat(result.measureSlots().value()).containsExactly(MeasureSlot.FASTING, null);
+        assertThat(result.fastingTarget().value()).isEqualTo(95);
+        assertThat(result.fastingTarget().status()).isNull();
     }
 }

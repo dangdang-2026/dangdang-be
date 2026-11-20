@@ -54,9 +54,4 @@ public class VisitNote extends BaseTimeEntity {
     public boolean hasSameContent(String other) {
         return other != null && this.content.strip().equals(other.strip());
     }
-
-    // AI 정리 결과 저장 (다시 정리하면 새 결과로 바꿈)
-    public void saveExtract(VisitNoteExtract extract) {
-        this.aiExtract = extract;
-    }
 }

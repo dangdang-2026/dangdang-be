@@ -50,20 +50,20 @@ public class VisitNoteOrganizeService {
         // 2) 문지기 — 국외 이전 동의가 없으면 403 AI_40301, 오늘 10번을 넘으면 429 AI_42901
         AiGuard.AiCall call = aiGuard.begin(userId, AiFeature.VISIT_NOTE);
 
-        // 3) AI 서버. 어떤 예외가 나도 오늘 횟수를 돌려주고 「정리하지 못했어요」
-        VisitNoteExtract raw;
+        // 3) AI 서버 + 응답 정리. 어디서 어떤 예외가 나도 오늘 횟수를 돌려주고 「정리하지 못했어요」
+        // 응답 정리: 빈 칸은 null, 확신 정도가 없거나 범위 밖이거나 근거가 메모에 없으면 「확인 필요」
+        VisitNoteExtract extract;
         try {
-            raw = visitNoteOrganizeClient.organize(call.requestId(), memo, visitDate);
+            VisitNoteExtract raw = visitNoteOrganizeClient.organize(call.requestId(), memo, visitDate);
+            extract = raw == null ? null : raw.normalized(memo, visitDate);
         } catch (RuntimeException e) {
             aiGuard.fail(call, e.getClass().getSimpleName());
             throw new CustomException(VisitErrorCode.ORGANIZE_FAILED);
         }
-        if (raw == null) {
+        if (extract == null) {
             aiGuard.fail(call, "EMPTY_REPLY");
             throw new CustomException(VisitErrorCode.ORGANIZE_FAILED);
         }
-        // AI 응답 정리: 빈 칸은 null, 확신 정도가 없거나 기준 범위 밖이면 「확인 필요」
-        VisitNoteExtract extract = raw.normalized();
 
         // 4) 저장. 메모 줄을 잠그고 다시 읽어서, AI를 기다리는 동안 메모가 바뀌었으면 옛 메모 기준 결과라 저장하지 않음
         // 저장까지 끝나야 오늘 횟수를 쓴 것으로 봄. 저장 못 하면(메모 바뀜·삭제됨) 결과를 못 받았으니 횟수를 돌려줌
@@ -74,7 +74,8 @@ public class VisitNoteOrganizeService {
                 if (!current.hasSameContent(memo)) {
                     throw new CustomException(VisitErrorCode.NOTE_CHANGED);
                 }
-                current.saveExtract(extract);   // 변경 감지로 트랜잭션 끝날 때 반영됨
+                // 정리 결과 칸만 바꿈. 엔티티를 고치면 updatedAt도 바뀌어서 메모가 「수정됨」으로 보이므로 쿼리로 직접 씀
+                visitNoteRepository.saveExtract(noteId, extract);
             });
         } catch (RuntimeException e) {
             aiGuard.fail(call, e instanceof CustomException ce ? ce.getErrorCode().getCode() : e.getClass().getSimpleName());
