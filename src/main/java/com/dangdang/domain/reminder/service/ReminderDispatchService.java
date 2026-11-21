@@ -29,6 +29,7 @@ public class ReminderDispatchService {
     static final Duration RENOTIFY_AFTER = Duration.ofMinutes(10);  // 보내고 10분 뒤 한 번 더
     static final Duration RENOTIFY_MAX_AGE = Duration.ofHours(1);   // 1시간 넘게 지난 알림은 다시 울리지 않는다
     private static final Limit BATCH = Limit.of(100);               // 한 바퀴에 100개까지
+    static final Duration CLAIM_FOR = Duration.ofMinutes(2);        // 한 건 보내는 동안 「보내는 중」으로 잡아 두는 시간 (푸시 대기보다 넉넉히)
 
     private final ReminderRepository reminderRepository;
     private final NotificationPreferenceRepository notificationPreferenceRepository;
@@ -42,6 +43,9 @@ public class ReminderDispatchService {
         Instant now = clock.instant();
         for (Reminder reminder : reminderRepository.findDue(ReminderStatus.SCHEDULED, now, BATCH)) {
             try {
+                if (!recorder.claimDue(reminder.getId(), now, now.plus(CLAIM_FOR))) {
+                    continue;                    // 다른 서버가 보내는 중이거나, 그사이 상태가 바뀜
+                }
                 dispatch(reminder, now);
             } catch (Exception e) {
                 // 한 사람 것이 실패해도 다음 사람 알림은 계속 보낸다
@@ -55,6 +59,9 @@ public class ReminderDispatchService {
         for (Reminder reminder : reminderRepository.findRenotifyDue(
                 now.minus(RENOTIFY_AFTER), now.minus(RENOTIFY_MAX_AGE), BATCH)) {
             try {
+                if (!recorder.claimRenotify(reminder.getId(), now, now.plus(CLAIM_FOR))) {
+                    continue;
+                }
                 PushDeliveryResponse result = pushSendService.sendToUser(
                         reminder.getUser().getId(), ReminderMessages.renotify(reminder));
                 recorder.recordRenotified(reminder.getId(), now, result.sentCount() > 0);
@@ -76,6 +83,7 @@ public class ReminderDispatchService {
             return;
         }
         if (result.failedCount() > 0 && now.isBefore(reminder.dueAt().plus(RETRY_WINDOW))) {
+            recorder.release(reminder.getId());  // 잡은 표시를 풀고
             return;                              // SCHEDULED로 두면 다음 바퀴에 다시 시도한다
         }
         recorder.recordNoDevice(reminder.getId(), now);

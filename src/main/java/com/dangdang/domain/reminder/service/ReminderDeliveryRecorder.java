@@ -21,6 +21,23 @@ public class ReminderDeliveryRecorder {
     private final NotificationRepository notificationRepository;
     private final MealRepository mealRepository;
 
+    // 보내기 직전 「내가 보낸다」 표시 — false면 다른 서버가 보내는 중이거나 이미 끝난 알림
+    @Transactional
+    public boolean claimDue(Long reminderId, Instant now, Instant until) {
+        return reminderRepository.claimDue(reminderId, now, until) == 1;
+    }
+
+    @Transactional
+    public boolean claimRenotify(Long reminderId, Instant now, Instant until) {
+        return reminderRepository.claimRenotify(reminderId, now, until) == 1;
+    }
+
+    // 다음 바퀴에 다시 시도할 수 있게 표시를 푼다
+    @Transactional
+    public void release(Long reminderId) {
+        reminderRepository.release(reminderId);
+    }
+
     @Transactional
     public void recordSent(Long reminderId, Instant now) {
         Reminder reminder = reminderRepository.findById(reminderId).orElseThrow();
