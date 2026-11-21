@@ -35,16 +35,21 @@ jobs:
           target: ~/dangdang
 
       - uses: appleboy/ssh-action@v1.0.3
+        env:
+          ENV_PROD: ${{ secrets.ENV_PROD }}
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PULL_TOKEN: ${{ secrets.DOCKER_PULL_TOKEN }}   # 서버엔 읽기 전용 토큰만 남긴다 (빌드·푸시는 위 DOCKER_PASSWORD)
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
+          envs: ENV_PROD,DOCKER_USERNAME,DOCKER_PULL_TOKEN   # Secret을 스크립트 글자에 끼우지 않고 환경변수로 넘김 ($·백틱이 셸에서 바뀌지 않게)
           script: |
             set -e
             cd ~/dangdang/docker
-            printf "%s\n" "${{ secrets.ENV_PROD }}" > .env
+            printf '%s\n' "$ENV_PROD" > .env
             chmod 600 .env
-            echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+            printf '%s' "$DOCKER_PULL_TOKEN" | docker login -u "$DOCKER_USERNAME" --password-stdin
             docker compose pull
             docker compose up -d
             docker image prune -f
