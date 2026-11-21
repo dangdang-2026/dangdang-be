@@ -340,7 +340,73 @@ class VisitReportFlowTest {
                 .andExpect(jsonPath("$.data.careSite").value(nullValue()));
     }
 
+    // ---------- 저장한 리포트 조회 ----------
+
+    @Test
+    void 기간_직접_리포트는_저장한_기간과_병원으로_다시_계산한다() throws Exception {
+        reading(access, 90, "FASTING", "FASTING", "2026-10-01T08:00:00+09:00");   // 기간 앞
+        reading(access, 91, "FASTING", "FASTING", "2026-10-05T08:00:00+09:00");
+        long id = saveAndGetId(access, custom("2026-10-02", "2026-10-08", careSiteId), 201);
+        reading(access, 92, "FASTING", "FASTING", "2026-10-06T08:00:00+09:00");   // 저장 뒤에 적은 기록도 들어감
+
+        savedReport(access, id)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.kind").value("CUSTOM"))
+                .andExpect(jsonPath("$.data.from").value("2026-10-02"))
+                .andExpect(jsonPath("$.data.to").value("2026-10-08"))
+                .andExpect(jsonPath("$.data.visitId").value(nullValue()))
+                .andExpect(jsonPath("$.data.visitDate").value(nullValue()))
+                .andExpect(jsonPath("$.data.questionCount").value(nullValue()))
+                .andExpect(jsonPath("$.data.careSite.name").value("당당산부인과"))
+                .andExpect(jsonPath("$.data.summary.measured").value(2))
+                .andExpect(jsonPath("$.data.readings[0].value").value(91));
+    }
+
+    @Test
+    void 진료용_리포트는_저장한_기간에_진료_정보를_붙인다() throws Exception {
+        question(visitId, "공복 수치가 괜찮은지");
+        reading(access, 91, "FASTING", "FASTING", "2026-10-05T08:00:00+09:00");
+        long id = saveAndGetId(access, visit("2026-10-01", "2026-10-13", visitId), 201);
+
+        savedReport(access, id)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.kind").value("VISIT"))
+                .andExpect(jsonPath("$.data.from").value("2026-10-01"))
+                .andExpect(jsonPath("$.data.to").value("2026-10-13"))
+                .andExpect(jsonPath("$.data.visitId").value(visitId))
+                .andExpect(jsonPath("$.data.visitDate").value("2026-10-14"))
+                .andExpect(jsonPath("$.data.questionCount").value(1))
+                .andExpect(jsonPath("$.data.summary.measured").value(1));
+
+        // 저장 뒤 진료 날짜를 미정으로 바꿔도 저장한 기간으로 보여 줌
+        mvc.perform(patch("/api/visits/" + visitId).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"visitAt\":null}")).andExpect(status().isOk());
+        savedReport(access, id)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.from").value("2026-10-01"))
+                .andExpect(jsonPath("$.data.visitDate").value(nullValue()));
+    }
+
+    @Test
+    void 남의_리포트나_없는_리포트나_일정을_지운_진료용_리포트는_404() throws Exception {
+        long others = saveAndGetId(other, custom("2026-10-01", "2026-10-14", null), 201);
+        savedReport(access, others)
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("VISIT_40404"));
+        savedReport(access, others + 1000).andExpect(status().isNotFound());
+
+        long id = saveAndGetId(access, visit("2026-10-01", "2026-10-13", visitId), 201);
+        mvc.perform(delete("/api/visits/" + visitId).cookie(access)).andExpect(status().isOk());
+        savedReport(access, id)
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("VISIT_40404"));
+    }
+
     // ---------- 도우미 ----------
+
+    private ResultActions savedReport(Cookie who, long reportId) throws Exception {
+        return mvc.perform(get("/api/visit-reports/" + reportId).cookie(who));
+    }
 
     private ResultActions report(Cookie who, long visit) throws Exception {
         return mvc.perform(get("/api/visits/" + visit + "/report").cookie(who));

@@ -119,6 +119,20 @@ public class VisitReportService {
         return build(userId, ReportKind.VISIT, from, to, visit, visit.getCareSiteId());
     }
 
+    // 저장한 리포트 다시 보기 (C-24에서 누름). 저장한 기간·병원 그대로, 숫자는 지금 기록으로 다시 계산
+    // 남의 것·없는 것, 그리고 진료용인데 그 진료 일정을 지웠으면 404 (일정을 지우면 그 리포트도 안 보이게)
+    @Transactional(readOnly = true)
+    public VisitReportResponse savedReport(Long userId, Long reportId) {
+        SavedReport saved = savedReportRepository.findByIdAndUserId(reportId, userId)
+                .orElseThrow(() -> new CustomException(VisitErrorCode.REPORT_NOT_FOUND));
+        Visit visit = null;
+        if (saved.getKind() == ReportKind.VISIT) {
+            visit = visitRepository.findByIdAndUserIdAndDeletedAtIsNull(saved.getVisitId(), userId)
+                    .orElseThrow(() -> new CustomException(VisitErrorCode.REPORT_NOT_FOUND));
+        }
+        return build(userId, saved.getKind(), saved.getFromDate(), saved.getToDate(), visit, saved.getCareSiteId());
+    }
+
     // 리포트 한 장 계산 (진료용·저장한 리포트가 같이 씀). visit은 진료용일 때만
     private VisitReportResponse build(Long userId, ReportKind kind, LocalDate from, LocalDate to,
                                       Visit visit, Long careSiteId) {
@@ -136,7 +150,7 @@ public class VisitReportService {
         return new VisitReportResponse(
                 kind, from, to,
                 visit == null ? null : visit.getId(),
-                visit == null ? null : KoreanTime.dateOf(visit.getVisitAt()),
+                visit == null || visit.getVisitAt() == null ? null : KoreanTime.dateOf(visit.getVisitAt()),   // 저장 뒤 날짜를 미정으로 바꿨을 수 있음
                 careSiteOf(userId, careSiteId),
                 user.getDisplayName(),
                 pregnancyWeeks(userId, from, to),

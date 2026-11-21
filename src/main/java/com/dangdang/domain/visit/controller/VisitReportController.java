@@ -45,6 +45,22 @@ public class VisitReportController {
     }
 
     @Operation(
+            summary = "[ 사용자 | 토큰 O | 저장한 리포트 조회 ]",
+            description =
+                    """
+                    **Parameters** reportId (리포트 저장 API에서 받은 id)
+                    **Returns** 진료 리포트 조회와 같은 모양. 저장한 kind·기간·병원 그대로, 숫자는 지금 기록으로 다시 계산.
+                    기간 직접(CUSTOM)이면 visitId·visitDate·questionCount가 null.
+                    없거나 남의 리포트, 진료용인데 그 진료 일정을 지웠으면 VISIT_40404
+                    """)
+    @GetMapping("/api/visit-reports/{reportId}")
+    public ResponseEntity<BaseResponse<VisitReportResponse>> savedReport(
+            @AuthenticationPrincipal AuthPrincipal principal, @PathVariable Long reportId) {
+        return ResponseEntity.ok(BaseResponse.success(200, "리포트 조회에 성공했습니다.",
+                visitReportService.savedReport(principal.userId(), reportId)));
+    }
+
+    @Operation(
             summary = "[ 사용자 | 토큰 O | 리포트 저장 (진료용·기간 직접) ]",
             description =
                     """
