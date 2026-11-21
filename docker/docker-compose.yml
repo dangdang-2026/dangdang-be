@@ -1,7 +1,8 @@
-# 서버(운영)용: cd.yml이 이 파일을 서버 ~/dangdang/docker/ 로 복사해서 실행
+# 서버용: cd.yml(운영)·cd-dev.yml(개발)이 이 파일을 서버 ~/dangdang/docker/ 로 복사해서 실행
+# 이미지 태그: .env에 IMAGE_TAG·AI_IMAGE_TAG가 없으면 latest(운영), 개발 .env는 IMAGE_TAG=dev
 services:
   app:
-    image: ${DOCKER_REPO}:latest
+    image: ${DOCKER_REPO}:${IMAGE_TAG:-latest}
     env_file: .env
     environment:
       DB_URL: jdbc:postgresql://db:5432/${DB_NAME}
@@ -35,7 +36,7 @@ services:
     ports: ["127.0.0.1:9999:8080"]
     restart: unless-stopped
   ai:
-    image: dahyun0423/dangdang-ai:latest
+    image: dahyun0423/dangdang-ai:${AI_IMAGE_TAG:-latest}
     environment:
       INTERNAL_TOKEN: ${INTERNAL_TOKEN}
       LLM_API_KEY: ${LLM_API_KEY:-}
