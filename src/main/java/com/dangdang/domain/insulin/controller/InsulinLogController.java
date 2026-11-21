@@ -1,6 +1,7 @@
 package com.dangdang.domain.insulin.controller;
 
 import com.dangdang.domain.insulin.dto.request.InsulinLogCreateRequest;
+import com.dangdang.domain.insulin.dto.request.InsulinLogUpdateRequest;
 import com.dangdang.domain.insulin.dto.response.InsulinLogPageResponse;
 import com.dangdang.domain.insulin.dto.response.InsulinLogResponse;
 import com.dangdang.domain.insulin.service.InsulinLogService;
@@ -66,5 +67,22 @@ public class InsulinLogController {
         return ResponseEntity.ok(BaseResponse.success(200, "인슐린 투여 기록 목록 조회에 성공했습니다.",
                 insulinLogService.list(principal.userId(),
                         QueryParams.requiredDate(from, "from"), QueryParams.requiredDate(to, "to"), page, size)));
+    }
+
+    @Operation(
+            summary = "[ 사용자 | 토큰 O | 인슐린 투여 기록 수정 ]",
+            description =
+                    """
+                    **Parameters** insulinLogId + 바꿀 칸만: insulinType, units(0 초과 999.9 이하, 소수 한 자리), takenAt(2000년 이후 ~ 지금)
+                    안 보내거나 null을 보낸 칸은 그대로 둠 (비우기 없음)
+                    **Returns** 수정된 기록. 바꿀 값이 없으면 INSULIN_40001, 범위 밖이면 GLOBAL_40001,
+                    없거나 삭제됐거나 남의 기록이면 INSULIN_40401
+                    """)
+    @PatchMapping("/{insulinLogId}")
+    public ResponseEntity<BaseResponse<InsulinLogResponse>> update(
+            @AuthenticationPrincipal AuthPrincipal principal, @PathVariable Long insulinLogId,
+            @Valid @RequestBody InsulinLogUpdateRequest request) {
+        return ResponseEntity.ok(BaseResponse.success(200, "인슐린 투여 기록 수정에 성공했습니다.",
+                insulinLogService.update(principal.userId(), insulinLogId, request)));
     }
 }
