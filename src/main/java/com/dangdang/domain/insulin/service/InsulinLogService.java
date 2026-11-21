@@ -1,6 +1,7 @@
 package com.dangdang.domain.insulin.service;
 
 import com.dangdang.domain.insulin.dto.request.InsulinLogCreateRequest;
+import com.dangdang.domain.insulin.dto.response.InsulinLogPageResponse;
 import com.dangdang.domain.insulin.dto.response.InsulinLogResponse;
 import com.dangdang.domain.insulin.entity.InsulinLog;
 import com.dangdang.domain.insulin.repository.InsulinLogRepository;
@@ -12,6 +13,7 @@ import com.dangdang.global.common.QueryParams;
 import com.dangdang.global.exception.CustomException;
 import com.dangdang.global.exception.GlobalErrorCode;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,6 +42,15 @@ public class InsulinLogService {
         InsulinLog saved = insulinLogRepository.saveAndFlush(
                 InsulinLog.of(user, req.insulinType(), req.units(), req.takenAt()));
         return InsulinLogResponse.from(saved);
+    }
+
+    // 목록: from·to는 한국 날짜 (둘 다 포함), 맞은 시각 오래된 순
+    public InsulinLogPageResponse list(Long userId, LocalDate from, LocalDate to, int page, int size) {
+        if (from.isAfter(to)) {
+            throw new CustomException(GlobalErrorCode.INVALID_INPUT, "from이 to보다 늦어요.");
+        }
+        return InsulinLogPageResponse.from(insulinLogRepository.findPage(userId,
+                KoreanTime.startOfDay(from), KoreanTime.endOfDay(to), PageRequest.of(page, size)));
     }
 
     // 맞은 시각은 2000년 이후 (지금보다 뒤인지는 요청의 @PastOrPresent가 막음)
