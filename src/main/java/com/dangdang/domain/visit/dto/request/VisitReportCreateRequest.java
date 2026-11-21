@@ -18,5 +18,5 @@ public record VisitReportCreateRequest(
 
         Long visitId,                // VISIT이면 꼭 보냄, CUSTOM이면 안 보냄
 
-        Long careSiteId) {           // 보여 줄 내 병원 (없어도 됨)
+        Long careSiteId) {           // 기간 직접일 때 보여 줄 내 병원 (없어도 됨). 진료용은 안 쓰고 그 진료 일정의 병원으로 저장
 }

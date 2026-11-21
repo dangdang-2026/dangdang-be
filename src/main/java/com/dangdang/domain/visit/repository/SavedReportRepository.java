@@ -15,8 +15,8 @@ public interface SavedReportRepository extends JpaRepository<SavedReport, Long> 
     // 하나 찾기: 이 id + 내 것만 (아니면 Optional.empty)
     Optional<SavedReport> findByIdAndUserId(Long id, Long userId);
 
-    // 같은 kind·기간·진료 일정으로 이미 저장한 리포트 (visitId가 null이면 visit_id도 null인 것)
-    // "= :visitId"는 null끼리 같다고 보지 않아서 null일 때를 따로 적음
+    // 같은 kind·기간·진료 일정·병원으로 이미 저장한 리포트 (유니크 인덱스 uq_saved_reports_period와 같은 칸)
+    // "= :visitId"는 null끼리 같다고 보지 않아서 null일 때를 따로 적음 (병원도 같음)
     @Query("""
             select r from SavedReport r
             where r.user.id = :userId
@@ -24,8 +24,9 @@ public interface SavedReportRepository extends JpaRepository<SavedReport, Long> 
               and r.fromDate = :from
               and r.toDate = :to
               and ((:visitId is null and r.visitId is null) or r.visitId = :visitId)
+              and ((:careSiteId is null and r.careSiteId is null) or r.careSiteId = :careSiteId)
             """)
     Optional<SavedReport> findSame(@Param("userId") Long userId, @Param("kind") ReportKind kind,
                                    @Param("from") LocalDate from, @Param("to") LocalDate to,
-                                   @Param("visitId") Long visitId);
+                                   @Param("visitId") Long visitId, @Param("careSiteId") Long careSiteId);
 }

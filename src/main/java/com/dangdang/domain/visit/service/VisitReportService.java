@@ -69,15 +69,23 @@ public class VisitReportService {
     private final PregnancyRepository pregnancyRepository;
     private final Clock clock;
 
-    // 저장. 같은 kind·기간·진료 일정이 이미 있으면 새로 만들지 않고 그 id를 돌려줌 (created=false → 200)
+    // 저장. 같은 kind·기간·진료 일정·병원이 이미 있으면 새로 만들지 않고 그 id를 돌려줌 (created=false → 200)
+    // 병원: 기간 직접은 사용자가 고른 병원 (같은 기간이라도 병원이 다르면 따로 저장 → C-24 병원 필터에 맞게 보임)
+    //       진료용은 보낸 값을 쓰지 않고 그 진료 일정의 병원 (같은 진료 리포트가 병원만 달리 두 개 생기지 않게)
     // 메서드에 트랜잭션을 걸지 않음: 같은 리포트가 동시에 와서 유니크 인덱스에 걸리면
     // 실패한 트랜잭션 밖에서 먼저 저장된 줄을 다시 읽어 돌려줘야 해서 (저장소 호출마다 짧은 트랜잭션)
     public VisitReportSaveResponse save(Long userId, VisitReportCreateRequest req) {
         checkPeriod(req.from(), req.to());
-        checkKind(userId, req);
-        checkMyCareSite(userId, req.careSiteId());
+        Long careSiteId;
+        if (req.kind() == ReportKind.VISIT) {
+            careSiteId = visitOf(userId, req).getCareSiteId();
+        } else {
+            checkNoVisit(req);
+            checkMyCareSite(userId, req.careSiteId());
+            careSiteId = req.careSiteId();
+        }
 
-        var same = savedReportRepository.findSame(userId, req.kind(), req.from(), req.to(), req.visitId());
+        var same = savedReportRepository.findSame(userId, req.kind(), req.from(), req.to(), req.visitId(), careSiteId);
         if (same.isPresent()) {
             return new VisitReportSaveResponse(same.get().getId(), false);
         }
@@ -85,11 +93,11 @@ public class VisitReportService {
                 .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
         try {
             SavedReport saved = savedReportRepository.saveAndFlush(
-                    SavedReport.of(user, req.kind(), req.from(), req.to(), req.visitId(), req.careSiteId()));
+                    SavedReport.of(user, req.kind(), req.from(), req.to(), req.visitId(), careSiteId));
             return new VisitReportSaveResponse(saved.getId(), true);
         } catch (DataIntegrityViolationException e) {
             // 그사이 같은 리포트가 먼저 저장됨 → 그걸 돌려줌. 그래도 없으면 다른 제약에 걸린 것이라 그대로 던짐
-            return savedReportRepository.findSame(userId, req.kind(), req.from(), req.to(), req.visitId())
+            return savedReportRepository.findSame(userId, req.kind(), req.from(), req.to(), req.visitId(), careSiteId)
                     .map(r -> new VisitReportSaveResponse(r.getId(), false))
                     .orElseThrow(() -> e);
         }
@@ -264,14 +272,17 @@ public class VisitReportService {
         }
     }
 
-    // 진료용은 내 진료 일정(삭제 안 된 것)이 있어야 하고, 기간 직접은 진료 일정을 보내지 않음
-    private void checkKind(Long userId, VisitReportCreateRequest req) {
-        if (req.kind() == ReportKind.VISIT) {
-            if (req.visitId() == null) {
-                throw new CustomException(GlobalErrorCode.INVALID_INPUT, "진료용 리포트는 visitId를 같이 보내 주세요.");
-            }
-            visitService.findMine(userId, req.visitId());   // 없음·삭제됨·남의 일정이면 VISIT_40401
-        } else if (req.visitId() != null) {
+    // 진료용은 내 진료 일정(삭제 안 된 것)이 있어야 함. 없음·삭제됨·남의 일정이면 VISIT_40401
+    private Visit visitOf(Long userId, VisitReportCreateRequest req) {
+        if (req.visitId() == null) {
+            throw new CustomException(GlobalErrorCode.INVALID_INPUT, "진료용 리포트는 visitId를 같이 보내 주세요.");
+        }
+        return visitService.findMine(userId, req.visitId());
+    }
+
+    // 기간 직접은 진료 일정을 보내지 않음
+    private void checkNoVisit(VisitReportCreateRequest req) {
+        if (req.visitId() != null) {
             throw new CustomException(GlobalErrorCode.INVALID_INPUT, "기간 직접 리포트는 visitId를 보내지 않아요.");
         }
     }

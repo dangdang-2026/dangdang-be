@@ -15,7 +15,9 @@ CREATE TABLE saved_reports (
    CHECK ((kind = 'VISIT') = (visit_id IS NOT NULL))                   -- 진료용만 진료 일정이 있음
 );
 
--- 같은 kind·기간·진료 일정은 한 번만 저장 (기간 직접은 visit_id가 null이라 NULLS NOT DISTINCT로 null끼리도 같은 값으로 봄)
+-- 같은 kind·기간·진료 일정·병원은 한 번만 저장 (visit_id·care_site_id가 null일 수 있어서 NULLS NOT DISTINCT로 null끼리도 같은 값으로 봄)
+-- 기간 직접은 같은 기간이라도 병원이 다르면 따로 저장 (C-24 병원 필터). 진료용 병원은 서버가 진료 일정에서 넣음
+-- 병원은 소프트 삭제라 care_site_id가 null로 바뀌는 건 회원 탈퇴(리포트도 같이 지워짐) 때뿐
 -- 지난 리포트 목록(내 것, 최근 저장 순)도 이 인덱스 앞부분(user_id)을 씀
 CREATE UNIQUE INDEX uq_saved_reports_period
-    ON saved_reports (user_id, kind, from_date, to_date, visit_id) NULLS NOT DISTINCT;
+    ON saved_reports (user_id, kind, from_date, to_date, visit_id, care_site_id) NULLS NOT DISTINCT;

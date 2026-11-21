@@ -108,6 +108,34 @@ class VisitReportFlowTest {
     }
 
     @Test
+    void 기간_직접은_같은_기간이라도_병원이_다르면_따로_저장된다() throws Exception {
+        long secondCareSite = createCareSite(access);
+        long withFirst = saveAndGetId(access, custom("2026-10-01", "2026-10-14", careSiteId), 201);
+        long withSecond = saveAndGetId(access, custom("2026-10-01", "2026-10-14", secondCareSite), 201);
+        long withoutCareSite = saveAndGetId(access, custom("2026-10-01", "2026-10-14", null), 201);
+        assertThat(java.util.Set.of(withFirst, withSecond, withoutCareSite)).hasSize(3);
+
+        assertThat(saveAndGetId(access, custom("2026-10-01", "2026-10-14", secondCareSite), 200)).isEqualTo(withSecond);
+        assertThat(saveAndGetId(access, custom("2026-10-01", "2026-10-14", null), 200)).isEqualTo(withoutCareSite);
+    }
+
+    @Test
+    void 진료용은_보낸_병원을_안_쓰고_그_진료_일정의_병원으로_저장한다() throws Exception {
+        long visitWithCareSite = createVisitAt(access, "2026-10-14T10:00:00+09:00", careSiteId);
+        long otherCareSite = createCareSite(access);
+        long id = saveAndGetId(access, visitWithCareSite("2026-10-01", "2026-10-13", visitWithCareSite, otherCareSite), 201);
+        assertThat(jdbc.queryForObject("SELECT care_site_id FROM saved_reports WHERE id = ?", Long.class, id))
+                .isEqualTo(careSiteId);
+
+        // 병원을 다르게 보내거나 안 보내도 같은 진료 리포트
+        assertThat(saveAndGetId(access, visit("2026-10-01", "2026-10-13", visitWithCareSite), 200)).isEqualTo(id);
+        // 남의 병원 id를 보내도 안 쓰므로 404가 아님
+        long othersCareSite = createCareSite(other);
+        assertThat(saveAndGetId(access, visitWithCareSite("2026-10-01", "2026-10-13", visitWithCareSite, othersCareSite), 200))
+                .isEqualTo(id);
+    }
+
+    @Test
     void 남이_같은_기간을_저장해도_내_리포트와_섞이지_않는다() throws Exception {
         long mine = saveAndGetId(access, custom("2026-10-01", "2026-10-14", null), 201);
         long others = saveAndGetId(other, custom("2026-10-01", "2026-10-14", null), 201);
@@ -454,6 +482,20 @@ class VisitReportFlowTest {
 
     private static String visit(String from, String to, long visitId) {
         return "{\"kind\":\"VISIT\",\"from\":\"" + from + "\",\"to\":\"" + to + "\",\"visitId\":" + visitId + "}";
+    }
+
+    private static String visitWithCareSite(String from, String to, long visitId, long careSiteId) {
+        return "{\"kind\":\"VISIT\",\"from\":\"" + from + "\",\"to\":\"" + to + "\",\"visitId\":" + visitId
+                + ",\"careSiteId\":" + careSiteId + "}";
+    }
+
+    private long createVisitAt(Cookie who, String visitAt, long careSiteId) throws Exception {
+        String body = mvc.perform(post("/api/visits").cookie(who)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"visitAt\":\"" + visitAt + "\",\"careSiteId\":" + careSiteId + "}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return ((Number) JsonPath.read(body, "$.data.visitId")).longValue();
     }
 
     private ResultActions save(Cookie who, String json) throws Exception {
