@@ -1,0 +1,67 @@
+name: CD (dev)
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+concurrency:              # develop 머지가 연달아 와도 배포는 한 번에 하나씩 (뒤에 온 것이 기다림)
+  group: cd-dev
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: development
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_REPO }}:dev
+            ${{ secrets.DOCKER_REPO }}:dev-${{ github.sha }}
+
+      - uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEV_SERVER_HOST }}
+          port: ${{ secrets.DEV_SERVER_PORT }}
+          username: ${{ secrets.DEV_SERVER_USER }}
+          key: ${{ secrets.DEV_SERVER_SSH_KEY }}
+          source: docker/docker-compose.yml
+          target: ~/dangdang
+
+      - uses: appleboy/ssh-action@v1.0.3
+        env:
+          ENV_DEV: ${{ secrets.ENV_DEV }}
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+        with:
+          host: ${{ secrets.DEV_SERVER_HOST }}
+          port: ${{ secrets.DEV_SERVER_PORT }}
+          username: ${{ secrets.DEV_SERVER_USER }}
+          key: ${{ secrets.DEV_SERVER_SSH_KEY }}
+          envs: ENV_DEV,DOCKER_USERNAME,DOCKER_PASSWORD   # Secret을 스크립트 글자에 끼우지 않고 환경변수로 넘김 ($·백틱이 셸에서 바뀌지 않게)
+          script: |
+            set -e
+            cd ~/dangdang/docker
+            printf '%s\n' "$ENV_DEV" > .env
+            chmod 600 .env
+            printf '%s' "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+            docker compose pull
+            docker compose up -d
+            docker image prune -f
+            for i in $(seq 1 30); do
+              curl -fs http://127.0.0.1:8080/actuator/health && exit 0
+              sleep 3
+            done
+            docker compose logs app --tail 50
+            exit 1
