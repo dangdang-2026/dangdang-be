@@ -21,6 +21,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -78,10 +79,18 @@ class VisitReportFlowTest {
     }
 
     @Test
-    void 진료용_리포트를_저장하면_201() throws Exception {
-        long id = saveAndGetId(access, visit("2026-10-01", "2026-10-13", visitId), 201);
-        assertThat(jdbc.queryForObject("SELECT visit_id FROM saved_reports WHERE id = ?", Long.class, id))
-                .isEqualTo(visitId);
+    void 진료용_리포트는_진료_일정만_저장하고_기간과_병원은_저장하지_않는다() throws Exception {
+        long visitWithCareSite = createVisitAt(access, "2026-10-14T10:00:00+09:00", careSiteId);
+        // 화면이 기간·병원을 보내도 안 씀
+        long id = saveAndGetId(access, "{\"kind\":\"VISIT\",\"visitId\":" + visitWithCareSite
+                + ",\"from\":\"2026-01-01\",\"to\":\"2026-01-05\",\"careSiteId\":" + createCareSite(other) + "}", 201);
+
+        Map<String, Object> row = jdbc.queryForMap("SELECT * FROM saved_reports WHERE id = ?", id);
+        assertThat(row.get("kind")).isEqualTo("VISIT");
+        assertThat(((Number) row.get("visit_id")).longValue()).isEqualTo(visitWithCareSite);
+        assertThat(row.get("from_date")).isNull();
+        assertThat(row.get("to_date")).isNull();
+        assertThat(row.get("care_site_id")).isNull();
     }
 
     @Test
@@ -90,20 +99,33 @@ class VisitReportFlowTest {
         long again = saveAndGetId(access, custom("2026-10-01", "2026-10-14", null), 200);
         assertThat(again).isEqualTo(first);
 
-        long visitFirst = saveAndGetId(access, visit("2026-10-01", "2026-10-13", visitId), 201);
-        long visitAgain = saveAndGetId(access, visit("2026-10-01", "2026-10-13", visitId), 200);
+        long visitFirst = saveAndGetId(access, visit(visitId), 201);
+        long visitAgain = saveAndGetId(access, visit(visitId), 200);
         assertThat(visitAgain).isEqualTo(visitFirst);
 
         assertThat(jdbc.queryForObject("SELECT count(*) FROM saved_reports", Long.class)).isEqualTo(2);
     }
 
     @Test
+    void 진료용은_기간을_바꿔_보내도_진료_일정_하나에_한_번만_저장된다() throws Exception {
+        long id = saveAndGetId(access, "{\"kind\":\"VISIT\",\"visitId\":" + visitId
+                + ",\"from\":\"2026-10-01\",\"to\":\"2026-10-13\"}", 201);
+        assertThat(saveAndGetId(access, "{\"kind\":\"VISIT\",\"visitId\":" + visitId
+                + ",\"from\":\"2026-09-01\",\"to\":\"2026-10-10\"}", 200)).isEqualTo(id);
+
+        // 일정 병원을 바꿔도 같은 진료 리포트
+        mvc.perform(patch("/api/visits/" + visitId).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"careSiteId\":" + careSiteId + "}")).andExpect(status().isOk());
+        assertThat(saveAndGetId(access, visit(visitId), 200)).isEqualTo(id);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM saved_reports", Long.class)).isEqualTo(1);
+    }
+
+    @Test
     void 기간이나_종류나_진료_일정이_다르면_따로_저장된다() throws Exception {
         long base = saveAndGetId(access, custom("2026-10-01", "2026-10-14", null), 201);
         long otherTo = saveAndGetId(access, custom("2026-10-01", "2026-10-15", null), 201);
-        long asVisit = saveAndGetId(access, visit("2026-10-01", "2026-10-14", visitId), 201);
-        long otherVisit = saveAndGetId(access, visit("2026-10-01", "2026-10-14",
-                createVisit(access, "2026-10-15T10:00:00+09:00")), 201);
+        long asVisit = saveAndGetId(access, visit(visitId), 201);
+        long otherVisit = saveAndGetId(access, visit(createVisit(access, "2026-10-15T10:00:00+09:00")), 201);
         assertThat(java.util.Set.of(base, otherTo, asVisit, otherVisit)).hasSize(4);
     }
 
@@ -120,19 +142,11 @@ class VisitReportFlowTest {
     }
 
     @Test
-    void 진료용은_보낸_병원을_안_쓰고_그_진료_일정의_병원으로_저장한다() throws Exception {
-        long visitWithCareSite = createVisitAt(access, "2026-10-14T10:00:00+09:00", careSiteId);
-        long otherCareSite = createCareSite(access);
-        long id = saveAndGetId(access, visitWithCareSite("2026-10-01", "2026-10-13", visitWithCareSite, otherCareSite), 201);
-        assertThat(jdbc.queryForObject("SELECT care_site_id FROM saved_reports WHERE id = ?", Long.class, id))
-                .isEqualTo(careSiteId);
-
-        // 병원을 다르게 보내거나 안 보내도 같은 진료 리포트
-        assertThat(saveAndGetId(access, visit("2026-10-01", "2026-10-13", visitWithCareSite), 200)).isEqualTo(id);
-        // 남의 병원 id를 보내도 안 쓰므로 404가 아님
-        long othersCareSite = createCareSite(other);
-        assertThat(saveAndGetId(access, visitWithCareSite("2026-10-01", "2026-10-13", visitWithCareSite, othersCareSite), 200))
-                .isEqualTo(id);
+    void 날짜_미정_일정은_진료용으로_저장할_수_없다() throws Exception {
+        save(access, visit(createVisitWithoutDate(access)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("VISIT_40003"));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM saved_reports", Long.class)).isZero();
     }
 
     @Test
@@ -174,7 +188,9 @@ class VisitReportFlowTest {
     @Test
     void 필수값이_없거나_형식이_틀리면_400() throws Exception {
         save(access, "{\"from\":\"2026-10-01\",\"to\":\"2026-10-13\"}").andExpect(status().isBadRequest());
-        save(access, "{\"kind\":\"CUSTOM\",\"to\":\"2026-10-13\"}").andExpect(status().isBadRequest());
+        save(access, "{\"kind\":\"CUSTOM\",\"to\":\"2026-10-13\"}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("GLOBAL_40001"));
         save(access, "{\"kind\":\"CUSTOM\",\"from\":\"2026-10-01\"}").andExpect(status().isBadRequest());
         save(access, "{\"kind\":\"WEEKLY\",\"from\":\"2026-10-01\",\"to\":\"2026-10-13\"}").andExpect(status().isBadRequest());
         save(access, "{\"kind\":\"CUSTOM\",\"from\":\"2026/10/01\",\"to\":\"2026-10-13\"}").andExpect(status().isBadRequest());
@@ -184,12 +200,12 @@ class VisitReportFlowTest {
     @Test
     void 남의_진료_일정이나_지운_일정이면_404() throws Exception {
         long othersVisit = createVisit(other, "2026-10-14T10:00:00+09:00");
-        save(access, visit("2026-10-01", "2026-10-13", othersVisit))
+        save(access, visit(othersVisit))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.errorCode").value("VISIT_40401"));
 
         mvc.perform(delete("/api/visits/" + visitId).cookie(access)).andExpect(status().isOk());
-        save(access, visit("2026-10-01", "2026-10-13", visitId))
+        save(access, visit(visitId))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.errorCode").value("VISIT_40401"));
     }
@@ -368,6 +384,48 @@ class VisitReportFlowTest {
                 .andExpect(jsonPath("$.data.careSite").value(nullValue()));
     }
 
+    @Test
+    void 같은_날_기준을_두_번_고치면_기록이_판정에_쓴_기준도_목록에_나온다() throws Exception {
+        criteria(access, "{\"fastingTarget\":95,\"effectiveFrom\":\"2026-10-05\"}");    // v1
+        reading(access, 96, "FASTING", "FASTING", "2026-10-05T08:00:00+09:00");         // v1로 판정 → 밖
+        criteria(access, "{\"fastingTarget\":100,\"effectiveFrom\":\"2026-10-05\"}");   // 같은 날 v2
+
+        report(access, visitId)
+                .andExpect(jsonPath("$.data.from").value("2026-10-05"))
+                .andExpect(jsonPath("$.data.readings[0].aboveTarget").value(true))
+                .andExpect(jsonPath("$.data.criteria", hasSize(2)))
+                .andExpect(jsonPath("$.data.criteria[0].fastingTarget").value(95))
+                .andExpect(jsonPath("$.data.criteria[1].fastingTarget").value(100));
+    }
+
+    @Test
+    void 임신_주수는_리포트_기간과_겹치는_임신으로_센다() throws Exception {
+        createVisit(access, "2026-10-01T09:00:00+09:00");   // 기간 10/1~10/13
+        long jisu = userId("jisu@x.com");
+        // 리포트 기간의 임신 (출산 뒤 끝남) + 지금 진행 중인 다음 임신 (리포트 기간과 안 겹침)
+        jdbc.update("INSERT INTO pregnancies (user_id, due_date, delivery_date, state, created_at, updated_at)"
+                + " VALUES (?, '2026-12-01', '2026-11-10', 'ENDED', now(), now())", jisu);
+        jdbc.update("INSERT INTO pregnancies (user_id, due_date, state, created_at, updated_at)"
+                + " VALUES (?, '2027-09-01', 'PREGNANT', now(), now())", jisu);
+
+        LocalDate start = LocalDate.of(2026, 12, 1).minusDays(280);
+        report(access, visitId)
+                .andExpect(jsonPath("$.data.pregnancyWeeks.from")
+                        .value((int) (ChronoUnit.DAYS.between(start, LocalDate.of(2026, 10, 1)) / 7)))
+                .andExpect(jsonPath("$.data.pregnancyWeeks.to")
+                        .value((int) (ChronoUnit.DAYS.between(start, LocalDate.of(2026, 10, 13)) / 7)));
+    }
+
+    @Test
+    void 기간이_출산을_넘으면_출산_뒤_날짜의_주수는_비운다() throws Exception {
+        jdbc.update("INSERT INTO pregnancies (user_id, due_date, delivery_date, state, created_at, updated_at)"
+                + " VALUES (?, '2026-10-20', '2026-10-05', 'POSTPARTUM', now(), now())", userId("jisu@x.com"));
+        long id = saveAndGetId(access, custom("2026-10-01", "2026-10-10", null), 201);
+        savedReport(access, id)
+                .andExpect(jsonPath("$.data.pregnancyWeeks.from").value((280 - 19) / 7))   // 10/1은 예정일 19일 전
+                .andExpect(jsonPath("$.data.pregnancyWeeks.to").value(nullValue()));       // 10/10은 출산(10/5) 뒤
+    }
+
     // ---------- 저장한 리포트 조회 ----------
 
     @Test
@@ -391,10 +449,11 @@ class VisitReportFlowTest {
     }
 
     @Test
-    void 진료용_리포트는_저장한_기간에_진료_정보를_붙인다() throws Exception {
+    void 진료용_저장본은_진료_리포트_조회와_똑같이_지금_진료_일정으로_계산한다() throws Exception {
+        createVisit(access, "2026-10-01T09:00:00+09:00");   // 앞 진료
         question(visitId, "공복 수치가 괜찮은지");
         reading(access, 91, "FASTING", "FASTING", "2026-10-05T08:00:00+09:00");
-        long id = saveAndGetId(access, visit("2026-10-01", "2026-10-13", visitId), 201);
+        long id = saveAndGetId(access, visit(visitId), 201);
 
         savedReport(access, id)
                 .andExpect(status().isOk())
@@ -403,16 +462,27 @@ class VisitReportFlowTest {
                 .andExpect(jsonPath("$.data.to").value("2026-10-13"))
                 .andExpect(jsonPath("$.data.visitId").value(visitId))
                 .andExpect(jsonPath("$.data.visitDate").value("2026-10-14"))
+                .andExpect(jsonPath("$.data.careSite").value(nullValue()))
                 .andExpect(jsonPath("$.data.questionCount").value(1))
                 .andExpect(jsonPath("$.data.summary.measured").value(1));
 
-        // 저장 뒤 진료 날짜를 미정으로 바꿔도 저장한 기간으로 보여 줌
+        // 저장 뒤 일정 날짜·병원을 고치면 저장본도 진료 리포트 조회와 같이 바뀜
+        mvc.perform(patch("/api/visits/" + visitId).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"visitAt\":\"2026-10-08T10:00:00+09:00\",\"careSiteId\":" + careSiteId + "}"))
+                .andExpect(status().isOk());
+        String fromVisit = report(access, visitId).andReturn().getResponse().getContentAsString();
+        String fromSaved = savedReport(access, id).andReturn().getResponse().getContentAsString();
+        assertThat((Object) JsonPath.read(fromSaved, "$.data")).isEqualTo(JsonPath.read(fromVisit, "$.data"));
+        savedReport(access, id)
+                .andExpect(jsonPath("$.data.to").value("2026-10-07"))
+                .andExpect(jsonPath("$.data.careSite.careSiteId").value(careSiteId));
+
+        // 날짜를 미정으로 바꾸면 진료 리포트 조회와 같이 400
         mvc.perform(patch("/api/visits/" + visitId).cookie(access).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"visitAt\":null}")).andExpect(status().isOk());
         savedReport(access, id)
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.from").value("2026-10-01"))
-                .andExpect(jsonPath("$.data.visitDate").value(nullValue()));
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("VISIT_40003"));
     }
 
     @Test
@@ -423,7 +493,7 @@ class VisitReportFlowTest {
                 .andExpect(jsonPath("$.errorCode").value("VISIT_40404"));
         savedReport(access, others + 1000).andExpect(status().isNotFound());
 
-        long id = saveAndGetId(access, visit("2026-10-01", "2026-10-13", visitId), 201);
+        long id = saveAndGetId(access, visit(visitId), 201);
         mvc.perform(delete("/api/visits/" + visitId).cookie(access)).andExpect(status().isOk());
         savedReport(access, id)
                 .andExpect(status().isNotFound())
@@ -442,7 +512,7 @@ class VisitReportFlowTest {
         long visitAtSecond = createVisitAt(access, "2026-10-14T10:00:00+09:00", secondCareSite);
 
         long custom = saveAndGetId(access, custom("2026-10-01", "2026-10-05", careSiteId), 201);
-        long visitReport = saveAndGetId(access, visit("2026-10-01", "2026-10-13", visitAtSecond), 201);
+        long visitReport = saveAndGetId(access, visit(visitAtSecond), 201);
         long beforeCriteria = saveAndGetId(access, custom("2026-08-01", "2026-08-05", null), 201);
 
         list(access, "")
@@ -459,6 +529,8 @@ class VisitReportFlowTest {
                 .andExpect(jsonPath("$.data.items[1].kind").value("VISIT"))
                 .andExpect(jsonPath("$.data.items[1].visitId").value(visitAtSecond))
                 .andExpect(jsonPath("$.data.items[1].visitDate").value("2026-10-14"))
+                .andExpect(jsonPath("$.data.items[1].from").value("2026-10-02"))   // 앞 진료가 없어서 첫 기록일부터
+                .andExpect(jsonPath("$.data.items[1].to").value("2026-10-13"))
                 .andExpect(jsonPath("$.data.items[1].careSiteId").value(secondCareSite))
                 .andExpect(jsonPath("$.data.items[1].summary.measured").value(3))
                 .andExpect(jsonPath("$.data.items[1].summary.outOfTarget").value(1))
@@ -481,6 +553,29 @@ class VisitReportFlowTest {
         list(access, "?careSiteId=" + secondCareSite)
                 .andExpect(jsonPath("$.data.items", hasSize(1)))
                 .andExpect(jsonPath("$.data.items[0].id").value(visitReport));
+
+        // 진료 일정 병원을 바꾸면 진료용 리포트도 그 병원으로 거름
+        mvc.perform(patch("/api/visits/" + visitAtSecond).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"careSiteId\":" + careSiteId + "}")).andExpect(status().isOk());
+        list(access, "?careSiteId=" + secondCareSite).andExpect(jsonPath("$.data.items", hasSize(0)));
+        list(access, "?careSiteId=" + careSiteId)
+                .andExpect(jsonPath("$.data.items", hasSize(2)))
+                .andExpect(jsonPath("$.data.items[0].id").value(visitReport))
+                .andExpect(jsonPath("$.data.items[0].careSiteName").value("당당산부인과"));
+    }
+
+    @Test
+    void 진료_날짜를_미정으로_바꾼_진료용은_기간과_숫자_없이_나온다() throws Exception {
+        long id = saveAndGetId(access, visit(visitId), 201);
+        mvc.perform(patch("/api/visits/" + visitId).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"visitAt\":null}")).andExpect(status().isOk());
+        list(access, "")
+                .andExpect(jsonPath("$.data.items", hasSize(1)))
+                .andExpect(jsonPath("$.data.items[0].id").value(id))
+                .andExpect(jsonPath("$.data.items[0].from").value(nullValue()))
+                .andExpect(jsonPath("$.data.items[0].to").value(nullValue()))
+                .andExpect(jsonPath("$.data.items[0].visitDate").value(nullValue()))
+                .andExpect(jsonPath("$.data.items[0].summary").value(nullValue()));
     }
 
     @Test
@@ -505,7 +600,7 @@ class VisitReportFlowTest {
     void 남의_리포트와_일정을_지운_진료용_리포트는_목록에_없고_지운_병원은_이름만_빠진다() throws Exception {
         saveAndGetId(other, custom("2026-10-01", "2026-10-14", null), 201);
         long custom = saveAndGetId(access, custom("2026-10-01", "2026-10-14", careSiteId), 201);
-        saveAndGetId(access, visit("2026-10-01", "2026-10-13", visitId), 201);
+        saveAndGetId(access, visit(visitId), 201);
 
         mvc.perform(delete("/api/visits/" + visitId).cookie(access)).andExpect(status().isOk());
         mvc.perform(delete("/api/care-sites/" + careSiteId).cookie(access)).andExpect(status().isOk());
@@ -583,13 +678,8 @@ class VisitReportFlowTest {
                 + (careSiteId != null ? ",\"careSiteId\":" + careSiteId : "") + "}";
     }
 
-    private static String visit(String from, String to, long visitId) {
-        return "{\"kind\":\"VISIT\",\"from\":\"" + from + "\",\"to\":\"" + to + "\",\"visitId\":" + visitId + "}";
-    }
-
-    private static String visitWithCareSite(String from, String to, long visitId, long careSiteId) {
-        return "{\"kind\":\"VISIT\",\"from\":\"" + from + "\",\"to\":\"" + to + "\",\"visitId\":" + visitId
-                + ",\"careSiteId\":" + careSiteId + "}";
+    private static String visit(long visitId) {
+        return "{\"kind\":\"VISIT\",\"visitId\":" + visitId + "}";
     }
 
     private long createVisitAt(Cookie who, String visitAt, long careSiteId) throws Exception {

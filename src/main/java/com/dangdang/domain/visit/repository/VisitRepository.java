@@ -46,4 +46,13 @@ public interface VisitRepository extends JpaRepository<Visit, Long> {
               and v.visitAt < :before
             """)
     Instant findLastVisitAtBefore(@Param("userId") Long userId, @Param("before") Instant before);
+
+    // 내 진료 시각 전부 (날짜 미정·지운 일정 빼고). 지난 리포트 목록에서 진료용 기간을 한 번에 계산하려고
+    @Query("""
+            select v.visitAt from Visit v
+            where v.user.id = :userId
+              and v.deletedAt is null
+              and v.visitAt is not null
+            """)
+    List<Instant> findAllVisitAts(@Param("userId") Long userId);
 }

@@ -7,9 +7,10 @@ import com.dangdang.domain.criteria.entity.CriteriaVersion;
 import com.dangdang.domain.criteria.enums.MeasureSlot;
 import com.dangdang.domain.criteria.repository.CriteriaVersionRepository;
 import com.dangdang.domain.pregnancy.entity.Pregnancy;
-import com.dangdang.domain.pregnancy.enums.PregnancyState;
 import com.dangdang.domain.pregnancy.repository.PregnancyRepository;
 import com.dangdang.domain.reading.entity.Reading;
+import com.dangdang.domain.reading.enums.ReadingType;
+import com.dangdang.domain.reading.repository.ReadingCounts;
 import com.dangdang.domain.reading.repository.ReadingRepository;
 import com.dangdang.domain.reading.service.ReadingEvaluator;
 import com.dangdang.domain.reading.service.ReadingStatsService;
@@ -49,11 +50,14 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 // 진료 리포트 (C-06 리포트, C-07 저장·공유, C-24 지난 리포트, C-25 기간 골라 만들기)
-// 리포트 숫자·표는 저장하지 않고 볼 때마다 다시 계산함. saved_reports엔 기간·병원만 남김
+// 리포트 숫자·표는 저장하지 않고 볼 때마다 다시 계산함
+// 진료용은 기간(앞 진료일 ~ 진료 전날)·병원도 볼 때마다 진료 일정에서 계산 → 일정을 고쳐도 조회·저장본·목록이 항상 같음
 @Service
 @RequiredArgsConstructor
 public class VisitReportService {
@@ -77,54 +81,93 @@ public class VisitReportService {
     private final PregnancyRepository pregnancyRepository;
     private final Clock clock;
 
-    // 저장. 같은 kind·기간·진료 일정·병원이 이미 있으면 새로 만들지 않고 그 id를 돌려줌 (created=false → 200)
-    // 병원: 기간 직접은 사용자가 고른 병원 (같은 기간이라도 병원이 다르면 따로 저장 → C-24 병원 필터에 맞게 보임)
-    //       진료용은 보낸 값을 쓰지 않고 그 진료 일정의 병원 (같은 진료 리포트가 병원만 달리 두 개 생기지 않게)
+    private record Period(LocalDate from, LocalDate to) {
+    }
+
+    // ---------- 저장 ----------
+
+    // 저장. 같은 리포트가 이미 있으면 새로 만들지 않고 그 id를 돌려줌 (created=false → 200)
+    // 진료용: 진료 일정 하나에 한 번 (기간·병원은 저장하지 않고 볼 때 계산하므로 보내도 안 씀). 날짜 미정 일정은 400
+    // 기간 직접: 같은 기간·병원이면 한 번 (같은 기간이라도 병원이 다르면 따로 → C-24 병원 필터에 맞게 보임)
     // 메서드에 트랜잭션을 걸지 않음: 같은 리포트가 동시에 와서 유니크 인덱스에 걸리면
     // 실패한 트랜잭션 밖에서 먼저 저장된 줄을 다시 읽어 돌려줘야 해서 (저장소 호출마다 짧은 트랜잭션)
     public VisitReportSaveResponse save(Long userId, VisitReportCreateRequest req) {
-        checkPeriod(req.from(), req.to());
-        Long careSiteId;
+        Supplier<Optional<SavedReport>> findSame;
+        Function<User, SavedReport> newReport;
         if (req.kind() == ReportKind.VISIT) {
-            careSiteId = visitOf(userId, req).getCareSiteId();
+            Visit visit = visitOf(userId, req);
+            if (visit.getVisitAt() == null) {
+                throw new CustomException(VisitErrorCode.VISIT_DATE_UNDECIDED);   // 진료 리포트 조회와 같게
+            }
+            findSame = () -> savedReportRepository.findByUserIdAndKindAndVisitId(userId, ReportKind.VISIT, visit.getId());
+            newReport = user -> SavedReport.ofVisit(user, visit.getId());
         } else {
             checkNoVisit(req);
+            checkPeriod(req.from(), req.to());
             checkMyCareSite(userId, req.careSiteId());
-            careSiteId = req.careSiteId();
+            findSame = () -> savedReportRepository.findSameCustom(userId, req.from(), req.to(), req.careSiteId());
+            newReport = user -> SavedReport.ofCustom(user, req.from(), req.to(), req.careSiteId());
         }
 
-        var same = savedReportRepository.findSame(userId, req.kind(), req.from(), req.to(), req.visitId(), careSiteId);
+        Optional<SavedReport> same = findSame.get();
         if (same.isPresent()) {
             return new VisitReportSaveResponse(same.get().getId(), false);
         }
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
         try {
-            SavedReport saved = savedReportRepository.saveAndFlush(
-                    SavedReport.of(user, req.kind(), req.from(), req.to(), req.visitId(), careSiteId));
+            SavedReport saved = savedReportRepository.saveAndFlush(newReport.apply(user));
             return new VisitReportSaveResponse(saved.getId(), true);
         } catch (DataIntegrityViolationException e) {
             // 그사이 같은 리포트가 먼저 저장됨 → 그걸 돌려줌. 그래도 없으면 다른 제약에 걸린 것이라 그대로 던짐
-            return savedReportRepository.findSame(userId, req.kind(), req.from(), req.to(), req.visitId(), careSiteId)
+            return findSame.get()
                     .map(r -> new VisitReportSaveResponse(r.getId(), false))
                     .orElseThrow(() -> e);
         }
     }
 
-    // 진료용 리포트 (C-06). 기간 = 바로 앞 진료일 ~ 이번 진료 전날
-    // 앞 진료가 없으면 첫 혈당 기록일부터, 기록도 없으면 전날 하루. 너무 길면 끝에서 MAX_DAYS일만
+    // ---------- 조회 ----------
+
+    // 진료용 리포트 (C-06). 없음·삭제됨·남의 일정이면 VISIT_40401, 날짜 미정이면 VISIT_40003
     @Transactional(readOnly = true)
     public VisitReportResponse visitReport(Long userId, Long visitId) {
-        Visit visit = visitService.findMine(userId, visitId);
+        return reportOfVisit(userId, visitService.findMine(userId, visitId));
+    }
+
+    // 저장한 리포트 다시 보기 (C-24에서 누름). 숫자는 지금 기록으로 다시 계산
+    // 진료용은 진료 리포트 조회와 똑같이 지금 진료 일정으로 기간·병원을 계산, 기간 직접은 저장한 기간·병원 그대로
+    // 남의 것·없는 것, 그리고 진료용인데 그 진료 일정을 지웠으면 404 (일정을 지우면 그 리포트도 안 보이게)
+    @Transactional(readOnly = true)
+    public VisitReportResponse savedReport(Long userId, Long reportId) {
+        SavedReport saved = savedReportRepository.findByIdAndUserId(reportId, userId)
+                .orElseThrow(() -> new CustomException(VisitErrorCode.REPORT_NOT_FOUND));
+        if (saved.getKind() == ReportKind.VISIT) {
+            Visit visit = visitRepository.findByIdAndUserIdAndDeletedAtIsNull(saved.getVisitId(), userId)
+                    .orElseThrow(() -> new CustomException(VisitErrorCode.REPORT_NOT_FOUND));
+            return reportOfVisit(userId, visit);
+        }
+        return build(userId, ReportKind.CUSTOM, new Period(saved.getFromDate(), saved.getToDate()), null,
+                saved.getCareSiteId());
+    }
+
+    // 진료 일정으로 리포트 한 장. 기간 = 바로 앞 진료일 ~ 이번 진료 전날
+    private VisitReportResponse reportOfVisit(Long userId, Visit visit) {
         if (visit.getVisitAt() == null) {
             throw new CustomException(VisitErrorCode.VISIT_DATE_UNDECIDED);
         }
         LocalDate visitDate = KoreanTime.dateOf(visit.getVisitAt());
-        LocalDate to = visitDate.minusDays(1);
-
         // 같은 날 진료가 둘이어도 앞 진료로 치지 않게, 진료 날 0시보다 앞선 진료만 봄
         Instant lastVisitAt = visitRepository.findLastVisitAtBefore(userId, KoreanTime.startOfDay(visitDate));
-        Instant start = lastVisitAt != null ? lastVisitAt : readingRepository.findFirstMeasuredAt(userId);
+        Instant firstMeasuredAt = lastVisitAt == null ? readingRepository.findFirstMeasuredAt(userId) : null;
+        return build(userId, ReportKind.VISIT, visitPeriod(visitDate, lastVisitAt, firstMeasuredAt), visit,
+                visit.getCareSiteId());
+    }
+
+    // 진료용 기간: 앞 진료가 있으면 그날부터, 없으면 첫 혈당 기록일부터, 기록도 없으면 진료 전날 하루
+    // 끝은 진료 전날. 너무 길면 끝에서 MAX_DAYS일만
+    private static Period visitPeriod(LocalDate visitDate, Instant lastVisitAt, Instant firstMeasuredAt) {
+        LocalDate to = visitDate.minusDays(1);
+        Instant start = lastVisitAt != null ? lastVisitAt : firstMeasuredAt;
         LocalDate from = start == null ? to : KoreanTime.dateOf(start);
         if (from.isAfter(to)) {
             from = to;   // 첫 기록이 진료 날이나 그 뒤
@@ -132,26 +175,14 @@ public class VisitReportService {
         if (ChronoUnit.DAYS.between(from, to) >= MAX_DAYS) {
             from = to.minusDays(MAX_DAYS - 1L);
         }
-        return build(userId, ReportKind.VISIT, from, to, visit, visit.getCareSiteId());
+        return new Period(from, to);
     }
 
-    // 저장한 리포트 다시 보기 (C-24에서 누름). 저장한 기간·병원 그대로, 숫자는 지금 기록으로 다시 계산
-    // 남의 것·없는 것, 그리고 진료용인데 그 진료 일정을 지웠으면 404 (일정을 지우면 그 리포트도 안 보이게)
-    @Transactional(readOnly = true)
-    public VisitReportResponse savedReport(Long userId, Long reportId) {
-        SavedReport saved = savedReportRepository.findByIdAndUserId(reportId, userId)
-                .orElseThrow(() -> new CustomException(VisitErrorCode.REPORT_NOT_FOUND));
-        Visit visit = null;
-        if (saved.getKind() == ReportKind.VISIT) {
-            visit = visitRepository.findByIdAndUserIdAndDeletedAtIsNull(saved.getVisitId(), userId)
-                    .orElseThrow(() -> new CustomException(VisitErrorCode.REPORT_NOT_FOUND));
-        }
-        return build(userId, saved.getKind(), saved.getFromDate(), saved.getToDate(), visit, saved.getCareSiteId());
-    }
+    // ---------- 목록 ----------
 
     // 지난 리포트 목록 (C-24). 최근 저장 순, careSiteId를 주면 그 병원 것만
-    // 카드 숫자(측정·목표 안 비율)는 조회할 때 다시 계산. 리포트마다 따로 읽지 않게
-    // 이 페이지 리포트 기간을 다 덮는 기록·진료 일정·병원을 한 번씩만 읽고 나눠 셈
+    // 카드 숫자(측정·목표 안 비율)는 리포트마다 DB에서 개수만 셈 (기록을 메모리에 올리지 않음)
+    // 진료용 기간은 내 진료 시각 전부를 한 번 읽어 리포트마다 계산 (진료 리포트 조회와 같은 규칙)
     @Transactional(readOnly = true)
     public VisitReportPageResponse list(Long userId, Long careSiteId, int page, int size) {
         Slice<SavedReport> slice = savedReportRepository.findPage(userId, careSiteId, PageRequest.of(page, size));
@@ -160,45 +191,73 @@ public class VisitReportService {
             return new VisitReportPageResponse(List.of(), slice.getNumber(), slice.getSize(), slice.hasNext());
         }
 
-        LocalDate minFrom = reports.stream().map(SavedReport::getFromDate).min(Comparator.naturalOrder()).orElseThrow();
-        LocalDate maxTo = reports.stream().map(SavedReport::getToDate).max(Comparator.naturalOrder()).orElseThrow();
-        List<Reading> readings = readingRepository.findAllInRange(userId,
-                KoreanTime.startOfDay(minFrom), KoreanTime.endOfDay(maxTo));
-
         List<Long> visitIds = reports.stream().map(SavedReport::getVisitId).filter(Objects::nonNull).distinct().toList();
         Map<Long, Visit> visitById = visitRepository.findAllById(visitIds).stream()
                 .collect(Collectors.toMap(Visit::getId, Function.identity()));
-        List<Long> careSiteIds = reports.stream().map(SavedReport::getCareSiteId).filter(Objects::nonNull).distinct().toList();
-        Map<Long, String> careSiteNameById = careSiteRepository.findAllById(careSiteIds).stream()
-                .filter(c -> c.getDeletedAt() == null)   // 지운 병원은 이름을 안 보여 줌 (리포트 상세와 같게)
-                .collect(Collectors.toMap(CareSite::getId, CareSite::getName));
+        List<Instant> allVisitAts = visitIds.isEmpty() ? List.of() : visitRepository.findAllVisitAts(userId);
+        Instant firstMeasuredAt = visitIds.isEmpty() ? null : readingRepository.findFirstMeasuredAt(userId);
 
-        List<VisitReportPageResponse.Item> items = reports.stream()
-                .map(r -> {
-                    Visit visit = r.getVisitId() == null ? null : visitById.get(r.getVisitId());
-                    return new VisitReportPageResponse.Item(
-                            r.getId(), r.getKind(), r.getFromDate(), r.getToDate(), r.getVisitId(),
-                            r.getCareSiteId(), r.getCareSiteId() == null ? null : careSiteNameById.get(r.getCareSiteId()),
-                            visit == null || visit.getVisitAt() == null ? null : KoreanTime.dateOf(visit.getVisitAt()),
-                            listSummary(readings, r.getFromDate(), r.getToDate()),
-                            r.getCreatedAt());
-                })
-                .toList();
+        Map<Long, String> careSiteNameById = careSiteNames(reports.stream()
+                .map(r -> careSiteIdOf(r, visitById))
+                .filter(Objects::nonNull).distinct().toList());
+
+        List<VisitReportPageResponse.Item> items = new ArrayList<>();
+        for (SavedReport r : reports) {
+            Visit visit = r.getVisitId() == null ? null : visitById.get(r.getVisitId());
+            Period period = null;
+            LocalDate visitDate = null;
+            if (r.getKind() == ReportKind.CUSTOM) {
+                period = new Period(r.getFromDate(), r.getToDate());
+            } else if (visit != null && visit.getVisitAt() != null) {
+                visitDate = KoreanTime.dateOf(visit.getVisitAt());
+                Instant before = KoreanTime.startOfDay(visitDate);
+                Instant lastVisitAt = allVisitAts.stream().filter(at -> at.isBefore(before))
+                        .max(Comparator.naturalOrder()).orElse(null);
+                period = visitPeriod(visitDate, lastVisitAt, firstMeasuredAt);
+            }   // 진료 날짜를 미정으로 바꿨으면 기간·숫자 없이 (상세는 VISIT_40003)
+
+            Long itemCareSiteId = careSiteIdOf(r, visitById);
+            items.add(new VisitReportPageResponse.Item(
+                    r.getId(), r.getKind(),
+                    period == null ? null : period.from(),
+                    period == null ? null : period.to(),
+                    r.getVisitId(),
+                    itemCareSiteId,
+                    itemCareSiteId == null ? null : careSiteNameById.get(itemCareSiteId),
+                    visitDate,
+                    period == null ? null : listSummary(userId, period),
+                    r.getCreatedAt()));
+        }
         return new VisitReportPageResponse(items, slice.getNumber(), slice.getSize(), slice.hasNext());
     }
 
-    // 목록 카드 숫자: 기간 안 기록만 골라 측정 수·목표 밖·목표 안 비율 (리포트 상세 summary와 같은 계산)
-    private VisitReportPageResponse.Summary listSummary(List<Reading> readings, LocalDate from, LocalDate to) {
-        List<Reading> inRange = readings.stream()
-                .filter(r -> {
-                    LocalDate date = KoreanTime.dateOf(r.getMeasuredAt());
-                    return !date.isBefore(from) && !date.isAfter(to);
-                })
-                .toList();
-        List<Boolean> judged = inRange.stream().map(ReadingEvaluator::aboveTarget).filter(Objects::nonNull).toList();
-        int outOfTarget = (int) judged.stream().filter(Boolean::booleanValue).count();
-        return new VisitReportPageResponse.Summary(inRange.size(), inTargetRate(judged.size(), outOfTarget),
-                outOfTarget, !judged.isEmpty());
+    // 리포트의 병원: 진료용은 지금 진료 일정의 병원, 기간 직접은 저장한 병원
+    private static Long careSiteIdOf(SavedReport r, Map<Long, Visit> visitById) {
+        if (r.getKind() == ReportKind.CUSTOM) {
+            return r.getCareSiteId();
+        }
+        Visit visit = visitById.get(r.getVisitId());
+        return visit == null ? null : visit.getCareSiteId();
+    }
+
+    // 병원 이름 (지운 병원은 빼서 이름을 안 보여 줌, 리포트 상세와 같게)
+    private Map<Long, String> careSiteNames(List<Long> careSiteIds) {
+        if (careSiteIds.isEmpty()) {
+            return Map.of();
+        }
+        return careSiteRepository.findAllById(careSiteIds).stream()
+                .filter(c -> c.getDeletedAt() == null)
+                .collect(Collectors.toMap(CareSite::getId, CareSite::getName));
+    }
+
+    // 목록 카드 숫자: 측정 수·목표 밖·목표 안 비율 (리포트 상세 summary와 같은 규칙, DB에서 셈)
+    private VisitReportPageResponse.Summary listSummary(Long userId, Period period) {
+        ReadingCounts counts = readingRepository.countInRange(userId,
+                KoreanTime.startOfDay(period.from()), KoreanTime.endOfDay(period.to()),
+                ReadingType.FASTING, ReadingType.POST_MEAL);
+        int outOfTarget = (int) counts.outOfTarget();
+        return new VisitReportPageResponse.Summary((int) counts.measured(),
+                inTargetRate(counts.judged(), outOfTarget), outOfTarget, counts.judged() > 0);
     }
 
     // 목표 안 비율 (소수 둘째 자리 반올림). 목표와 비교한 기록이 없으면 null
@@ -206,28 +265,29 @@ public class VisitReportService {
         return judged == 0 ? null : Math.round((judged - outOfTarget) * 100.0 / judged) / 100.0;
     }
 
-    // 리포트 한 장 계산 (진료용·저장한 리포트가 같이 씀). visit은 진료용일 때만
-    private VisitReportResponse build(Long userId, ReportKind kind, LocalDate from, LocalDate to,
-                                      Visit visit, Long careSiteId) {
+    // ---------- 리포트 한 장 계산 ----------
+
+    // 진료용·기간 직접이 같이 씀. visit은 진료용일 때만
+    private VisitReportResponse build(Long userId, ReportKind kind, Period period, Visit visit, Long careSiteId) {
+        LocalDate from = period.from();
+        LocalDate to = period.to();
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
         List<Reading> readings = readingRepository.findAllInRange(userId,
                 KoreanTime.startOfDay(from), KoreanTime.endOfDay(to));
 
-        List<Boolean> above = readings.stream().map(ReadingEvaluator::aboveTarget).toList();
-        List<VisitReportResponse.Row> rows = new ArrayList<>();
-        for (int i = 0; i < readings.size(); i++) {
-            rows.add(VisitReportResponse.Row.of(readings.get(i), above.get(i)));
-        }
+        List<VisitReportResponse.Row> rows = readings.stream()
+                .map(r -> VisitReportResponse.Row.of(r, ReadingEvaluator.aboveTarget(r)))
+                .toList();
 
         return new VisitReportResponse(
                 kind, from, to,
                 visit == null ? null : visit.getId(),
-                visit == null || visit.getVisitAt() == null ? null : KoreanTime.dateOf(visit.getVisitAt()),   // 저장 뒤 날짜를 미정으로 바꿨을 수 있음
+                visit == null ? null : KoreanTime.dateOf(visit.getVisitAt()),
                 careSiteOf(userId, careSiteId),
                 user.getDisplayName(),
                 pregnancyWeeks(userId, from, to),
-                criteriaIn(userId, from, to),
+                criteriaIn(userId, from, to, readings),
                 summary(userId, rows, from, to),
                 slotCounts(rows),
                 rows,
@@ -239,14 +299,13 @@ public class VisitReportService {
         // 목표가 있었던 기록만 안/밖을 셈 (혈당 통계와 같은 방식)
         long judged = rows.stream().filter(r -> r.aboveTarget() != null).count();
         int outOfTarget = (int) rows.stream().filter(r -> Boolean.TRUE.equals(r.aboveTarget())).count();
-        Double inTargetRate = inTargetRate(judged, outOfTarget);
         return new VisitReportResponse.Summary(
                 rows.size(),
                 missed(userId, from, to),
                 (int) rows.stream().filter(VisitReportResponse.Row::enteredLate).count(),
                 (int) rows.stream().filter(r -> r.value() < LOW_VALUE).count(),
                 outOfTarget,
-                inTargetRate,
+                inTargetRate(judged, outOfTarget),
                 judged > 0);
     }
 
@@ -277,40 +336,55 @@ public class VisitReportService {
                 .toList();
     }
 
-    // 기간 안 날마다 적용된 병원 기준 (오래된 순). 날마다 적용 기준 = 적용일 ≤ 그날인 것 중 적용일 가장 늦고 id 가장 큰 것
-    // → 시작일에 적용 중이던 기준 + 기간 안에서 새로 적용되기 시작한 기준(같은 날 여러 번 고쳤으면 마지막 것)
-    private List<VisitReportResponse.Criteria> criteriaIn(Long userId, LocalDate from, LocalDate to) {
-        List<CriteriaVersion> newestFirst = criteriaVersionRepository.findAllByUserIdOrderByEffectiveFromDescIdDesc(userId);
-        List<CriteriaVersion> picked = new ArrayList<>();
+    // 기간 안 병원 기준 (적용일 오래된 순 → id 순)
+    // 1) 날마다 적용된 기준: 시작일에 적용 중이던 것 + 기간 안에서 새로 적용되기 시작한 것 (같은 날 여러 번 고쳤으면 마지막 것)
+    // 2) 기간 안 기록들이 실제로 가리키는 기준 (목표 밖은 기록마다 이 기준으로 판정하므로, 같은 날 고치기 전에 잰 기록의 기준도 보이게)
+    private List<VisitReportResponse.Criteria> criteriaIn(Long userId, LocalDate from, LocalDate to,
+                                                          List<Reading> readings) {
+        Map<Long, CriteriaVersion> picked = new LinkedHashMap<>();
         LocalDate lastDate = null;
-        for (CriteriaVersion c : newestFirst) {
+        for (CriteriaVersion c : criteriaVersionRepository.findAllByUserIdOrderByEffectiveFromDescIdDesc(userId)) {
             LocalDate date = c.getEffectiveFrom();
             if (date.isAfter(to) || date.equals(lastDate)) {
                 continue;   // 기간 뒤에 적용됐거나, 같은 날 더 나중 것을 이미 고름
             }
-            picked.add(c);
+            picked.put(c.getId(), c);
             lastDate = date;
             if (!date.isAfter(from)) {
                 break;      // 시작일에 적용 중이던 기준까지 고름
             }
         }
-        return picked.reversed().stream().map(VisitReportResponse.Criteria::from).toList();
+        readings.forEach(r -> picked.putIfAbsent(r.getCriteriaVersion().getId(), r.getCriteriaVersion()));
+        return picked.values().stream()
+                .sorted(Comparator.comparing(CriteriaVersion::getEffectiveFrom).thenComparing(CriteriaVersion::getId))
+                .map(VisitReportResponse.Criteria::from)
+                .toList();
     }
 
-    // 임신 주수 (예정일 기준 280일에서 거꾸로 셈, 내 정보 API와 같은 방식). 진행 중인 임신·예정일이 없으면 null
+    // 임신 주수 (예정일 기준 280일에서 거꾸로 셈, 내 정보 API와 같은 방식)
+    // 지금 진행 중인 임신이 아니라 리포트 기간과 겹치는 임신으로 셈 (출산 뒤 다음 임신 중에 옛 리포트를 열어도 그때 주수)
+    // 겹치는 임신이 여럿이면 최근 것. 예정일이 없거나 겹치는 임신이 없으면 null
     private VisitReportResponse.PregnancyWeeks pregnancyWeeks(Long userId, LocalDate from, LocalDate to) {
-        LocalDate dueDate = pregnancyRepository.findByUserIdAndStateNot(userId, PregnancyState.ENDED)
-                .map(Pregnancy::getDueDate)
+        return pregnancyRepository.findAllByUserIdOrderByIdDesc(userId).stream()
+                .filter(p -> p.getDueDate() != null && overlaps(p, from, to))
+                .findFirst()
+                .map(p -> new VisitReportResponse.PregnancyWeeks(weekOn(p, from), weekOn(p, to)))
                 .orElse(null);
-        if (dueDate == null) {
+    }
+
+    // 임신 기간 = 예정일 280일 전 ~ 출산일 (아직 안 낳았으면 끝 없음)
+    private static boolean overlaps(Pregnancy p, LocalDate from, LocalDate to) {
+        LocalDate start = p.getDueDate().minusDays(PREGNANCY_DAYS);
+        return !start.isAfter(to) && (p.getDeliveryDate() == null || !p.getDeliveryDate().isBefore(from));
+    }
+
+    // 그날 주수. 임신 시작 전이거나 출산 뒤면 null
+    private static Integer weekOn(Pregnancy p, LocalDate date) {
+        LocalDate start = p.getDueDate().minusDays(PREGNANCY_DAYS);
+        if (date.isBefore(start) || (p.getDeliveryDate() != null && date.isAfter(p.getDeliveryDate()))) {
             return null;
         }
-        return new VisitReportResponse.PregnancyWeeks(weekOn(dueDate, from), weekOn(dueDate, to));
-    }
-
-    private static Integer weekOn(LocalDate dueDate, LocalDate date) {
-        long elapsed = PREGNANCY_DAYS - ChronoUnit.DAYS.between(date, dueDate);
-        return elapsed < 0 ? null : (int) (elapsed / 7);   // 예정일이 280일보다 더 뒤면 잘못 적은 날짜라 안 보여 줌
+        return (int) (ChronoUnit.DAYS.between(start, date) / 7);
     }
 
     // 내 병원(삭제 안 된 것)이면 이름까지. 지운 병원이면 null
@@ -323,8 +397,13 @@ public class VisitReportService {
                 .orElse(null);
     }
 
-    // 기간: 2000~2100년, 시작 ≤ 끝, 최대 MAX_DAYS일 (틀리면 400 GLOBAL_40001)
+    // ---------- 입력 검사 ----------
+
+    // 기간 직접 기간: 둘 다 필수, 2000~2100년, 시작 ≤ 끝, 최대 MAX_DAYS일 (틀리면 400 GLOBAL_40001)
     private void checkPeriod(LocalDate from, LocalDate to) {
+        if (from == null || to == null) {
+            throw new CustomException(GlobalErrorCode.INVALID_INPUT, "기간 직접 리포트는 from과 to를 같이 보내 주세요.");
+        }
         if (from.getYear() < QueryParams.MIN_YEAR || to.getYear() > QueryParams.MAX_YEAR) {
             throw new CustomException(GlobalErrorCode.INVALID_INPUT,
                     "기간은 " + QueryParams.MIN_YEAR + "~" + QueryParams.MAX_YEAR + "년 사이로 보내 주세요.");
