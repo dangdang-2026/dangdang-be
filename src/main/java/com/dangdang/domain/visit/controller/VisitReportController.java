@@ -1,6 +1,7 @@
 package com.dangdang.domain.visit.controller;
 
 import com.dangdang.domain.visit.dto.request.VisitReportCreateRequest;
+import com.dangdang.domain.visit.dto.response.VisitReportPageResponse;
 import com.dangdang.domain.visit.dto.response.VisitReportResponse;
 import com.dangdang.domain.visit.dto.response.VisitReportSaveResponse;
 import com.dangdang.domain.visit.service.VisitReportService;
@@ -9,6 +10,8 @@ import com.dangdang.global.security.AuthPrincipal;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -21,6 +24,31 @@ import org.springframework.web.bind.annotation.*;
 public class VisitReportController {
 
     private final VisitReportService visitReportService;
+
+    @Operation(
+            summary = "[ 사용자 | 토큰 O | 지난 리포트 목록 ]",
+            description =
+                    """
+                    **Parameters** careSiteId(선택, 그 병원 리포트만), page(기본 0, 0~10000), size(기본 20, 1~100)
+                    **Returns** items[]{id, kind, from, to, visitId, careSiteId, careSiteName, visitDate,
+                    summary{measured, inTargetRate, outOfTarget, compared}, createdAt}·page·size·hasNext.
+                    최근 저장 순. summary는 조회할 때 다시 계산 (기준이 없던 기간이면 compared=false, inTargetRate=null).
+                    지운 병원이면 careSiteName=null, 진료용인데 그 진료 일정을 지웠으면 목록에서 빠짐.
+                    없으면 items=[]. page·size가 범위 밖이면 GLOBAL_40001
+                    """)
+    @GetMapping("/api/visit-reports")
+    public ResponseEntity<BaseResponse<VisitReportPageResponse>> list(
+            @AuthenticationPrincipal AuthPrincipal principal,
+            @RequestParam(required = false) Long careSiteId,
+            @RequestParam(defaultValue = "0")
+            @Min(value = 0, message = "page는 0~10000이에요.")
+            @Max(value = 10000, message = "page는 0~10000이에요.") int page,
+            @RequestParam(defaultValue = "20")
+            @Min(value = 1, message = "size는 1~100이에요.")
+            @Max(value = 100, message = "size는 1~100이에요.") int size) {
+        return ResponseEntity.ok(BaseResponse.success(200, "지난 리포트 목록 조회에 성공했습니다.",
+                visitReportService.list(principal.userId(), careSiteId, page, size)));
+    }
 
     @Operation(
             summary = "[ 사용자 | 토큰 O | 진료 리포트 조회 ]",

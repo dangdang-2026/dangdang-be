@@ -430,7 +430,110 @@ class VisitReportFlowTest {
                 .andExpect(jsonPath("$.errorCode").value("VISIT_40404"));
     }
 
+    // ---------- 지난 리포트 목록 ----------
+
+    @Test
+    void 목록은_최근_저장_순이고_카드_숫자를_다시_계산한다() throws Exception {
+        criteria(access, "{\"fastingTarget\":95,\"effectiveFrom\":\"2026-09-01\"}");
+        reading(access, 90, "FASTING", "FASTING", "2026-10-02T08:00:00+09:00");    // 안
+        reading(access, 100, "FASTING", "FASTING", "2026-10-03T08:00:00+09:00");   // 밖
+        reading(access, 91, "FASTING", "FASTING", "2026-10-10T08:00:00+09:00");    // 안
+        long secondCareSite = createCareSite(access);
+        long visitAtSecond = createVisitAt(access, "2026-10-14T10:00:00+09:00", secondCareSite);
+
+        long custom = saveAndGetId(access, custom("2026-10-01", "2026-10-05", careSiteId), 201);
+        long visitReport = saveAndGetId(access, visit("2026-10-01", "2026-10-13", visitAtSecond), 201);
+        long beforeCriteria = saveAndGetId(access, custom("2026-08-01", "2026-08-05", null), 201);
+
+        list(access, "")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items", hasSize(3)))
+                .andExpect(jsonPath("$.data.hasNext").value(false))
+                .andExpect(jsonPath("$.data.items[0].id").value(beforeCriteria))
+                .andExpect(jsonPath("$.data.items[0].kind").value("CUSTOM"))
+                .andExpect(jsonPath("$.data.items[0].careSiteId").value(nullValue()))
+                .andExpect(jsonPath("$.data.items[0].summary.measured").value(0))
+                .andExpect(jsonPath("$.data.items[0].summary.inTargetRate").value(nullValue()))
+                .andExpect(jsonPath("$.data.items[0].summary.compared").value(false))
+                .andExpect(jsonPath("$.data.items[1].id").value(visitReport))
+                .andExpect(jsonPath("$.data.items[1].kind").value("VISIT"))
+                .andExpect(jsonPath("$.data.items[1].visitId").value(visitAtSecond))
+                .andExpect(jsonPath("$.data.items[1].visitDate").value("2026-10-14"))
+                .andExpect(jsonPath("$.data.items[1].careSiteId").value(secondCareSite))
+                .andExpect(jsonPath("$.data.items[1].summary.measured").value(3))
+                .andExpect(jsonPath("$.data.items[1].summary.outOfTarget").value(1))
+                .andExpect(jsonPath("$.data.items[1].summary.inTargetRate").value(0.67))
+                .andExpect(jsonPath("$.data.items[2].id").value(custom))
+                .andExpect(jsonPath("$.data.items[2].from").value("2026-10-01"))
+                .andExpect(jsonPath("$.data.items[2].to").value("2026-10-05"))
+                .andExpect(jsonPath("$.data.items[2].visitId").value(nullValue()))
+                .andExpect(jsonPath("$.data.items[2].visitDate").value(nullValue()))
+                .andExpect(jsonPath("$.data.items[2].careSiteName").value("당당산부인과"))
+                .andExpect(jsonPath("$.data.items[2].summary.measured").value(2))
+                .andExpect(jsonPath("$.data.items[2].summary.inTargetRate").value(0.5))
+                .andExpect(jsonPath("$.data.items[2].summary.compared").value(true))
+                .andExpect(jsonPath("$.data.items[2].createdAt").exists());
+
+        // 병원으로 거르기
+        list(access, "?careSiteId=" + careSiteId)
+                .andExpect(jsonPath("$.data.items", hasSize(1)))
+                .andExpect(jsonPath("$.data.items[0].id").value(custom));
+        list(access, "?careSiteId=" + secondCareSite)
+                .andExpect(jsonPath("$.data.items", hasSize(1)))
+                .andExpect(jsonPath("$.data.items[0].id").value(visitReport));
+    }
+
+    @Test
+    void 목록은_페이지로_나뉜다() throws Exception {
+        long first = saveAndGetId(access, custom("2026-10-01", "2026-10-01", null), 201);
+        long second = saveAndGetId(access, custom("2026-10-02", "2026-10-02", null), 201);
+        long third = saveAndGetId(access, custom("2026-10-03", "2026-10-03", null), 201);
+        list(access, "?size=2&page=0")   // 최근 저장분 먼저
+                .andExpect(jsonPath("$.data.items", hasSize(2)))
+                .andExpect(jsonPath("$.data.items[0].id").value(third))
+                .andExpect(jsonPath("$.data.items[1].id").value(second))
+                .andExpect(jsonPath("$.data.page").value(0))
+                .andExpect(jsonPath("$.data.size").value(2))
+                .andExpect(jsonPath("$.data.hasNext").value(true));
+        list(access, "?size=2&page=1")
+                .andExpect(jsonPath("$.data.items", hasSize(1)))
+                .andExpect(jsonPath("$.data.items[0].id").value(first))
+                .andExpect(jsonPath("$.data.hasNext").value(false));
+    }
+
+    @Test
+    void 남의_리포트와_일정을_지운_진료용_리포트는_목록에_없고_지운_병원은_이름만_빠진다() throws Exception {
+        saveAndGetId(other, custom("2026-10-01", "2026-10-14", null), 201);
+        long custom = saveAndGetId(access, custom("2026-10-01", "2026-10-14", careSiteId), 201);
+        saveAndGetId(access, visit("2026-10-01", "2026-10-13", visitId), 201);
+
+        mvc.perform(delete("/api/visits/" + visitId).cookie(access)).andExpect(status().isOk());
+        mvc.perform(delete("/api/care-sites/" + careSiteId).cookie(access)).andExpect(status().isOk());
+
+        list(access, "")
+                .andExpect(jsonPath("$.data.items", hasSize(1)))
+                .andExpect(jsonPath("$.data.items[0].id").value(custom))
+                .andExpect(jsonPath("$.data.items[0].careSiteId").value(careSiteId))
+                .andExpect(jsonPath("$.data.items[0].careSiteName").value(nullValue()));
+    }
+
+    @Test
+    void 목록이_비었으면_빈_배열이고_page_size가_범위_밖이면_400() throws Exception {
+        list(access, "")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items", hasSize(0)))
+                .andExpect(jsonPath("$.data.hasNext").value(false));
+        list(access, "?page=-1").andExpect(status().isBadRequest()).andExpect(jsonPath("$.errorCode").value("GLOBAL_40001"));
+        list(access, "?size=0").andExpect(status().isBadRequest());
+        list(access, "?size=101").andExpect(status().isBadRequest());
+        list(access, "?careSiteId=abc").andExpect(status().isBadRequest());
+    }
+
     // ---------- 도우미 ----------
+
+    private ResultActions list(Cookie who, String query) throws Exception {
+        return mvc.perform(get("/api/visit-reports" + query).cookie(who));
+    }
 
     private ResultActions savedReport(Cookie who, long reportId) throws Exception {
         return mvc.perform(get("/api/visit-reports/" + reportId).cookie(who));

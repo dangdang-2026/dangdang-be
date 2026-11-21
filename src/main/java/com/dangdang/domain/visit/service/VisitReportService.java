@@ -1,5 +1,6 @@
 package com.dangdang.domain.visit.service;
 
+import com.dangdang.domain.caresite.entity.CareSite;
 import com.dangdang.domain.caresite.exception.CareSiteErrorCode;
 import com.dangdang.domain.caresite.repository.CareSiteRepository;
 import com.dangdang.domain.criteria.entity.CriteriaVersion;
@@ -17,6 +18,7 @@ import com.dangdang.domain.user.entity.User;
 import com.dangdang.domain.user.exception.UserErrorCode;
 import com.dangdang.domain.user.repository.UserRepository;
 import com.dangdang.domain.visit.dto.request.VisitReportCreateRequest;
+import com.dangdang.domain.visit.dto.response.VisitReportPageResponse;
 import com.dangdang.domain.visit.dto.response.VisitReportResponse;
 import com.dangdang.domain.visit.dto.response.VisitReportSaveResponse;
 import com.dangdang.domain.visit.entity.SavedReport;
@@ -32,6 +34,8 @@ import com.dangdang.global.exception.CustomException;
 import com.dangdang.global.exception.GlobalErrorCode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Slice;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,9 +44,13 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 // 진료 리포트 (C-06 리포트, C-07 저장·공유, C-24 지난 리포트, C-25 기간 골라 만들기)
 // 리포트 숫자·표는 저장하지 않고 볼 때마다 다시 계산함. saved_reports엔 기간·병원만 남김
@@ -141,6 +149,63 @@ public class VisitReportService {
         return build(userId, saved.getKind(), saved.getFromDate(), saved.getToDate(), visit, saved.getCareSiteId());
     }
 
+    // 지난 리포트 목록 (C-24). 최근 저장 순, careSiteId를 주면 그 병원 것만
+    // 카드 숫자(측정·목표 안 비율)는 조회할 때 다시 계산. 리포트마다 따로 읽지 않게
+    // 이 페이지 리포트 기간을 다 덮는 기록·진료 일정·병원을 한 번씩만 읽고 나눠 셈
+    @Transactional(readOnly = true)
+    public VisitReportPageResponse list(Long userId, Long careSiteId, int page, int size) {
+        Slice<SavedReport> slice = savedReportRepository.findPage(userId, careSiteId, PageRequest.of(page, size));
+        List<SavedReport> reports = slice.getContent();
+        if (reports.isEmpty()) {
+            return new VisitReportPageResponse(List.of(), slice.getNumber(), slice.getSize(), slice.hasNext());
+        }
+
+        LocalDate minFrom = reports.stream().map(SavedReport::getFromDate).min(Comparator.naturalOrder()).orElseThrow();
+        LocalDate maxTo = reports.stream().map(SavedReport::getToDate).max(Comparator.naturalOrder()).orElseThrow();
+        List<Reading> readings = readingRepository.findAllInRange(userId,
+                KoreanTime.startOfDay(minFrom), KoreanTime.endOfDay(maxTo));
+
+        List<Long> visitIds = reports.stream().map(SavedReport::getVisitId).filter(Objects::nonNull).distinct().toList();
+        Map<Long, Visit> visitById = visitRepository.findAllById(visitIds).stream()
+                .collect(Collectors.toMap(Visit::getId, Function.identity()));
+        List<Long> careSiteIds = reports.stream().map(SavedReport::getCareSiteId).filter(Objects::nonNull).distinct().toList();
+        Map<Long, String> careSiteNameById = careSiteRepository.findAllById(careSiteIds).stream()
+                .filter(c -> c.getDeletedAt() == null)   // 지운 병원은 이름을 안 보여 줌 (리포트 상세와 같게)
+                .collect(Collectors.toMap(CareSite::getId, CareSite::getName));
+
+        List<VisitReportPageResponse.Item> items = reports.stream()
+                .map(r -> {
+                    Visit visit = r.getVisitId() == null ? null : visitById.get(r.getVisitId());
+                    return new VisitReportPageResponse.Item(
+                            r.getId(), r.getKind(), r.getFromDate(), r.getToDate(), r.getVisitId(),
+                            r.getCareSiteId(), r.getCareSiteId() == null ? null : careSiteNameById.get(r.getCareSiteId()),
+                            visit == null || visit.getVisitAt() == null ? null : KoreanTime.dateOf(visit.getVisitAt()),
+                            listSummary(readings, r.getFromDate(), r.getToDate()),
+                            r.getCreatedAt());
+                })
+                .toList();
+        return new VisitReportPageResponse(items, slice.getNumber(), slice.getSize(), slice.hasNext());
+    }
+
+    // 목록 카드 숫자: 기간 안 기록만 골라 측정 수·목표 밖·목표 안 비율 (리포트 상세 summary와 같은 계산)
+    private VisitReportPageResponse.Summary listSummary(List<Reading> readings, LocalDate from, LocalDate to) {
+        List<Reading> inRange = readings.stream()
+                .filter(r -> {
+                    LocalDate date = KoreanTime.dateOf(r.getMeasuredAt());
+                    return !date.isBefore(from) && !date.isAfter(to);
+                })
+                .toList();
+        List<Boolean> judged = inRange.stream().map(ReadingEvaluator::aboveTarget).filter(Objects::nonNull).toList();
+        int outOfTarget = (int) judged.stream().filter(Boolean::booleanValue).count();
+        return new VisitReportPageResponse.Summary(inRange.size(), inTargetRate(judged.size(), outOfTarget),
+                outOfTarget, !judged.isEmpty());
+    }
+
+    // 목표 안 비율 (소수 둘째 자리 반올림). 목표와 비교한 기록이 없으면 null
+    private static Double inTargetRate(long judged, int outOfTarget) {
+        return judged == 0 ? null : Math.round((judged - outOfTarget) * 100.0 / judged) / 100.0;
+    }
+
     // 리포트 한 장 계산 (진료용·저장한 리포트가 같이 씀). visit은 진료용일 때만
     private VisitReportResponse build(Long userId, ReportKind kind, LocalDate from, LocalDate to,
                                       Visit visit, Long careSiteId) {
@@ -174,7 +239,7 @@ public class VisitReportService {
         // 목표가 있었던 기록만 안/밖을 셈 (혈당 통계와 같은 방식)
         long judged = rows.stream().filter(r -> r.aboveTarget() != null).count();
         int outOfTarget = (int) rows.stream().filter(r -> Boolean.TRUE.equals(r.aboveTarget())).count();
-        Double inTargetRate = judged == 0 ? null : Math.round((judged - outOfTarget) * 100.0 / judged) / 100.0;
+        Double inTargetRate = inTargetRate(judged, outOfTarget);
         return new VisitReportResponse.Summary(
                 rows.size(),
                 missed(userId, from, to),
