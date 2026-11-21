@@ -69,7 +69,7 @@ public class VisitController {
             description =
                     """
                     **Parameters** visitId
-                    **Returns** 일정 + questions[] + notes[]. 없거나 삭제됐거나 남의 일정이면 VISIT_40401
+                    **Returns** 일정 + questions[] + notes[](메모마다 aiExtract 포함). 없거나 삭제됐거나 남의 일정이면 VISIT_40401
                     """)
     @GetMapping("/{visitId}")
     public ResponseEntity<BaseResponse<VisitDetailResponse>> get(

@@ -43,7 +43,8 @@ public class VisitNoteService {
     @Transactional
     public VisitNoteResponse update(Long userId, Long visitId, Long noteId, VisitNoteRequest req) {
         visitService.findMine(userId, visitId);
-        VisitNote note = visitNoteRepository.findByIdAndVisitIdAndDeletedAtIsNull(noteId, visitId)
+        // 줄을 잠그고 읽음: AI 정리 저장과 겹치면 하나가 끝난 뒤에 읽어서, 정리 결과를 옛 값으로 덮어쓰지 않게
+        VisitNote note = visitNoteRepository.findMineForUpdate(noteId, visitId)
                 .orElseThrow(() -> new CustomException(VisitErrorCode.NOTE_NOT_FOUND));
         note.changeContent(req.content());
         // 변경 감지로 트랜잭션 끝날 때 반영되지만, 응답에 새 updatedAt을 담으려고 먼저 DB에 씀
