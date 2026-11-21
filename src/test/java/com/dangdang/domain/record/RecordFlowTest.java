@@ -118,8 +118,37 @@ class RecordFlowTest {
                 .andExpect(jsonPath("$.data.criteria").value((Object) null))
                 .andExpect(jsonPath("$.data.meals", hasSize(0)))
                 .andExpect(jsonPath("$.data.readings", hasSize(0)))
+                .andExpect(jsonPath("$.data.insulinLogs", hasSize(0)))
                 .andExpect(jsonPath("$.data.nextReminder").value((Object) null))
                 .andExpect(jsonPath("$.data.pushReady").value(false));
+    }
+
+    @Test
+    void 오늘_인슐린_기록만_맞은_시각_순으로_온다() throws Exception {
+        // 지금 시각과 상관없이 늘 지난 시각이 되게 오늘 0시 1분·2분과 어젯밤으로 만듦 (새벽에 돌려도 같음)
+        long first = createInsulin(access, "MEAL", "4", kst(today(), 0, 1));
+        long second = createInsulin(access, "BEDTIME", "10.5", kst(today(), 0, 2));
+        createInsulin(access, "MEAL", "6", kst(today().minusDays(1), 23, 59));     // 어젯밤 → 안 나옴
+        long deleted = createInsulin(access, "MEAL", "3", kst(today(), 0, 1));
+        jdbc.update("UPDATE insulin_logs SET deleted_at = now() WHERE id = ?", deleted);   // 지운 기록 → 안 나옴
+        createInsulin(other, "MEAL", "8", kst(today(), 0, 1));                      // 남의 기록 → 안 나옴
+
+        mvc.perform(get("/api/today").cookie(access))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.insulinLogs", hasSize(2)))
+                .andExpect(jsonPath("$.data.insulinLogs[0].insulinLogId").value(first))
+                .andExpect(jsonPath("$.data.insulinLogs[0].insulinType").value("MEAL"))
+                .andExpect(jsonPath("$.data.insulinLogs[0].units").value(4.0))
+                .andExpect(jsonPath("$.data.insulinLogs[1].insulinLogId").value(second))
+                .andExpect(jsonPath("$.data.insulinLogs[1].units").value(10.5));
+    }
+
+    private long createInsulin(Cookie who, String type, String units, Instant takenAt) throws Exception {
+        String body = mvc.perform(post("/api/insulin-logs").cookie(who).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"insulinType\":\"" + type + "\",\"units\":" + units + ",\"takenAt\":\"" + takenAt + "\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return ((Number) JsonPath.read(body, "$.data.insulinLogId")).longValue();
     }
 
     @Test

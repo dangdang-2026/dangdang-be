@@ -4,6 +4,8 @@ import com.dangdang.domain.criteria.dto.response.CriteriaVersionResponse;
 import com.dangdang.domain.criteria.entity.CriteriaVersion;
 import com.dangdang.domain.criteria.repository.CriteriaVersionRepository;
 import com.dangdang.domain.criteria.service.CriteriaService;
+import com.dangdang.domain.insulin.dto.response.InsulinLogResponse;
+import com.dangdang.domain.insulin.repository.InsulinLogRepository;
 import com.dangdang.domain.meal.dto.response.MealItemSummaryResponse;
 import com.dangdang.domain.meal.dto.response.MealResponse;
 import com.dangdang.domain.meal.entity.Meal;
@@ -42,6 +44,7 @@ public class TodayService {
     private final ReadingRepository readingRepository;
     private final MealRepository mealRepository;
     private final MealItemService mealItemService;
+    private final InsulinLogRepository insulinLogRepository;
     private final ReminderRepository reminderRepository;
     private final CriteriaVersionRepository criteriaVersionRepository;
     private final CriteriaService criteriaService;
@@ -62,6 +65,7 @@ public class TodayService {
                 currentCriteria(userId),
                 toMealResponses(meals),
                 toReadingResponses(userId, readings, meals),
+                insulinLogRepository.findAllInRange(userId, start, end).stream().map(InsulinLogResponse::from).toList(),
                 reminderQueryService.findNext(userId),
                 pushSubscriptionService.hasActive(userId));
     }
