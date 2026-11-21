@@ -70,6 +70,26 @@ public interface ReadingRepository extends JpaRepository<Reading, Long> {
     // 시간이 가깝다고 붙이지 않고 meal_id로 연결된 것만 씀
     List<Reading> findAllByUserIdAndMealIdInAndDeletedAtIsNullOrderByMeasuredAtAscIdAsc(Long userId, Collection<Long> mealIds);
 
+    // 기간 안 기록 개수·목표와 비교한 수·목표 밖 수 (from 이상 to 미만). 기록을 다 읽지 않고 DB에서 셈
+    // 목표 판정은 ReadingEvaluator.aboveTarget과 같음 (기록마다 잴 때 적용 중이던 기준, 목표값 이상이면 밖)
+    @Query("""
+            select new com.dangdang.domain.reading.repository.ReadingCounts(
+                count(r),
+                coalesce(sum(case when (r.readingType = :fasting and c.fastingTarget is not null)
+                                    or (r.readingType = :postMeal and c.postMealTarget is not null)
+                                  then 1 else 0 end), 0),
+                coalesce(sum(case when (r.readingType = :fasting and c.fastingTarget is not null and r.value >= c.fastingTarget)
+                                    or (r.readingType = :postMeal and c.postMealTarget is not null and r.value >= c.postMealTarget)
+                                  then 1 else 0 end), 0))
+            from Reading r
+            join r.criteriaVersion c
+            where r.user.id = :userId
+              and r.deletedAt is null
+              and r.measuredAt >= :from
+              and r.measuredAt < :to
+            """)
+    ReadingCounts countInRange(Long userId, Instant from, Instant to, ReadingType fasting, ReadingType postMeal);
+
     // 가장 처음 잰 시각 (기록이 하나도 없으면 null)
     @Query("""
             select min(r.measuredAt) from Reading r

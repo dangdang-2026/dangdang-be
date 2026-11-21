@@ -18,6 +18,9 @@ public interface VisitQuestionRepository extends JpaRepository<VisitQuestion, Lo
     // 이 일정의 살아 있는 질문 전부: 정렬 순서 → 먼저 만든 순
     List<VisitQuestion> findAllByVisitIdAndDeletedAtIsNullOrderBySortOrderAscIdAsc(Long visitId);
 
+    // 이 일정의 살아 있는 질문 수 (리포트 「물어볼 것 N개」)
+    long countByVisitIdAndDeletedAtIsNull(Long visitId);
+
     // 이 일정에 붙은 이 질문 (지운 것도 찾음 → 다시 지우기 요청에 처음 지운 시각으로 답하려고)
     // 다른 일정의 질문 id로는 못 찾음
     // 찾으면서 이 질문 줄을 잠금 (트랜잭션이 끝날 때까지). 같은 질문 삭제가 동시에 두 번 와도
