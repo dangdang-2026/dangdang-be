@@ -16,6 +16,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -277,7 +278,49 @@ class InsulinLogFlowTest {
                 .isEqualByComparingTo("4");
     }
 
+    // ---------- 삭제 ----------
+
+    @Test
+    void 지우면_200이고_목록에서_빠지고_줄은_남는다() throws Exception {
+        long id = createAndGetId(access, json("MEAL", "4", OCT_20_9AM));
+        long kept = createAndGetId(access, json("BEDTIME", "10", "2026-10-20T22:00:00+09:00"));
+
+        delete(access, id)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data").doesNotExist());
+
+        list(access, "?from=2026-10-20&to=2026-10-20")
+                .andExpect(jsonPath("$.data.items", hasSize(1)))
+                .andExpect(jsonPath("$.data.items[0].insulinLogId").value(kept));
+        assertThat(jdbc.queryForObject("SELECT deleted_at FROM insulin_logs WHERE id = ?", Instant.class, id)).isNotNull();
+    }
+
+    @Test
+    void 지운_기록은_다시_지우거나_고칠_수_없다() throws Exception {
+        long id = createAndGetId(access, json("MEAL", "4", OCT_20_9AM));
+        delete(access, id).andExpect(status().isOk());
+        delete(access, id)
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("INSULIN_40401"));
+        update(access, id, "{\"units\":5}").andExpect(status().isNotFound());
+    }
+
+    @Test
+    void 남의_기록이나_없는_기록은_지울_수_없다() throws Exception {
+        long others = createAndGetId(other, json("MEAL", "4", OCT_20_9AM));
+        delete(access, others)
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("INSULIN_40401"));
+        delete(access, others + 1000).andExpect(status().isNotFound());
+        assertThat(jdbc.queryForObject("SELECT deleted_at FROM insulin_logs WHERE id = ?", Instant.class, others)).isNull();
+    }
+
     // ---------- 도우미 ----------
+
+    private ResultActions delete(Cookie who, long id) throws Exception {
+        return mvc.perform(MockMvcRequestBuilders.delete("/api/insulin-logs/" + id).cookie(who));
+    }
 
     private ResultActions update(Cookie who, long id, String json) throws Exception {
         return mvc.perform(patch("/api/insulin-logs/" + id).cookie(who).contentType(MediaType.APPLICATION_JSON).content(json));

@@ -85,4 +85,19 @@ public class InsulinLogController {
         return ResponseEntity.ok(BaseResponse.success(200, "인슐린 투여 기록 수정에 성공했습니다.",
                 insulinLogService.update(principal.userId(), insulinLogId, request)));
     }
+
+    @Operation(
+            summary = "[ 사용자 | 토큰 O | 인슐린 투여 기록 삭제 ]",
+            description =
+                    """
+                    **Parameters** insulinLogId
+                    **Returns** 성공 시 data 없음. 이후 목록에서 안 보임 (줄은 남기고 지운 시각만 적음).
+                    없거나 이미 삭제됐거나 남의 기록이면 INSULIN_40401
+                    """)
+    @DeleteMapping("/{insulinLogId}")
+    public ResponseEntity<BaseResponse<Void>> delete(
+            @AuthenticationPrincipal AuthPrincipal principal, @PathVariable Long insulinLogId) {
+        insulinLogService.delete(principal.userId(), insulinLogId);
+        return ResponseEntity.ok(BaseResponse.success(200, "인슐린 투여 기록 삭제에 성공했습니다.", null));
+    }
 }
