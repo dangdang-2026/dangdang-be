@@ -6,7 +6,7 @@
 
 **임신성 당뇨 산모의 식사 · 혈당 · 측정 알림 · 병원 기준을 다루는 당당 API 서버**
 
-[![Swagger](https://img.shields.io/badge/API_문서-Swagger-85EA2D?style=for-the-badge&logo=swagger&logoColor=black)](https://dang-dang.site/swagger-ui.html)
+[![Swagger](https://img.shields.io/badge/API_문서-Swagger-85EA2D?style=for-the-badge&logo=swagger&logoColor=black)](https://api.dang-dang.site/swagger-ui.html)
 [![Service](https://img.shields.io/badge/서비스-dang--dang.vercel.app-FBB315?style=for-the-badge)](https://dang-dang.vercel.app)
 [![CI](https://img.shields.io/github/actions/workflow/status/dangdang-2026/dangdang-be/ci.yml?branch=develop&style=for-the-badge&label=CI)](https://github.com/dangdang-2026/dangdang-be/actions)
 
@@ -45,7 +45,7 @@ flowchart LR
 
 ## 🧩 도메인 · API
 
-> 전체 요청 · 응답은 [Swagger](https://dang-dang.site/swagger-ui.html)에서 확인할 수 있습니다.
+> 전체 요청 · 응답은 [Swagger](https://api.dang-dang.site/swagger-ui.html)에서 확인할 수 있습니다.
 
 | 도메인 | 경로 | 하는 일 |
 |---|---|---|
