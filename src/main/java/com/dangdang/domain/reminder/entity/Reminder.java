@@ -48,6 +48,8 @@ public class Reminder {
 
     private Instant snoozedUntil;
 
+    private Instant claimedUntil;            // 보내는 중 — 이 시각까지 다른 서버는 손대지 않는다 (스케줄러만 씀)
+
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -99,6 +101,7 @@ public class Reminder {
     public void snooze(Instant until) {
         this.status = ReminderStatus.SCHEDULED;
         this.snoozedUntil = until;
+        this.claimedUntil = null;            // 미룬 시각에 다시 잡을 수 있게
     }
 
     public void markRenotified() {
