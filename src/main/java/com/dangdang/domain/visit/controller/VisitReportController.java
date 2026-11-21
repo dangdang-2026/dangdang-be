@@ -1,6 +1,7 @@
 package com.dangdang.domain.visit.controller;
 
 import com.dangdang.domain.visit.dto.request.VisitReportCreateRequest;
+import com.dangdang.domain.visit.dto.response.VisitReportResponse;
 import com.dangdang.domain.visit.dto.response.VisitReportSaveResponse;
 import com.dangdang.domain.visit.service.VisitReportService;
 import com.dangdang.global.common.BaseResponse;
@@ -16,11 +17,32 @@ import org.springframework.web.bind.annotation.*;
 
 @Tag(name = "Visit Report", description = "진료 리포트 API")
 @RestController
-@RequestMapping("/api/visit-reports")
 @RequiredArgsConstructor
 public class VisitReportController {
 
     private final VisitReportService visitReportService;
+
+    @Operation(
+            summary = "[ 사용자 | 토큰 O | 진료 리포트 조회 ]",
+            description =
+                    """
+                    **Parameters** visitId
+                    **Returns** 리포트 한 장 (볼 때마다 다시 계산, 해석·평균·그래프 없음).
+                    기간: 바로 앞 진료일 ~ 이번 진료 전날 (앞 진료가 없으면 첫 혈당 기록일부터, 기록도 없으면 전날 하루, 최대 300일).
+                    kind·from·to·visitId·visitDate, careSite{careSiteId, name}(없거나 지운 병원이면 null), displayName,
+                    pregnancyWeeks{from, to}(예정일이 없으면 null), criteria[](기간 안 적용된 병원 기준, 오래된 순),
+                    summary{measured 측정, missed 빈칸, enteredLate 나중 입력, below70, outOfTarget, inTargetRate, compared},
+                    slots[]{slot, measured, outOfTarget}(하루 순서, 잴 때 없는 기록은 slot null로 맨 뒤),
+                    readings[]{readingId, measuredAt, readingType, slot, value, aboveTarget, enteredLate}(원값 표),
+                    questionCount(물어볼 것 수). 목표 밖은 기록마다 그때 기준으로 셈.
+                    없거나 삭제됐거나 남의 일정이면 VISIT_40401, 진료 날짜가 미정이면 VISIT_40003
+                    """)
+    @GetMapping("/api/visits/{visitId}/report")
+    public ResponseEntity<BaseResponse<VisitReportResponse>> visitReport(
+            @AuthenticationPrincipal AuthPrincipal principal, @PathVariable Long visitId) {
+        return ResponseEntity.ok(BaseResponse.success(200, "진료 리포트 조회에 성공했습니다.",
+                visitReportService.visitReport(principal.userId(), visitId)));
+    }
 
     @Operation(
             summary = "[ 사용자 | 토큰 O | 리포트 저장 (진료용·기간 직접) ]",
@@ -33,7 +55,7 @@ public class VisitReportController {
                     from > to·300일 넘음·2000~2100년 밖·kind와 visitId가 안 맞으면 GLOBAL_40001,
                     진료 일정이 없거나 삭제됐거나 남의 것이면 VISIT_40401, 병원이 그렇면 CARE_SITE_40401
                     """)
-    @PostMapping
+    @PostMapping("/api/visit-reports")
     public ResponseEntity<BaseResponse<VisitReportSaveResponse>> save(
             @AuthenticationPrincipal AuthPrincipal principal, @Valid @RequestBody VisitReportCreateRequest request) {
         VisitReportSaveResponse saved = visitReportService.save(principal.userId(), request);

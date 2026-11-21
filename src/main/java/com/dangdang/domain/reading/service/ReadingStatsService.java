@@ -49,9 +49,9 @@ public class ReadingStatsService {
     private static final int MAX_CUSTOM_DAYS = 300;
 
     // "놓친 측정" = 알림을 보냈거나 열어 봤는데 혈당이 안 붙은 알림 (DONE이 안 됨)
-    private static final List<ReminderStatus> MISSED_STATUSES = List.of(ReminderStatus.SENT, ReminderStatus.OPENED);
+    public static final List<ReminderStatus> MISSED_STATUSES = List.of(ReminderStatus.SENT, ReminderStatus.OPENED);
     // 알림이 가고 이만큼 지나야 "놓침"으로 셈 (늦게 적기 기준 30분과 같게)
-    static final Duration MISSED_GRACE = Duration.ofMinutes(30);
+    public static final Duration MISSED_GRACE = Duration.ofMinutes(30);
     private static final List<MeasureSlot> POST_MEAL_SLOTS =
             List.of(MeasureSlot.BREAKFAST_AFTER, MeasureSlot.LUNCH_AFTER, MeasureSlot.DINNER_AFTER);
 
