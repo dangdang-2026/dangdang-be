@@ -25,6 +25,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -208,7 +209,79 @@ class InsulinLogFlowTest {
         list(access, "?from=2026-10-20&to=2026-10-20").andExpect(status().isOk());   // 하루짜리는 됨
     }
 
+    // ---------- 수정 ----------
+
+    @Test
+    void 보낸_칸만_바뀌고_나머지는_그대로() throws Exception {
+        long id = createAndGetId(access, json("MEAL", "4", OCT_20_9AM));
+
+        update(access, id, "{\"units\":4.5}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.insulinLogId").value(id))
+                .andExpect(jsonPath("$.data.units").value(4.5))
+                .andExpect(jsonPath("$.data.insulinType").value("MEAL"))
+                .andExpect(jsonPath("$.data.takenAt").value(Instant.parse("2026-10-20T00:00:00Z").toString()));
+
+        update(access, id, "{\"insulinType\":\"BEDTIME\",\"takenAt\":\"2026-10-21T22:00:00+09:00\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.insulinType").value("BEDTIME"))
+                .andExpect(jsonPath("$.data.units").value(4.5))
+                .andExpect(jsonPath("$.data.takenAt").value(Instant.parse("2026-10-21T13:00:00Z").toString()));
+
+        // 맞은 시각을 옮기면 목록에서도 옮긴 날짜로 나옴
+        list(access, "?from=2026-10-20&to=2026-10-20").andExpect(jsonPath("$.data.items", hasSize(0)));
+        list(access, "?from=2026-10-21&to=2026-10-21").andExpect(jsonPath("$.data.items", hasSize(1)));
+    }
+
+    @Test
+    void 바꿀_값이_없으면_400() throws Exception {
+        long id = createAndGetId(access, json("MEAL", "4", OCT_20_9AM));
+        update(access, id, "{}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("INSULIN_40001"));
+        update(access, id, "{\"units\":null}")   // null은 안 보낸 것과 같음 (비우기 없음)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("INSULIN_40001"));
+    }
+
+    @Test
+    void 수정_값이_범위_밖이면_400이고_기록은_그대로() throws Exception {
+        long id = createAndGetId(access, json("MEAL", "4", OCT_20_9AM));
+        update(access, id, "{\"units\":0}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("GLOBAL_40001"));
+        update(access, id, "{\"units\":4.55}").andExpect(status().isBadRequest());
+        update(access, id, "{\"units\":1000}").andExpect(status().isBadRequest());
+        update(access, id, "{\"insulinType\":\"PUMP\"}").andExpect(status().isBadRequest());
+        update(access, id, "{\"takenAt\":\"" + Instant.now().plus(1, ChronoUnit.HOURS) + "\"}")
+                .andExpect(status().isBadRequest());
+        update(access, id, "{\"takenAt\":\"1999-12-31T23:59:00+09:00\"}").andExpect(status().isBadRequest());
+
+        assertThat((BigDecimal) jdbc.queryForObject("SELECT units FROM insulin_logs WHERE id = ?", BigDecimal.class, id))
+                .isEqualByComparingTo("4");
+    }
+
+    @Test
+    void 남의_기록이나_지운_기록이나_없는_기록은_404() throws Exception {
+        long others = createAndGetId(other, json("MEAL", "4", OCT_20_9AM));
+        update(access, others, "{\"units\":5}")
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("INSULIN_40401"));
+
+        long deleted = createAndGetId(access, json("MEAL", "4", OCT_20_9AM));
+        jdbc.update("UPDATE insulin_logs SET deleted_at = now() WHERE id = ?", deleted);
+        update(access, deleted, "{\"units\":5}").andExpect(status().isNotFound());
+
+        update(access, others + 1000, "{\"units\":5}").andExpect(status().isNotFound());
+        assertThat((BigDecimal) jdbc.queryForObject("SELECT units FROM insulin_logs WHERE id = ?", BigDecimal.class, others))
+                .isEqualByComparingTo("4");
+    }
+
     // ---------- 도우미 ----------
+
+    private ResultActions update(Cookie who, long id, String json) throws Exception {
+        return mvc.perform(patch("/api/insulin-logs/" + id).cookie(who).contentType(MediaType.APPLICATION_JSON).content(json));
+    }
 
     private ResultActions list(Cookie who, String query) throws Exception {
         return mvc.perform(get("/api/insulin-logs" + query).cookie(who));

@@ -46,4 +46,11 @@ public class InsulinLog extends BaseTimeEntity {
         log.takenAt = takenAt;
         return log;
     }
+
+    // 수정. null로 온 칸은 그대로 둠
+    public void update(InsulinType insulinType, BigDecimal units, Instant takenAt) {
+        if (insulinType != null) this.insulinType = insulinType;
+        if (units != null) this.units = units;
+        if (takenAt != null) this.takenAt = takenAt;
+    }
 }
