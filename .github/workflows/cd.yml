@@ -5,6 +5,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+concurrency:              # main 머지가 연달아 와도 배포는 한 번에 하나씩 (두 배포가 동시에 색을 바꾸면 꼬임)
+  group: cd-prod
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -31,7 +35,7 @@ jobs:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
-          source: docker/docker-compose.yml
+          source: docker/docker-compose.yml,docker/deploy.sh   # deploy.sh = 블루그린 전환 스크립트
           target: ~/dangdang
 
       - uses: appleboy/ssh-action@v1.0.3
@@ -50,12 +54,4 @@ jobs:
             printf '%s\n' "$ENV_PROD" > .env
             chmod 600 .env
             printf '%s' "$DOCKER_PULL_TOKEN" | docker login -u "$DOCKER_USERNAME" --password-stdin
-            docker compose pull
-            docker compose up -d
-            docker image prune -f
-            for i in $(seq 1 30); do
-              curl -fs http://127.0.0.1:8080/actuator/health && exit 0
-              sleep 3
-            done
-            docker compose logs app --tail 50
-            exit 1
+            bash deploy.sh   # 쉬던 색 띄우기 → 건강 확인 → Nginx 전환 → 이전 색 끄기 (실패하면 이전 색 그대로)
