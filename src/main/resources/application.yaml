@@ -1,6 +1,8 @@
 spring:
   application:
     name: dangdang-be
+  lifecycle:
+    timeout-per-shutdown-phase: 30s              # ★ 블루그린: 끌 때 하던 요청을 최대 30초까지 마저 처리 (compose stop_grace_period 40s보다 짧게)
   config:
     import: optional:file:.env[.properties]
   datasource:
@@ -42,6 +44,7 @@ spring:
       mail.smtp.writetimeout: 5000
 
 server:
+  shutdown: graceful                             # ★ 블루그린: 끄라는 신호를 받으면 새 요청은 안 받고, 하던 요청은 끝낸 뒤 꺼짐
   tomcat:
     # 업로드 한도를 넘은 요청에서 Tomcat이 남은 본문을 읽고 버릴 최대 양 (기본 2MB)
     # 2MB를 넘게 남으면 413 응답 대신 연결을 끊어서, Nginx(12m)를 안 거친 요청(로컬 등)은 네트워크 오류가 남
