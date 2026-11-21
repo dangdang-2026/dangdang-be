@@ -19,6 +19,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 
@@ -34,6 +35,7 @@ public class InsulinLogService {
 
     private final InsulinLogRepository insulinLogRepository;
     private final UserRepository userRepository;
+    private final Clock clock;
 
     // 등록
     @Transactional
@@ -67,6 +69,12 @@ public class InsulinLogService {
         // 변경 감지로 트랜잭션 끝날 때 반영되지만, 응답에 새 updatedAt을 담으려고 먼저 DB에 씀
         insulinLogRepository.flush();
         return InsulinLogResponse.from(log);
+    }
+
+    // 삭제 (soft delete). 이미 지운 기록을 또 지우면 findMine에서 404 (혈당 기록 삭제와 같음)
+    @Transactional
+    public void delete(Long userId, Long insulinLogId) {
+        findMine(userId, insulinLogId).delete(clock.instant());   // 변경 감지로 트랜잭션 끝날 때 반영됨
     }
 
     // 내 것 + 삭제 안 된 것만. 없음·삭제됨·남의 것은 전부 404 (수정·삭제가 같이 씀)

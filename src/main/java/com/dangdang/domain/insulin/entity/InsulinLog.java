@@ -53,4 +53,9 @@ public class InsulinLog extends BaseTimeEntity {
         if (units != null) this.units = units;
         if (takenAt != null) this.takenAt = takenAt;
     }
+
+    // 삭제 (soft delete). 줄을 지우지 않고 지운 시각만 적어 둠 → 조회 쿼리들이 deletedAt is null 로 걸러냄
+    public void delete(Instant now) {
+        this.deletedAt = now;
+    }
 }
