@@ -77,7 +77,9 @@ public class AnnouncementService {
         Announcement a = announcementRepository.findById(id)
                 .orElseThrow(() -> new CustomException(AnnouncementErrorCode.ANNOUNCEMENT_NOT_FOUND));
         a.end(clock.instant());
+        // 그 사이 카드가 내려갔으면 요약을 비운다 — 목록(active)과 같은 결과 (PR #120 리뷰)
         return AnnouncementResponse.from(a, a.getContentCardId() == null ? null
-                : contentCardRepository.findById(a.getContentCardId()).orElse(null));
+                : contentCardRepository.findById(a.getContentCardId())
+                        .filter(c -> CardStatus.LIVE.contains(c.getStatus())).orElse(null));
     }
 }
