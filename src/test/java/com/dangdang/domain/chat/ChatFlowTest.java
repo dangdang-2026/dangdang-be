@@ -79,12 +79,12 @@ class ChatFlowTest extends ReminderTestBase {
     // ── 문지기 ──
 
     @Test
-    void 국외_이전_동의가_없으면_403이고_아무것도_저장하지_않는다() throws Exception {
-        ask(jisu, "공복 혈당은 언제 재요?")
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.errorCode").value("AI_40301"));
-        assertThat(messageCount()).isZero();
-        verify(chatClient, never()).ask(any(), any(), anyBoolean(), any());
+    void 국외_이전_동의가_없어도_일반_질문은_답한다() throws Exception {   // 11/20 결정: 일반 질문은 동의 없이
+        given(chatClient.ask(anyString(), anyString(), anyBoolean(), any())).willReturn(reply("UNKNOWN", null));
+
+        ask(jisu, "공복 혈당은 언제 재요?").andExpect(status().isCreated());
+        verify(chatClient).ask(anyString(), anyString(), eq(false), any());   // 기록 사용 동의가 없으니 기록은 안 씀
+        assertThat(messageCount()).isEqualTo(2);
     }
 
     @Test
@@ -121,15 +121,16 @@ class ChatFlowTest extends ReminderTestBase {
     }
 
     @Test
-    void 동의를_철회하면_다시_403_기록은_그대로() throws Exception {   // M-12
+    void 기록_사용_동의를_철회하면_기록_없이_답하고_지난_대화는_그대로() throws Exception {   // M-12
         agreeAll(jisu);
         given(chatClient.ask(anyString(), anyString(), anyBoolean(), any())).willReturn(reply("UNKNOWN", null));
         ask(jisu, "첫 질문").andExpect(status().isCreated());
 
-        consent(jisu, "OVERSEAS_TRANSFER", false);
+        consent(jisu, "AI_CHAT_RECORDS", false);
 
-        ask(jisu, "두 번째 질문").andExpect(status().isForbidden());
-        assertThat(messageCount()).isEqualTo(2);   // 철회해도 지난 대화는 지우지 않는다 (지우기는 따로)
+        ask(jisu, "두 번째 질문").andExpect(status().isCreated());
+        verify(chatClient).ask(anyString(), eq("두 번째 질문"), eq(false), any());
+        assertThat(messageCount()).isEqualTo(4);   // 철회해도 지난 대화는 지우지 않는다 (지우기는 따로)
     }
 
     // ── 위험 신호 (AI 안 감) ──
