@@ -27,6 +27,9 @@ public interface ProfileBlockRepository extends JpaRepository<ProfileBlock, Long
 
     boolean existsByProfileIdAndBlockedProfileId(Long profileId, Long blockedProfileId);
 
+    // M-14 「안 보는 사람 N명」
+    long countByProfileId(Long profileId);
+
     @Query("""
             select b from ProfileBlock b join fetch b.blockedProfile
             where b.profile.id = :profileId
