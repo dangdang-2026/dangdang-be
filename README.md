@@ -7,7 +7,7 @@
 **병원에서 받은 기준을 하루 일정으로 바꿔 주는<br/>당당의 API 서버예요**
 
 [![Swagger](https://img.shields.io/badge/API_문서-Swagger-85EA2D?style=for-the-badge&logo=swagger&logoColor=black)](https://api.dang-dang.site/swagger-ui.html)
-[![Service](https://img.shields.io/badge/서비스-dang--dang.vercel.app-FBB315?style=for-the-badge)](https://dang-dang.vercel.app)
+[![Service](https://img.shields.io/badge/서비스-dang--dang.site-FBB315?style=for-the-badge)](https://dang-dang.site)
 [![CI](https://img.shields.io/github/actions/workflow/status/dangdang-2026/dangdang-be/ci.yml?branch=develop&style=for-the-badge&label=CI)](https://github.com/dangdang-2026/dangdang-be/actions)
 
 [한눈에 보기](#-한눈에-보기) · [구조](#️-구조) · [API](#-api) · [실행하기](#-로컬에서-실행하기) · [배포](#-배포) · [협업 규칙](#-협업-규칙)
