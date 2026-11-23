@@ -72,6 +72,48 @@ class VisitQuestionFlowTest {
                 .andExpect(jsonPath("$.data.createdAt").exists());
     }
 
+    // 당당이 「물어볼 말 정리」 답 한 줄을 DB에 바로 넣는다 (AI 서버 없이)
+    static final String DRAFT = "- 저녁 식사를 바꿔야 할까요?\n- 식후 2시간에도 재야 하나요?";
+
+    private long chatDraft(String email, String kind) {
+        Long userId = jdbc.queryForObject("SELECT id FROM users WHERE email = ?", Long.class, email);
+        return jdbc.queryForObject("INSERT INTO chat_messages (user_id, role, kind, content, payload)"
+                + " VALUES (?, 'ASSISTANT', ?, '초안', jsonb_build_object('questionDraft', ?::text)) RETURNING id",
+                Long.class, userId, kind, DRAFT);
+    }
+
+    @Test
+    void 당당이_대화_번호를_보내면_출처는_CHATBOT() throws Exception {
+        long draft = chatDraft("jisu@x.com", "QUESTION_DRAFT");
+
+        add(access, visitId, "{\"content\":\"저녁 식사를 바꿔야 할까요?\",\"chatMessageId\":" + draft + "}")
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.source").value("CHATBOT"));
+    }
+
+    @Test
+    void 초안과_다른_글이면_대화_번호를_보내도_출처는_USER() throws Exception {   // PR #120 리뷰: 아무 글이나 CHATBOT으로 꾸미지 못하게
+        long draft = chatDraft("jisu@x.com", "QUESTION_DRAFT");
+
+        add(access, visitId, "{\"content\":\"아무 말\",\"chatMessageId\":" + draft + "}")
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.source").value("USER"));
+        add(access, visitId, "{\"content\":\" 식후 2시간에도   재야 하나요? \",\"chatMessageId\":" + draft + "}")
+                .andExpect(jsonPath("$.data.source").value("CHATBOT"));   // 초안의 한 줄 (머리표·띄어쓰기 차이는 봐줌)
+    }
+
+    @Test
+    void 남의_대화나_물어볼_말_정리가_아닌_대화면_404() throws Exception {
+        long othersDraft = chatDraft("minho@x.com", "QUESTION_DRAFT");
+        long info = chatDraft("jisu@x.com", "INFO");
+
+        add(access, visitId, "{\"content\":\"질문\",\"chatMessageId\":" + othersDraft + "}")
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("VISIT_40405"));
+        add(access, visitId, "{\"content\":\"질문\",\"chatMessageId\":" + info + "}")
+                .andExpect(status().isNotFound());
+    }
+
     @Test
     void 출처를_CHATBOT으로_보내도_USER로_저장된다() throws Exception {
         add(access, visitId, "{\"content\":\"질문\",\"source\":\"CHATBOT\"}")

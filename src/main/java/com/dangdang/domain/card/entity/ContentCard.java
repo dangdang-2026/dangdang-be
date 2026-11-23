@@ -37,6 +37,10 @@ public class ContentCard {
     @Column(nullable = false)
     private List<CardSource> sources;
 
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(nullable = false)
+    private List<String> questions;          // U-28 「물어볼 것에 적기」 질문 (없으면 빈 목록)
+
     @Column(nullable = false)
     private LocalDate checkedOn;             // 원문 확인일
 
@@ -51,7 +55,10 @@ public class ContentCard {
 
     private Instant correctedAt;
 
-    private String correctionNote;
+    @Column(length = 60)
+    private String correctionSummary;        // 정정 요약 한 줄 (카드 위 띠)
+
+    private String correctionNote;           // 정정 자세한 내용 (펼치면 보임)
 
     private Instant withdrawnAt;
 
@@ -62,12 +69,13 @@ public class ContentCard {
     private Instant updatedAt;
 
     public static ContentCard draft(String title, String series, List<Slide> body, List<CardSource> sources,
-                                    LocalDate checkedOn, Instant now) {
+                                    List<String> questions, LocalDate checkedOn, Instant now) {
         ContentCard c = new ContentCard();
         c.title = title;
         c.series = series;
         c.body = body;
         c.sources = sources;
+        c.questions = questions == null ? List.of() : questions;
         c.checkedOn = checkedOn;
         c.status = CardStatus.DRAFT;
         c.createdAt = now;
@@ -80,10 +88,13 @@ public class ContentCard {
         this.updatedAt = now;
     }
 
-    // 정정 (U-26b): 고친 내용 + 무엇을 고쳤는지 한 줄
-    public void correct(List<Slide> body, String note, LocalDate checkedOn, Instant now) {
+    // 정정 (U-26b): 고친 내용 + 요약 한 줄 + 자세한 내용(선택)
+    public void correct(List<Slide> body, List<String> questions, String summary, String note, LocalDate checkedOn,
+                        Instant now) {
         if (body != null) this.body = body;
+        if (questions != null) this.questions = questions;
         if (checkedOn != null) this.checkedOn = checkedOn;
+        this.correctionSummary = summary;
         this.correctionNote = note;
         this.correctedAt = now;
         this.status = CardStatus.CORRECTED;

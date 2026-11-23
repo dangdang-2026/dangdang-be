@@ -8,6 +8,7 @@ import com.dangdang.domain.card.dto.response.CardSummaryResponse;
 import com.dangdang.domain.card.entity.ContentCard;
 import com.dangdang.domain.card.enums.CardStatus;
 import com.dangdang.domain.card.exception.CardErrorCode;
+import com.dangdang.domain.card.repository.CardReactionRepository;
 import com.dangdang.domain.card.repository.CardSaveRepository;
 import com.dangdang.domain.card.repository.ContentCardRepository;
 import com.dangdang.global.exception.CustomException;
@@ -26,6 +27,7 @@ public class CardService {
 
     private final ContentCardRepository contentCardRepository;
     private final CardSaveRepository cardSaveRepository;
+    private final CardReactionRepository cardReactionRepository;
     private final Clock clock;
 
     @Transactional(readOnly = true)
@@ -41,7 +43,8 @@ public class CardService {
     @Transactional(readOnly = true)
     public CardDetailResponse detail(Long userId, Long cardId) {
         ContentCard card = visible(cardId);
-        return CardDetailResponse.of(card, cardSaveRepository.existsByUserIdAndCardId(userId, cardId));
+        return CardDetailResponse.of(card, cardSaveRepository.existsByUserIdAndCardId(userId, cardId),
+                cardReactionRepository.existsByUserIdAndCardId(userId, cardId));
     }
 
     // 저장 (U-27) — 두 번 눌러도, 동시에 눌러도 한 줄 (ON CONFLICT DO NOTHING)
@@ -55,12 +58,30 @@ public class CardService {
             throw new CustomException(CardErrorCode.WITHDRAWN);
         }
         cardSaveRepository.addIfAbsent(userId, cardId, clock.instant());
-        return CardDetailResponse.of(card, true);
+        return CardDetailResponse.of(card, true, cardReactionRepository.existsByUserIdAndCardId(userId, cardId));
     }
 
     @Transactional
     public void unsave(Long userId, Long cardId) {
         cardSaveRepository.remove(userId, cardId);
+    }
+
+    // 공감 — 저장과 같은 방식 (두 번 눌러도 한 줄, 내려간 카드는 409). 숫자는 돌려주지 않는다
+    @Transactional
+    public CardDetailResponse react(Long userId, Long cardId) {
+        ContentCard card = contentCardRepository.findByIdForShare(cardId)
+                .filter(ContentCard::isVisible)
+                .orElseThrow(() -> new CustomException(CardErrorCode.CARD_NOT_FOUND));
+        if (card.getStatus() == CardStatus.WITHDRAWN) {
+            throw new CustomException(CardErrorCode.WITHDRAWN_REACT);
+        }
+        cardReactionRepository.addIfAbsent(userId, cardId, clock.instant());
+        return CardDetailResponse.of(card, cardSaveRepository.existsByUserIdAndCardId(userId, cardId), true);
+    }
+
+    @Transactional
+    public void unreact(Long userId, Long cardId) {
+        cardReactionRepository.remove(userId, cardId);
     }
 
     // 저장한 카드 (U-27 · 빈 상태 U-27b) — 내려간 카드도 「내려간 카드」로 남긴다
@@ -83,8 +104,8 @@ public class CardService {
     @Transactional
     public CardDetailResponse create(CardCreateRequest req) {
         ContentCard card = contentCardRepository.save(ContentCard.draft(req.title().strip(), req.series(),
-                req.body(), req.sources(), req.checkedOn(), clock.instant()));
-        return CardDetailResponse.of(card, false);
+                req.body(), req.sources(), strip(req.questions()), req.checkedOn(), clock.instant()));
+        return CardDetailResponse.of(card);
     }
 
     @Transactional
@@ -94,7 +115,7 @@ public class CardService {
             throw new CustomException(CardErrorCode.WRONG_STATUS);
         }
         card.publish(clock.instant());
-        return CardDetailResponse.of(card, false);
+        return CardDetailResponse.of(card);
     }
 
     @Transactional
@@ -103,8 +124,9 @@ public class CardService {
         if (card.getStatus() == CardStatus.DRAFT || card.getStatus() == CardStatus.WITHDRAWN) {
             throw new CustomException(CardErrorCode.WRONG_STATUS);
         }
-        card.correct(req.body(), req.note().strip(), req.checkedOn(), clock.instant());
-        return CardDetailResponse.of(card, false);
+        card.correct(req.body(), strip(req.questions()), req.summary().strip(),
+                req.note() == null || req.note().isBlank() ? null : req.note().strip(), req.checkedOn(), clock.instant());
+        return CardDetailResponse.of(card);
     }
 
     @Transactional
@@ -114,7 +136,7 @@ public class CardService {
             throw new CustomException(CardErrorCode.WRONG_STATUS);
         }
         card.withdraw(clock.instant());   // 이 카드를 가리키는 소식 카드는 AnnouncementRepository.findActive가 알아서 뺀다
-        return CardDetailResponse.of(card, false);
+        return CardDetailResponse.of(card);
     }
 
     // 검수자 적기 (U-26 「검수자 · 검수일」) — 내려간 카드는 안 됨
@@ -125,7 +147,11 @@ public class CardService {
             throw new CustomException(CardErrorCode.WRONG_STATUS);
         }
         card.review(req.reviewer().strip(), req.reviewedOn(), clock.instant());
-        return CardDetailResponse.of(card, false);
+        return CardDetailResponse.of(card);
+    }
+
+    private static List<String> strip(List<String> questions) {
+        return questions == null ? null : questions.stream().map(String::strip).toList();
     }
 
     // 사용자에겐 쓰는 중(DRAFT) 카드는 없는 카드

@@ -22,7 +22,7 @@ public class AiGuard {
     private final Clock clock;
 
     public AiCall begin(Long userId, AiFeature feature) {
-        if (!consentService.isGranted(userId, feature.requiredConsent())) {
+        if (feature.getRequiredConsent() != null && !consentService.isGranted(userId, feature.getRequiredConsent())) {
             throw new CustomException(AiErrorCode.CONSENT_REQUIRED);
         }
         LocalDate today = KoreanTime.dateOf(clock.instant());

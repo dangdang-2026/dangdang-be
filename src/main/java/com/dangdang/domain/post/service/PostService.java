@@ -167,8 +167,8 @@ public class PostService {
                 .orElseThrow(() -> new CustomException(PostErrorCode.POST_NOT_FOUND));
     }
 
-    // 글마다 세지 않고 한 번에 모아 센다 (글 20개면 쿼리 40번 → 3번)
-    private List<PostSummaryResponse> toSummaries(List<Post> posts, Long myProfileId) {
+    // 글마다 세지 않고 한 번에 모아 센다 (글 20개면 쿼리 40번 → 3번). 내 활동 목록(MyActivityService)도 쓴다
+    public List<PostSummaryResponse> toSummaries(List<Post> posts, Long myProfileId) {
         if (posts.isEmpty()) {
             return List.of();
         }
