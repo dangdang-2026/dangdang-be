@@ -8,9 +8,10 @@ import java.time.Instant;
 public record RestrictionResponse(
         @Schema(description = "지금 글·댓글 쓰기가 막혔는지", example = "true") boolean restricted,
         @Schema(description = "사유", example = "MEDICAL_ADVICE") String reason,
-        @Schema(description = "풀리는 시각 (null = 운영자가 풀 때까지)") Instant endsAt) {
+        @Schema(description = "풀리는 시각 (null = 운영자가 풀 때까지)") Instant endsAt,
+        @Schema(description = "이 제한에 이미 이의 신청했는지 (true면 「이의 신청하기」 대신 「접수됨」)") boolean appealed) {
 
     public static RestrictionResponse none() {
-        return new RestrictionResponse(false, null, null);
+        return new RestrictionResponse(false, null, null, false);
     }
 }
