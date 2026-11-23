@@ -1,7 +1,7 @@
 package com.dangdang.domain.postpartum.service;
 
 import com.dangdang.domain.notification.entity.Notification;
-import com.dangdang.domain.notification.repository.NotificationRepository;
+import com.dangdang.domain.notification.service.NotificationService;
 import com.dangdang.domain.postpartum.entity.PostpartumTest;
 import com.dangdang.domain.postpartum.repository.PostpartumTestRepository;
 import lombok.RequiredArgsConstructor;
@@ -16,7 +16,7 @@ import java.time.Instant;
 public class PostpartumTestRecorder {
 
     private final PostpartumTestRepository postpartumTestRepository;
-    private final NotificationRepository notificationRepository;
+    private final NotificationService notificationService;
 
     // 보내기 전에 먼저 「처리함」으로 적는다 → 푸시가 실패해도 같은 알림이 30초마다 다시 가지 않는다
     @Transactional
@@ -33,6 +33,6 @@ public class PostpartumTestRecorder {
     @Transactional
     public void saveInbox(Long testId, String title, String deepLink, Instant now) {
         PostpartumTest test = postpartumTestRepository.findById(testId).orElseThrow();
-        notificationRepository.save(Notification.postpartum(test.getUser(), title, deepLink, now));
+        notificationService.record(Notification.postpartum(test.getUser(), title, deepLink, now));
     }
 }
