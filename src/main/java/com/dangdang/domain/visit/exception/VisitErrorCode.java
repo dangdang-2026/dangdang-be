@@ -23,6 +23,7 @@ public enum VisitErrorCode implements BaseErrorCode {
     QUESTION_NOT_FOUND("VISIT_40402", "진료 질문을 찾을 수 없어요.", HttpStatus.NOT_FOUND),
     NOTE_NOT_FOUND("VISIT_40403", "진료 메모를 찾을 수 없어요.", HttpStatus.NOT_FOUND),
     REPORT_NOT_FOUND("VISIT_40404", "리포트를 찾을 수 없어요.", HttpStatus.NOT_FOUND),
+    CHAT_DRAFT_NOT_FOUND("VISIT_40405", "당당이 대화에서 가져올 질문을 찾을 수 없어요.", HttpStatus.NOT_FOUND),
 
     // AI 서버 실패·시간 초과·이상한 답 (오늘 횟수는 돌려줌) → 화면에 「다시 해 보기」
     ORGANIZE_FAILED("VISIT_50201", "정리하지 못했어요. 잠시 뒤 다시 해 보세요.", HttpStatus.BAD_GATEWAY);
