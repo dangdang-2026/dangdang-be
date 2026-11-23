@@ -1,17 +1,21 @@
 package com.dangdang.domain.visit.dto.request;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.PositiveOrZero;
 
-// 진료 질문 등록 요청. source는 받지 않음 (서버가 USER로 정함)
+// 진료 질문 등록 요청. source는 글자로 받지 않는다 (AI 출처를 꾸미지 못하게)
+// 당당이 대화에서 가져온 질문이면 그 대화 번호(chatMessageId)를 보내고, 서버가 확인한 뒤 CHATBOT으로 정한다
 public record VisitQuestionCreateRequest(
         @NotBlank(message = "질문을 입력해 주세요.")
         String content,
 
         @PositiveOrZero(message = "정렬 순서는 0 이상이어야 해요.")
-        Integer sortOrder) {         // 안 보내면 맨 뒤
+        Integer sortOrder,           // 안 보내면 맨 뒤
+        @Schema(description = "당당이 「물어볼 말 정리」 답의 대화 번호 (Q-04). 보내면 source=CHATBOT", example = "42")
+        Long chatMessageId) {
 
     private static final int MAX_CONTENT = 500;
 
