@@ -19,6 +19,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 // 스플래시·커뮤니티 카드 (AD-01·AD-02). 「하루 1번·최대 1.2초」는 프론트가 정한다 — 서버는 지금 걸린 것만 준다
 @Service
@@ -31,15 +35,24 @@ public class AnnouncementService {
 
     @Transactional(readOnly = true)
     public List<AnnouncementResponse> active(AnnouncementSlot slot) {
-        return announcementRepository.findActive(slot, clock.instant(), CardStatus.LIVE, PageRequest.of(0, slot.getMaxShown())).stream()
-                .map(AnnouncementResponse::from).toList();
+        List<Announcement> found = announcementRepository.findActive(slot, clock.instant(), CardStatus.LIVE,
+                PageRequest.of(0, slot.getMaxShown()));
+        // 연결된 카드는 한 번에 읽는다 (소식 n개면 쿼리 n번 → 1번)
+        List<Long> cardIds = found.stream().map(Announcement::getContentCardId).filter(Objects::nonNull).toList();
+        Map<Long, ContentCard> cards = cardIds.isEmpty() ? Map.of()
+                : contentCardRepository.findAllById(cardIds).stream()
+                        .collect(Collectors.toMap(ContentCard::getId, Function.identity()));
+        return found.stream()
+                .map(a -> AnnouncementResponse.from(a, a.getContentCardId() == null ? null : cards.get(a.getContentCardId())))
+                .toList();
     }
 
     @Transactional
     public AnnouncementResponse create(AnnouncementCreateRequest req) {
         String linkUrl = req.linkUrl();
+        ContentCard card = null;
         if (req.contentCardId() != null) {
-            ContentCard card = contentCardRepository.findById(req.contentCardId())
+            card = contentCardRepository.findById(req.contentCardId())
                     .orElseThrow(() -> new CustomException(CardErrorCode.CARD_NOT_FOUND));
             // 쓰는 중(DRAFT)·내려간 카드를 걸면 스플래시에서 눌렀을 때 404·「내려간 카드」가 뜬다
             if (!CardStatus.LIVE.contains(card.getStatus())) {
@@ -56,7 +69,7 @@ public class AnnouncementService {
         Announcement saved = announcementRepository.save(Announcement.of(req.slot(), req.kind(), req.title().strip(),
                 req.imageUrl(), linkUrl, req.contentCardId(), from, req.activeTo(),
                 req.reviewedBy() == null ? null : req.reviewedBy().strip(), now));
-        return AnnouncementResponse.from(saved);
+        return AnnouncementResponse.from(saved, card);
     }
 
     @Transactional
@@ -64,6 +77,7 @@ public class AnnouncementService {
         Announcement a = announcementRepository.findById(id)
                 .orElseThrow(() -> new CustomException(AnnouncementErrorCode.ANNOUNCEMENT_NOT_FOUND));
         a.end(clock.instant());
-        return AnnouncementResponse.from(a);
+        return AnnouncementResponse.from(a, a.getContentCardId() == null ? null
+                : contentCardRepository.findById(a.getContentCardId()).orElse(null));
     }
 }
