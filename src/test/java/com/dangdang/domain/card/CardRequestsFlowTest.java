@@ -136,6 +136,31 @@ class CardRequestsFlowTest extends ReminderTestBase {
     }
 
     @Test
+    void 운영자_목록은_내린_카드도_실제_장_수와_출처_수() throws Exception {   // PR #120 리뷰
+        int id = publishedCard(CARD);
+        mvc.perform(post("/api/admin/cards/" + id + "/withdraw").cookie(admin)).andExpect(status().isOk());
+
+        mvc.perform(get("/api/admin/cards").cookie(admin))
+                .andExpect(jsonPath("$.data[0].status").value("WITHDRAWN"))
+                .andExpect(jsonPath("$.data[0].slideCount").value(2))
+                .andExpect(jsonPath("$.data[0].sourceCount").value(2));
+    }
+
+    @Test
+    void 소식을_내릴_때_카드가_이미_내려갔으면_카드_요약은_null() throws Exception {   // PR #120 리뷰
+        int id = publishedCard(CARD);
+        String res = postJson(admin, "/api/admin/announcements",
+                "{\"slot\":\"COMMUNITY\",\"kind\":\"NEWS\",\"title\":\"새 카드\",\"contentCardId\":" + id + "}")
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        int announcementId = JsonPath.read(res, "$.data.id");
+        mvc.perform(post("/api/admin/cards/" + id + "/withdraw").cookie(admin)).andExpect(status().isOk());
+
+        mvc.perform(post("/api/admin/announcements/" + announcementId + "/end").cookie(admin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.card").value(org.hamcrest.Matchers.nullValue()));
+    }
+
+    @Test
     void 소식_칸에_연결된_카드의_장_수_출처_수_확인일() throws Exception {
         int id = publishedCard(CARD);
         postJson(admin, "/api/admin/announcements",

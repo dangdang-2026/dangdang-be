@@ -116,6 +116,19 @@ class CommunityRequestsFlowTest extends ReminderTestBase {
     }
 
     @Test
+    void 이의_신청_목록에_제한이_아직_걸려_있는지가_온다() throws Exception {   // PR #120 리뷰
+        restrict(jisuId);
+        postJson(jisu, "/api/community/restriction/appeal", "{\"content\":\"이의\"}").andExpect(status().isCreated());
+        mvc.perform(get("/api/admin/sanction-appeals").cookie(admin))
+                .andExpect(jsonPath("$.data[0].sanctionActive").value(true));
+
+        Long sanctionId = jdbc.queryForObject("SELECT sanction_id FROM sanction_appeals", Long.class);
+        mvc.perform(post("/api/admin/sanctions/" + sanctionId + "/lift").cookie(admin)).andExpect(status().isOk());
+        mvc.perform(get("/api/admin/sanction-appeals").cookie(admin))
+                .andExpect(jsonPath("$.data[0].sanctionActive").value(false));
+    }
+
+    @Test
     void 이의_신청_목록은_운영자만() throws Exception {
         mvc.perform(get("/api/admin/sanction-appeals").cookie(jisu)).andExpect(status().isForbidden());
     }

@@ -121,6 +121,15 @@ class ChatFlowTest extends ReminderTestBase {
     }
 
     @Test
+    void 국외_이전_동의가_없으면_기록_사용_동의가_있어도_기록은_보내지_않는다() throws Exception {   // PR #120 리뷰
+        consent(jisu, "AI_CHAT_RECORDS", true);
+        given(chatClient.ask(anyString(), anyString(), anyBoolean(), any())).willReturn(reply("UNKNOWN", null));
+
+        ask(jisu, "어제 혈당 어땠어?").andExpect(status().isCreated());
+        verify(chatClient).ask(anyString(), anyString(), eq(false), any());
+    }
+
+    @Test
     void 기록_사용_동의를_철회하면_기록_없이_답하고_지난_대화는_그대로() throws Exception {   // M-12
         agreeAll(jisu);
         given(chatClient.ask(anyString(), anyString(), anyBoolean(), any())).willReturn(reply("UNKNOWN", null));
