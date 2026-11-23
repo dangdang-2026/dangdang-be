@@ -4,14 +4,18 @@ import com.dangdang.domain.notification.stream.NotificationStreamRegistry;
 import com.dangdang.domain.reminder.scheduler.ReminderScheduler;
 import com.dangdang.support.ReminderTestBase;
 import jakarta.servlet.http.Cookie;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.web.servlet.MvcResult;
 
+import java.time.Duration;
+
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -27,6 +31,17 @@ class NotificationStreamFlowTest extends ReminderTestBase {
     @BeforeEach
     void loginJisu() throws Exception {
         jisu = login("jisu@x.com");
+    }
+
+    @AfterEach
+    void closeStreams() {   // 테스트마다 연 연결을 닫아 다음 테스트로 넘기지 않는다
+        registry.closeAll();
+    }
+
+    // 배너 전송은 다른 스레드(@Async)라 조금 기다린다
+    private void awaitBody(MvcResult result, String expected) {
+        await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
+                assertThat(result.getResponse().getContentAsString(UTF_8)).contains(expected));
     }
 
     private MvcResult open(Cookie who) throws Exception {
@@ -55,8 +70,8 @@ class NotificationStreamFlowTest extends ReminderTestBase {
 
         scheduler.run();
 
+        awaitBody(result, "event:notification");
         String body = result.getResponse().getContentAsString(UTF_8);
-        assertThat(body).contains("event:notification");
         assertThat(body).contains("\"type\":\"MEASURE\"");
         assertThat(body).contains("점심 식후 혈당을 잴 시간이에요");
         assertThat(body).contains("reminderId=" + reminderId);
@@ -69,18 +84,31 @@ class NotificationStreamFlowTest extends ReminderTestBase {
 
         scheduler.run();
 
-        assertThat(result.getResponse().getContentAsString(UTF_8)).contains("event:notification");
+        awaitBody(result, "event:notification");
     }
 
     @Test
     void 남의_알림은_오지_않는다() throws Exception {
         MvcResult result = open(jisu);
+        MvcResult minji = open(login("minji@x.com"));
         subscribe(minjiId, ENDPOINT_B);
         reminderAt(minjiId, NOW);
 
         scheduler.run();
 
+        awaitBody(minji, "event:notification");   // 민지에게 간 뒤에도
         assertThat(result.getResponse().getContentAsString(UTF_8)).doesNotContain("event:notification");
+    }
+
+    @Test
+    void 연결은_사람당_5개까지_오래된_것부터_닫는다() throws Exception {
+        MvcResult first = open(jisu);
+        for (int i = 0; i < 5; i++) {
+            open(jisu);
+        }
+
+        assertThat(registry.connectionCount(jisuId)).isEqualTo(5);
+        assertThat(first.getAsyncResult(1000)).isNull();   // 첫 연결은 닫혔다
     }
 
     @Test
