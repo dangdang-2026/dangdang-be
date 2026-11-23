@@ -16,17 +16,18 @@ public record CardSummaryResponse(Long id, String title, String series,
                                   @Schema(description = "슬라이드 장 수 (내려간 카드면 0)") int slideCount,
                                   Instant createdAt, boolean saved) {
 
+    // 사용자 목록 — 내려간 카드는 내용을 안 보여 주니 수도 0
     public static CardSummaryResponse of(ContentCard c, boolean saved) {
-        return of(c, userStatus(c.getStatus()), saved);
+        CardStatus status = userStatus(c.getStatus());
+        return of(c, status, saved, status == CardStatus.WITHDRAWN);
     }
 
-    // 운영자 목록 — 상태를 바꾸지 않고 그대로 (DRAFT·RECHECK도 보인다)
+    // 운영자 목록 — 상태를 바꾸지 않고 그대로 (DRAFT·RECHECK도 보인다). 내린 카드도 실제 장 수·출처 수 (PR #120 리뷰)
     public static CardSummaryResponse forAdmin(ContentCard c) {
-        return of(c, c.getStatus(), false);
+        return of(c, c.getStatus(), false, false);
     }
 
-    private static CardSummaryResponse of(ContentCard c, CardStatus status, boolean saved) {
-        boolean gone = status == CardStatus.WITHDRAWN;
+    private static CardSummaryResponse of(ContentCard c, CardStatus status, boolean saved, boolean gone) {
         return new CardSummaryResponse(c.getId(), c.getTitle(), c.getSeries(), CardSeries.labelOf(c.getSeries()),
                 status, c.getCheckedOn(), gone ? 0 : c.getSources().size(), gone ? 0 : c.getBody().size(),
                 c.getCreatedAt(), saved);
