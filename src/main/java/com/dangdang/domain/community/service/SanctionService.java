@@ -68,16 +68,20 @@ public class SanctionService {
             SanctionAppeal saved = sanctionAppealRepository.saveAndFlush(
                     SanctionAppeal.of(sanction, sanction.getUser(), content.strip(), clock.instant()));
             log.info("[이용 제한] 이의 신청 - 제한: {}, 회원: {}", sanction.getId(), userId);
-            return AppealResponse.from(saved);
+            return AppealResponse.from(saved, clock.instant());
         } catch (DataIntegrityViolationException e) {   // 두 번 빠르게 눌러 UNIQUE에 걸림
             throw new CustomException(CommunityErrorCode.ALREADY_APPEALED);
         }
     }
 
-    // 운영자 — 이의 신청 목록 (최신 먼저). 받아들이면 기존 「이용 제한 풀기」로 푼다
+    // 운영자 — 이의 신청 목록. 아직 걸려 있는 제한의 이의가 먼저, 그 안에서 최신 먼저. 받아들이면 기존 「이용 제한 풀기」로 푼다
     @Transactional(readOnly = true)
     public List<AppealResponse> appeals() {
-        return sanctionAppealRepository.findAllLatest().stream().map(AppealResponse::from).toList();
+        Instant now = clock.instant();
+        return sanctionAppealRepository.findAllLatest().stream()
+                .map(a -> AppealResponse.from(a, now))
+                .sorted(java.util.Comparator.comparing(AppealResponse::sanctionActive).reversed())   // 같은 값끼리는 원래 순서(최신 먼저) 유지
+                .toList();
     }
 
     @Transactional
