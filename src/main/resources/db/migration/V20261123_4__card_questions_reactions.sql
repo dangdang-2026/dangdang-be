@@ -12,3 +12,7 @@ CREATE TABLE card_reactions (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT uk_card_reactions UNIQUE (user_id, card_id)
 );
+
+-- 4) 이미 정정된 카드는 요약 한 줄이 비어 있다 → 예전 정정 문구 앞 40자로 채운다 (카드 위 띠가 비지 않게)
+UPDATE content_cards SET correction_summary = LEFT(correction_note, 40)
+WHERE status = 'CORRECTED' AND correction_summary IS NULL AND correction_note IS NOT NULL;
