@@ -1,5 +1,6 @@
 package com.dangdang.domain.visit.service;
 
+import com.dangdang.domain.chat.entity.ChatMessage;
 import com.dangdang.domain.chat.enums.ChatKind;
 import com.dangdang.domain.chat.repository.ChatMessageRepository;
 import com.dangdang.domain.visit.dto.request.VisitQuestionCreateRequest;
@@ -43,14 +44,17 @@ public class VisitQuestionService {
     public VisitQuestionResponse create(Long userId, Long visitId, VisitQuestionCreateRequest req) {
         Visit visit = visitService.findMine(userId, visitId);
         int sortOrder = req.sortOrder() != null ? req.sortOrder() : nextSortOrder(visitId);
+        boolean fromChatbot = false;
         if (req.chatMessageId() != null) {
-            chatMessageRepository.findByIdAndUserId(req.chatMessageId(), userId)
+            ChatMessage draft = chatMessageRepository.findByIdAndUserId(req.chatMessageId(), userId)
                     .filter(m -> m.getKind() == ChatKind.QUESTION_DRAFT)
                     .orElseThrow(() -> new CustomException(VisitErrorCode.CHAT_DRAFT_NOT_FOUND));
+            // 초안과 같은 글일 때만 CHATBOT — 사용자가 고쳐 적었으면 사용자 질문(USER) (PR #120 리뷰: 아무 글이나 CHATBOT으로 꾸미지 못하게)
+            fromChatbot = matchesDraft(draft, req.trimmedContent());
         }
-        VisitQuestion question = req.chatMessageId() == null
-                ? VisitQuestion.ofUser(visit, req.trimmedContent(), sortOrder)
-                : VisitQuestion.ofChatbot(visit, req.trimmedContent(), sortOrder);
+        VisitQuestion question = fromChatbot
+                ? VisitQuestion.ofChatbot(visit, req.trimmedContent(), sortOrder)
+                : VisitQuestion.ofUser(visit, req.trimmedContent(), sortOrder);
         VisitQuestion saved = visitQuestionRepository.saveAndFlush(question);
         return VisitQuestionResponse.from(saved);
     }
@@ -64,6 +68,28 @@ public class VisitQuestionService {
                 .orElseThrow(() -> new CustomException(VisitErrorCode.QUESTION_NOT_FOUND));
         question.delete(clock.instant());   // 변경 감지로 트랜잭션 끝날 때 반영됨
         return VisitQuestionDeleteResponse.from(question);
+    }
+
+    // 초안 전체이거나 초안의 한 줄(앞의 「-」 「•」 「1.」 같은 머리표는 뺌)과 글자가 같으면 당당이 질문으로 본다 (띄어쓰기 여러 칸은 한 칸으로)
+    static boolean matchesDraft(ChatMessage draft, String content) {
+        String draftText = draft.getPayload() == null ? null : draft.getPayload().questionDraft();
+        if (draftText == null || draftText.isBlank()) {
+            return false;
+        }
+        String target = normalize(content);
+        if (normalize(draftText).equals(target)) {
+            return true;
+        }
+        for (String line : draftText.split("\\R")) {
+            if (normalize(line.replaceFirst("^\\s*(?:[-•·*]|\\d+[.)])\\s*", "")).equals(target)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String normalize(String text) {
+        return text.strip().replaceAll("\\s+", " ");
     }
 
     // 맨 뒤 정렬 순서. 가장 큰 값이 int 끝이면 +1 하면 음수가 되니 그대로 씀 (같은 값이면 먼저 만든 순이라 그래도 맨 뒤)
