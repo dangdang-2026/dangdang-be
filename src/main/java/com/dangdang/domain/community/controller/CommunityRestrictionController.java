@@ -43,7 +43,7 @@ public class CommunityRestrictionController {
                 sanctionService.appeal(principal.userId(), request.content())));
     }
 
-    @Operation(summary = "[ 운영자 | 토큰 O(ADMIN) | 이의 신청 목록 ]", description = "**Returns** 최신 먼저. 받아들이면 「이용 제한 풀기」로 푼다")
+    @Operation(summary = "[ 운영자 | 토큰 O(ADMIN) | 이의 신청 목록 ]", description = "**Returns** 아직 걸린 제한(sanctionActive=true)의 이의가 먼저, 그 안에서 최신 먼저. 받아들이면 「이용 제한 풀기」로 푼다")
     @GetMapping("/api/admin/sanction-appeals")
     public ResponseEntity<BaseResponse<List<AppealResponse>>> appeals() {
         return ResponseEntity.ok(BaseResponse.success(200, "이의 신청 목록 조회에 성공했습니다.", sanctionService.appeals()));
