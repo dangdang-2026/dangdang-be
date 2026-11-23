@@ -34,6 +34,12 @@ public class PostDraftService {
         return PostDraftResponse.from(draftRepository.saveAndFlush(draft));
     }
 
+    // 「저장 안 함」 — 내 임시 글을 지운다. 없거나 프로필이 없어도 그냥 성공 (여러 번 눌러도 같은 결과)
+    @Transactional
+    public void deleteMine(Long userId) {
+        profileService.findMyProfileId(userId).ifPresent(draftRepository::deleteByProfileId);
+    }
+
     public PostDraftListResponse getMine(Long userId) {
         CommunityProfile profile = profileService.requireProfile(userId);
         List<PostDraftResponse> items = draftRepository.findByProfileId(profile.getId())
