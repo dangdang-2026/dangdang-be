@@ -1,5 +1,7 @@
 package com.dangdang.domain.visit.service;
 
+import com.dangdang.domain.chat.enums.ChatKind;
+import com.dangdang.domain.chat.repository.ChatMessageRepository;
 import com.dangdang.domain.visit.dto.request.VisitQuestionCreateRequest;
 import com.dangdang.domain.visit.dto.response.VisitQuestionDeleteResponse;
 import com.dangdang.domain.visit.dto.response.VisitQuestionResponse;
@@ -23,6 +25,7 @@ public class VisitQuestionService {
 
     private final VisitQuestionRepository visitQuestionRepository;
     private final VisitService visitService;
+    private final ChatMessageRepository chatMessageRepository;
     private final Clock clock;
 
     // 목록: 정렬 순서 → 먼저 만든 순. 없으면 []
@@ -33,14 +36,22 @@ public class VisitQuestionService {
                 .toList();
     }
 
-    // 등록. source는 항상 USER (클라이언트가 정하지 않음)
+    // 등록. source는 클라이언트가 글자로 정하지 않는다
+    // chatMessageId가 오면 내 대화 중 「물어볼 말 정리」(QUESTION_DRAFT) 답인지 확인하고 CHATBOT, 아니면 USER
     // 정렬 순서를 안 보내면 맨 뒤 = 지금 가장 큰 정렬 순서 + 1 (개수로 정하면 앞 질문이 10처럼 큰 값일 때 그 앞에 끼어듦)
     @Transactional
     public VisitQuestionResponse create(Long userId, Long visitId, VisitQuestionCreateRequest req) {
         Visit visit = visitService.findMine(userId, visitId);
         int sortOrder = req.sortOrder() != null ? req.sortOrder() : nextSortOrder(visitId);
-        VisitQuestion saved = visitQuestionRepository.saveAndFlush(
-                VisitQuestion.ofUser(visit, req.trimmedContent(), sortOrder));
+        if (req.chatMessageId() != null) {
+            chatMessageRepository.findByIdAndUserId(req.chatMessageId(), userId)
+                    .filter(m -> m.getKind() == ChatKind.QUESTION_DRAFT)
+                    .orElseThrow(() -> new CustomException(VisitErrorCode.CHAT_DRAFT_NOT_FOUND));
+        }
+        VisitQuestion question = req.chatMessageId() == null
+                ? VisitQuestion.ofUser(visit, req.trimmedContent(), sortOrder)
+                : VisitQuestion.ofChatbot(visit, req.trimmedContent(), sortOrder);
+        VisitQuestion saved = visitQuestionRepository.saveAndFlush(question);
         return VisitQuestionResponse.from(saved);
     }
 
