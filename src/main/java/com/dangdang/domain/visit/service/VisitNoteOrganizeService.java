@@ -1,5 +1,6 @@
 package com.dangdang.domain.visit.service;
 
+import com.dangdang.domain.user.service.SensitiveConsentGuard;
 import com.dangdang.domain.visit.dto.response.VisitNoteOrganizeResponse;
 import com.dangdang.domain.visit.entity.Visit;
 import com.dangdang.domain.visit.entity.VisitNote;
@@ -32,6 +33,7 @@ public class VisitNoteOrganizeService {
     private final VisitNoteOrganizeClient visitNoteOrganizeClient;
     private final AiGuard aiGuard;
     private final TransactionTemplate transactionTemplate;
+    private final SensitiveConsentGuard sensitiveConsentGuard;
     private final Clock clock;
 
     public VisitNoteOrganizeResponse organize(Long userId, Long visitId, Long noteId) {
@@ -69,6 +71,7 @@ public class VisitNoteOrganizeService {
         // 저장까지 끝나야 오늘 횟수를 쓴 것으로 봄. 저장 못 하면(메모 바뀜·삭제됨) 결과를 못 받았으니 횟수를 돌려줌
         try {
             transactionTemplate.executeWithoutResult(status -> {
+                sensitiveConsentGuard.require(userId);   // 그사이 건강정보 동의를 철회했으면 403 (메모 줄보다 먼저 잠금)
                 VisitNote current = visitNoteRepository.findMineForUpdate(noteId, visitId)
                         .orElseThrow(() -> new CustomException(VisitErrorCode.NOTE_NOT_FOUND));   // 그사이 일정·메모가 지워짐
                 if (!current.hasSameContent(memo)) {

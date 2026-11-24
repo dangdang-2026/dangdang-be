@@ -24,12 +24,14 @@ public class DueDateService {
     private final UserRepository userRepository;
     private final PregnancyRepository pregnancyRepository;
     private final Clock clock;
+    private final SensitiveConsentGuard sensitiveConsentGuard;
 
     @Transactional
     public DueDateResponse save(Long userId, DueDateUpdateRequest request) {
         // 잠그고 읽기: 저장 버튼을 두 번 눌러도 두 번째 요청은 첫 번째가 끝난 뒤에 진행한다
         User user = userRepository.findByIdForUpdate(userId)
                 .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
+        sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403 (위에서 이미 더 센 잠금을 잡음)
         Instant now = clock.instant();
 
         Optional<Pregnancy> active = pregnancyRepository.findByUserIdAndStateNot(userId, PregnancyState.ENDED);

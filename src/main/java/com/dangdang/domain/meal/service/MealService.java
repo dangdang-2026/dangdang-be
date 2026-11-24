@@ -11,6 +11,7 @@ import com.dangdang.domain.reminder.service.ReminderService;
 import com.dangdang.domain.user.entity.User;
 import com.dangdang.domain.user.exception.UserErrorCode;
 import com.dangdang.domain.user.repository.UserRepository;
+import com.dangdang.domain.user.service.SensitiveConsentGuard;
 import com.dangdang.global.exception.CustomException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Limit;
@@ -34,12 +35,14 @@ public class MealService {
     private final ReminderService reminderService;
     private final MealItemService mealItemService;
     private final Clock clock;
+    private final SensitiveConsentGuard sensitiveConsentGuard;
 
     private static final int MAX_PAGE_SIZE = 100;
 
     // 식사 시작 기록
     @Transactional
     public MealResponse create(Long userId, MealCreateRequest req) {
+        sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
         Meal saved = mealRepository.save(Meal.of(
@@ -80,6 +83,7 @@ public class MealService {
     // 수정 (보낸 칸만)
     @Transactional
     public MealResponse update(Long userId, Long mealId, MealUpdateRequest req) {
+        sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403
         if (req.isEmpty()) {
             throw new CustomException(MealErrorCode.NOTHING_TO_UPDATE);
         }

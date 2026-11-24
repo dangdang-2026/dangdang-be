@@ -5,6 +5,7 @@ import com.dangdang.domain.caresite.repository.CareSiteRepository;
 import com.dangdang.domain.user.entity.User;
 import com.dangdang.domain.user.exception.UserErrorCode;
 import com.dangdang.domain.user.repository.UserRepository;
+import com.dangdang.domain.user.service.SensitiveConsentGuard;
 import com.dangdang.domain.visit.dto.request.VisitCreateRequest;
 import com.dangdang.domain.visit.dto.request.VisitUpdateRequest;
 import com.dangdang.domain.visit.dto.response.VisitDetailResponse;
@@ -44,6 +45,7 @@ public class VisitService {
     private final VisitQuestionRepository visitQuestionRepository;
     private final VisitNoteRepository visitNoteRepository;
     private final Clock clock;
+    private final SensitiveConsentGuard sensitiveConsentGuard;
 
     // 진료 날짜로 받을 수 있는 범위: 한국 기준 2000-01-01 0시 이상 ~ 2101-01-01 0시 미만 (QueryParams와 같은 연도)
     private static final Instant MIN_VISIT_AT = KoreanTime.startOfDay(LocalDate.of(QueryParams.MIN_YEAR, 1, 1));
@@ -52,6 +54,7 @@ public class VisitService {
     // 일정 등록. 병원을 고르면 내 병원(삭제 안 된 것)인지 확인
     @Transactional
     public VisitResponse create(Long userId, VisitCreateRequest req) {
+        sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
         checkMyCareSite(userId, req.careSiteId());
@@ -83,6 +86,7 @@ public class VisitService {
     // 수정 (보낸 칸만). null을 보내면 병원 지우기·날짜 미정으로
     @Transactional
     public VisitResponse update(Long userId, Long visitId, VisitUpdateRequest req) {
+        sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403
         if (req.isEmpty()) {
             throw new CustomException(VisitErrorCode.NOTHING_TO_UPDATE);
         }

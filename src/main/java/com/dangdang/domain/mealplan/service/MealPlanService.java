@@ -7,6 +7,7 @@ import com.dangdang.domain.mealplan.entity.MealPlan;
 import com.dangdang.domain.mealplan.repository.MealPlanRepository;
 import com.dangdang.domain.user.exception.UserErrorCode;
 import com.dangdang.domain.user.repository.UserRepository;
+import com.dangdang.domain.user.service.SensitiveConsentGuard;
 import com.dangdang.global.exception.CustomException;
 import com.dangdang.global.exception.GlobalErrorCode;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +25,7 @@ public class MealPlanService {
     private final CareSiteRepository careSiteRepository;
     private final UserRepository userRepository;
     private final Clock clock;
+    private final SensitiveConsentGuard sensitiveConsentGuard;
 
     // 없으면 null → 화면은 「내 식사 안내 보기」 줄을 숨긴다
     @Transactional(readOnly = true)
@@ -33,6 +35,7 @@ public class MealPlanService {
 
     @Transactional
     public MealPlanResponse save(Long userId, MealPlanRequest req) {
+        sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403
         if (req.careSiteId() != null
                 && careSiteRepository.findByIdAndUserIdAndDeletedAtIsNull(req.careSiteId(), userId).isEmpty()) {
             throw new CustomException(GlobalErrorCode.INVALID_INPUT);   // 남의 병원·지운 병원

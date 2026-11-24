@@ -21,4 +21,10 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select u from User u where u.id = :id")
     Optional<User> findByIdForUpdate(@Param("id") Long id);
+
+    // 이 사람 줄을 「읽기 잠금」(FOR SHARE)으로 읽는다: 건강 기록 저장끼리는 서로 안 막고,
+    // 건강정보 철회(FOR UPDATE)와는 차례로 — 철회 중이면 끝날 때까지 기다린다 (SensitiveConsentGuard)
+    @Lock(LockModeType.PESSIMISTIC_READ)
+    @Query("select u from User u where u.id = :id")
+    Optional<User> findByIdForShare(@Param("id") Long id);
 }

@@ -1,11 +1,14 @@
 package com.dangdang.domain.chat;
 
 import com.dangdang.domain.chat.infra.ChatClient;
+import com.dangdang.domain.chat.service.ChatService;
+import com.dangdang.domain.user.service.SensitiveConsentWithdrawalService;
 import com.dangdang.support.ReminderTestBase;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.web.client.ResourceAccessException;
@@ -35,6 +38,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class ChatFlowTest extends ReminderTestBase {
 
     @MockitoBean ChatClient chatClient;   // 진짜 AI 서버 대신
+    @Autowired SensitiveConsentWithdrawalService withdrawalService;
+    @Autowired ChatService chatService;
 
     Cookie jisu;
     Cookie minji;
@@ -86,6 +91,65 @@ class ChatFlowTest extends ReminderTestBase {
         verify(chatClient, never()).ask(any(), any(), anyBoolean(), any());
         assertThat(messageCount()).isZero();
         assertThat(redis.opsForValue().get("ai:usage:CHAT:" + jisuId + ":2026-11-09")).isNull();
+    }
+
+    // ── 건강정보 동의 (M-07b 철회 뒤 저장 막기) ──
+
+    @Test
+    void 건강정보_동의가_없으면_위험_신호도_403이고_아무것도_안_남긴다() throws Exception {
+        agreeAll(jisu);
+        jdbc.update("DELETE FROM consent_events WHERE user_id = ? AND consent_type = 'SENSITIVE'", jisuId);
+
+        ask(jisu, "피가 비쳐요")
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("USER_40301"));
+        ask(jisu, "공복 혈당은 언제 재요?")
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("USER_40301"));
+        verify(chatClient, never()).ask(any(), any(), anyBoolean(), any());
+        assertThat(messageCount()).isZero();
+        assertThat(redis.opsForValue().get("ai:usage:CHAT:" + jisuId + ":2026-11-09")).isNull();
+    }
+
+    @Test
+    void 철회_뒤_기록_사용_동의만_다시_켜도_질문은_403() throws Exception {
+        agreeAll(jisu);
+        mvc.perform(post("/api/me/consents/sensitive/withdraw").cookie(jisu)).andExpect(status().isOk());
+        consent(jisu, "AI_CHAT_RECORDS", true);
+
+        ask(jisu, "이번 주 공복 혈당 보여줘")
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("USER_40301"));
+        verify(chatClient, never()).ask(any(), any(), anyBoolean(), any());
+    }
+
+    @Test
+    void AI를_기다리는_사이_철회하면_답을_남기지_않고_403() throws Exception {
+        agreeAll(jisu);
+        given(chatClient.ask(anyString(), anyString(), anyBoolean(), any())).willAnswer(invocation -> {
+            withdrawalService.withdraw(jisuId);
+            return reply("UNKNOWN", null);
+        });
+
+        ask(jisu, "공복 혈당은 언제 재요?")
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("USER_40301"));
+        assertThat(messageCount()).isZero();   // 질문은 철회가 지웠고, 답은 저장 안 함
+    }
+
+    @Test
+    void AI를_기다리는_사이_대화를_지웠으면_답은_보여_주되_남기지_않는다() throws Exception {
+        agreeAll(jisu);
+        given(chatClient.ask(anyString(), anyString(), anyBoolean(), any())).willAnswer(invocation -> {
+            chatService.deleteAll(jisuId);
+            return reply("UNKNOWN", null);
+        });
+
+        ask(jisu, "공복 혈당은 언제 재요?")
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.answer.kind").value("UNKNOWN"))
+                .andExpect(jsonPath("$.data.answer.id").value(nullValue()));
+        assertThat(messageCount()).isZero();
     }
 
     @Test

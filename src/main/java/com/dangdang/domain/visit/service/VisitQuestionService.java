@@ -3,6 +3,7 @@ package com.dangdang.domain.visit.service;
 import com.dangdang.domain.chat.entity.ChatMessage;
 import com.dangdang.domain.chat.enums.ChatKind;
 import com.dangdang.domain.chat.repository.ChatMessageRepository;
+import com.dangdang.domain.user.service.SensitiveConsentGuard;
 import com.dangdang.domain.visit.dto.request.VisitQuestionCreateRequest;
 import com.dangdang.domain.visit.dto.response.VisitQuestionDeleteResponse;
 import com.dangdang.domain.visit.dto.response.VisitQuestionResponse;
@@ -28,6 +29,7 @@ public class VisitQuestionService {
     private final VisitService visitService;
     private final ChatMessageRepository chatMessageRepository;
     private final Clock clock;
+    private final SensitiveConsentGuard sensitiveConsentGuard;
 
     // 목록: 정렬 순서 → 먼저 만든 순. 없으면 []
     public List<VisitQuestionResponse> list(Long userId, Long visitId) {
@@ -42,6 +44,7 @@ public class VisitQuestionService {
     // 정렬 순서를 안 보내면 맨 뒤 = 지금 가장 큰 정렬 순서 + 1 (개수로 정하면 앞 질문이 10처럼 큰 값일 때 그 앞에 끼어듦)
     @Transactional
     public VisitQuestionResponse create(Long userId, Long visitId, VisitQuestionCreateRequest req) {
+        sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403
         Visit visit = visitService.findMine(userId, visitId);
         int sortOrder = req.sortOrder() != null ? req.sortOrder() : nextSortOrder(visitId);
         boolean fromChatbot = false;

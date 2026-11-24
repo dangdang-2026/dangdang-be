@@ -1,5 +1,6 @@
 package com.dangdang.domain.visit.service;
 
+import com.dangdang.domain.user.service.SensitiveConsentGuard;
 import com.dangdang.domain.visit.dto.request.VisitNoteRequest;
 import com.dangdang.domain.visit.dto.response.VisitNoteResponse;
 import com.dangdang.domain.visit.entity.Visit;
@@ -22,6 +23,7 @@ public class VisitNoteService {
 
     private final VisitNoteRepository visitNoteRepository;
     private final VisitService visitService;
+    private final SensitiveConsentGuard sensitiveConsentGuard;
 
     // 조회: 먼저 쓴 순. 없으면 []
     public List<VisitNoteResponse> list(Long userId, Long visitId) {
@@ -34,6 +36,7 @@ public class VisitNoteService {
     // 등록. 내용은 적은 그대로 저장
     @Transactional
     public VisitNoteResponse create(Long userId, Long visitId, VisitNoteRequest req) {
+        sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403
         Visit visit = visitService.findMine(userId, visitId);
         VisitNote saved = visitNoteRepository.saveAndFlush(VisitNote.of(visit, req.content()));
         return VisitNoteResponse.from(saved);
@@ -42,6 +45,7 @@ public class VisitNoteService {
     // 수정 (내용 통째로 바꿈). 다른 일정의 메모이거나 없는 메모면 404
     @Transactional
     public VisitNoteResponse update(Long userId, Long visitId, Long noteId, VisitNoteRequest req) {
+        sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403
         visitService.findMine(userId, visitId);
         // 줄을 잠그고 읽음: AI 정리 저장과 겹치면 하나가 끝난 뒤에 읽어서, 정리 결과를 옛 값으로 덮어쓰지 않게
         VisitNote note = visitNoteRepository.findMineForUpdate(noteId, visitId)
