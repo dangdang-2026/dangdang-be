@@ -5,6 +5,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
+import java.util.concurrent.TimeUnit;
 
 // 로그인 실패 횟수와 잠금을 Redis 에 둔다 (AUTH-04: 5번 틀리면 5분 잠금)
 @Component
@@ -19,19 +20,24 @@ public class LoginAttemptStore {
 
     private final StringRedisTemplate redis;
 
-    public boolean isLocked(String email) {
-        return Boolean.TRUE.equals(redis.hasKey(LOCK + email));
+    // 잠겨 있으면 풀릴 때까지 남은 초, 아니면 0
+    public long lockSecondsLeft(String email) {
+        Long ttl = redis.getExpire(LOCK + email, TimeUnit.SECONDS);
+        return ttl == null || ttl < 0 ? 0 : ttl;   // -2 = 키 없음, -1 = 만료 없음(생기면 안 됨)
     }
 
-    // 실패 +1. 5번이 되면 잠그고 횟수는 지운다. 올린 뒤 값을 돌려준다
-    public long increaseFails(String email) {
-        Long fails = redis.opsForValue().increment(FAILS + email);
+    // 이번 시도를 비교하기 전에 먼저 센다 (+1 뒤 값). Redis INCR은 동시에 와도 1, 2, 3…이 겹치지 않아서
+    // 동시 요청 수백 개가 와도 비밀번호를 비교하는 건 5번까지만 된다. 성공하면 clear로 0
+    public long countAttempt(String email) {
+        Long attempts = redis.opsForValue().increment(FAILS + email);
         redis.expire(FAILS + email, LOCK_TTL); // 한동안 안 틀리면 저절로 0
-        if (fails != null && fails >= MAX_FAILS) {
-            redis.opsForValue().set(LOCK + email, "1", LOCK_TTL);
-            redis.delete(FAILS + email);
-        }
-        return fails == null ? 0 : fails;
+        return attempts == null ? 0 : attempts;
+    }
+
+    // 5분 잠금. 센 횟수는 지운다 (풀리면 다시 5번)
+    public void lock(String email) {
+        redis.opsForValue().set(LOCK + email, "1", LOCK_TTL);
+        redis.delete(FAILS + email);
     }
 
     public void clear(String email) {

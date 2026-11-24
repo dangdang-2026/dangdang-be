@@ -2,6 +2,7 @@ package com.dangdang.domain.auth;
 
 import com.dangdang.domain.user.entity.User;
 import com.dangdang.domain.user.repository.UserRepository;
+import com.jayway.jsonpath.JsonPath;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -17,6 +18,11 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -83,7 +89,7 @@ class LoginFlowTest {
         for (int i = 1; i <= 4; i++) {
             MvcResult wrong = login("jisu@x.com", "wrong1234");
             assertThat(wrong.getResponse().getStatus()).isEqualTo(400);
-            assertThat(wrong.getResponse().getContentAsString()).contains("남은 횟수 " + (5 - i) + "번");
+            assertThat(wrong.getResponse().getContentAsString()).contains((5 - i) + "번 더 틀리면 5분 동안 잠겨요");
         }
         assertThat(login("jisu@x.com", "wrong1234").getResponse().getContentAsString()).contains("AUTH_42902");
         assertThat(login("jisu@x.com", "abcd1234").getResponse().getStatus()).isEqualTo(429);
@@ -116,9 +122,46 @@ class LoginFlowTest {
     }
 
     @Test
-    void 카카오로_가입한_이메일은_카카오_로그인을_안내한다() throws Exception {
+    void 카카오로_가입한_이메일도_틀린_비밀번호와_같은_답이고_횟수에_들어간다() throws Exception {
         userRepository.save(User.ofKakao("12345", "민지", "minji@x.com"));
-        assertThat(login("minji@x.com", "abcd1234").getResponse().getContentAsString()).contains("AUTH_40005");
+        MvcResult r = login("minji@x.com", "abcd1234");
+        assertThat(r.getResponse().getStatus()).isEqualTo(400);
+        String body = r.getResponse().getContentAsString();
+        assertThat(body).contains("AUTH_40004").doesNotContain("AUTH_40005").doesNotContain("카카오");
+        assertThat(JsonPath.<Integer>read(body, "$.data.remainingAttempts")).isEqualTo(4);
+    }
+
+    @Test
+    void 잠기면_풀릴_때까지_남은_초를_준다() throws Exception {
+        for (int i = 0; i < 5; i++) {
+            login("jisu@x.com", "wrong1234");
+        }
+        String body = login("jisu@x.com", "abcd1234").getResponse().getContentAsString();
+        assertThat(body).contains("AUTH_42902");
+        assertThat(JsonPath.<Integer>read(body, "$.data.retryAfterSeconds")).isBetween(1, 300);
+    }
+
+    @Test   // 합치며 추가 (76 D 가드 확인)
+    void 비밀번호가_72바이트를_넘어도_500이_아니라_같은_400() throws Exception {
+        MvcResult r = login("jisu@x.com", "가".repeat(25));   // 한글 25자 = 75바이트
+        assertThat(r.getResponse().getStatus()).isEqualTo(400);
+        assertThat(r.getResponse().getContentAsString()).contains("AUTH_40004");
+    }
+
+    @Test   // 리뷰: 로그인이 동시에 몰려도 비밀번호 비교는 5번까지만 → 「n번 더」 실패 답은 4번까지, 맞는 비밀번호도 잠김
+    void 동시에_많이_틀려도_비밀번호는_5번까지만_비교한다() throws Exception {
+        ExecutorService pool = Executors.newFixedThreadPool(20);
+        List<Future<String>> results = new ArrayList<>();
+        for (int i = 0; i < 20; i++) {
+            results.add(pool.submit(() -> login("jisu@x.com", "wrong1234").getResponse().getContentAsString()));
+        }
+        int failed = 0;
+        for (Future<String> f : results) {
+            if (f.get().contains("AUTH_40004")) failed++;
+        }
+        pool.shutdown();
+
+        assertThat(failed).isLessThanOrEqualTo(4);
+        assertThat(login("jisu@x.com", "abcd1234").getResponse().getStatus()).isEqualTo(429);
     }
 }
-
