@@ -125,6 +125,35 @@ class ReadingStatsFlowTest {
     // ---------- 정상 ----------
 
     @Test
+    void 분모와_70_미만과_잰_날_수와_처음_기록일이_온다() throws Exception {
+        criteria(access, 95, 140, daysAgo(200));
+        reading(access, 88, "FASTING", daysAgo(3), 7, null, null);
+        reading(access, 97, "FASTING", daysAgo(2), 7, null, null);   // 95 넘음
+        reading(access, 68, "FASTING", daysAgo(1), 7, null, null);   // 70 미만 (목표 안)
+
+        mvc.perform(get("/api/readings/stats").cookie(access).param("slot", "FASTING").param("period", "1W"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.current.count").value(3))
+                .andExpect(jsonPath("$.data.current.judged").value(3))
+                .andExpect(jsonPath("$.data.current.inTarget").value(2))
+                .andExpect(jsonPath("$.data.current.judgedDays").value(3))
+                .andExpect(jsonPath("$.data.current.inTargetDays").value(2))
+                .andExpect(jsonPath("$.data.current.overDays").value(1))
+                .andExpect(jsonPath("$.data.current.belowLow").value(1))
+                .andExpect(jsonPath("$.data.firstRecordDate").value(daysAgo(3).toString()));
+    }
+
+    @Test
+    void 기록이_없으면_처음_기록일은_null이고_분모는_0() throws Exception {
+        mvc.perform(get("/api/readings/stats").cookie(access).param("slot", "FASTING").param("period", "1W"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.firstRecordDate").value((Object) null))
+                .andExpect(jsonPath("$.data.current.judged").value(0))
+                .andExpect(jsonPath("$.data.current.inTargetRate").value((Object) null))
+                .andExpect(jsonPath("$.data.current.belowLow").value(0));
+    }
+
+    @Test
     void 식후_1주_통계와_지난주_비교() throws Exception {
         criteria(access, 95, 140, daysAgo(200));
         long lunch = meal(access, "LUNCH", daysAgo(3), 12);
