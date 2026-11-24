@@ -15,10 +15,13 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -33,8 +36,11 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThatThrownBy;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
+@AutoConfigureMockMvc
 class SignupFlowTest {
 
     // 메일 대신 인증번호를 붙잡아 두는 테스트용 발송기
@@ -68,6 +74,7 @@ class SignupFlowTest {
     @Autowired StringRedisTemplate redis;
     @Autowired JdbcTemplate jdbc;
     @Autowired EmailVerificationStore store;
+    @Autowired MockMvc mvc;
 
     @AfterEach
     void clean() { // Redis 는 @Transactional 로 되돌릴 수 없어서 직접 지운다
@@ -264,5 +271,25 @@ class SignupFlowTest {
         String other = code.equals("000000") ? "111111" : "000000";
         assertThatThrownBy(() -> verificationService.verify("a@x.com", other))
                 .satisfies(e -> assertThat(codeOf(e)).isEqualTo(AuthErrorCode.EMAIL_CODE_EXPIRED));
+    }
+
+    private void verified(String email) {          // 인증 마친 상태 만들기
+        verificationService.sendCode(email);
+        verificationService.verify(email, SENT.get(email));
+    }
+
+    @Test
+    void 비밀번호가_없거나_한글이거나_64자를_넘으면_400() throws Exception {
+        verified("a@x.com");
+        for (String body : List.of(
+                "{\"email\":\"a@x.com\",\"displayName\":\"지수\"}",
+                "{\"email\":\"a@x.com\",\"displayName\":\"지수\",\"password\":\"비밀번호abc1234\"}",
+                "{\"email\":\"a@x.com\",\"displayName\":\"지수\",\"password\":\"a1" + "x".repeat(63) + "\"}")) {
+            mvc.perform(post("/api/auth/signup").contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andExpect(status().isBadRequest());
+        }
+        mvc.perform(post("/api/auth/signup").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"a@x.com\",\"displayName\":\"지수\",\"password\":\"abcd1234!@\"}"))
+                .andExpect(status().isCreated());                                 // 특수문자는 된다
     }
 }
