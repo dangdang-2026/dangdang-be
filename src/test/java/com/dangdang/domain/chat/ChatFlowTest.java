@@ -18,6 +18,8 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
@@ -74,7 +76,11 @@ class ChatFlowTest extends ReminderTestBase {
     }
 
     private static ChatClient.Reply reply(String kind, String text) {
-        return new ChatClient.Reply(kind, text, null, null, null, "chat-v1");
+        return new ChatClient.Reply(kind, text, null, null, null, null, "chat-v1");
+    }
+
+    private static ChatClient.Reply unknown(String reason, String text) {
+        return new ChatClient.Reply("UNKNOWN", text, null, null, null, reason, "chat-v3");
     }
 
     private int messageCount() {
@@ -228,7 +234,8 @@ class ChatFlowTest extends ReminderTestBase {
     void 마음이_힘든_말은_109_안내() throws Exception {
         ask(jisu, "요즘 그냥 사라지고 싶어요")
                 .andExpect(jsonPath("$.data.answer.kind").value("RISK"))
-                .andExpect(jsonPath("$.data.answer.actions", contains("CALL_109", "CALL_1577_0199")));
+                .andExpect(jsonPath("$.data.answer.risk.type").value("MIND"))
+                .andExpect(jsonPath("$.data.answer.actions", contains("CALL_109", "CALL_1577_0199", "CALL_119")));
     }
 
     @Test
@@ -239,6 +246,166 @@ class ChatFlowTest extends ReminderTestBase {
                 .andExpect(jsonPath("$.data.answer.actions", contains("CALL_HOSPITAL")));
         verify(chatClient, never()).ask(any(), any(), anyBoolean(), any());
         assertThat(redis.opsForValue().get("ai:usage:CHAT:" + jisuId + ":2026-11-09")).isNull();
+    }
+
+    // ── 위급 안내 한 틀 (Q-07 · Q-07b · Q-07c) ──
+
+    @Test
+    void 위급_안내는_제목_본문_빨간_줄을_따로_준다() throws Exception {
+        ask(jisu, "배가 자꾸 뭉치고 피가 조금 비쳐요")
+                .andExpect(jsonPath("$.data.answer.kind").value("RISK"))
+                .andExpect(jsonPath("$.data.answer.risk.type").value("URGENT"))
+                .andExpect(jsonPath("$.data.answer.risk.title").value("지금은 병원에 먼저 연락해 주세요"))
+                .andExpect(jsonPath("$.data.answer.risk.warning").value("피가 많이 나거나, 어지럽거나, 의식이 흐려지면 바로 119"))
+                .andExpect(jsonPath("$.data.answer.content").value(containsString("태동")))
+                .andExpect(jsonPath("$.data.answer.actions", contains("CALL_HOSPITAL", "CALL_119")))
+                .andExpect(jsonPath("$.data.answer.reason").value(nullValue()));
+    }
+
+    @Test
+    void 저혈당_말은_저혈당_안내와_병원_119() throws Exception {
+        ask(jisu, "식은땀이 나고 손이 떨려요. 재 보니 62예요")
+                .andExpect(jsonPath("$.data.answer.kind").value("RISK"))
+                .andExpect(jsonPath("$.data.answer.risk.type").value("HYPO"))
+                .andExpect(jsonPath("$.data.answer.risk.title").value("병원에서 안내받은 저혈당 대처를 먼저 해 주세요"))
+                .andExpect(jsonPath("$.data.answer.risk.warning").value("어지럽거나 의식이 흐려지면 바로 119"))
+                .andExpect(jsonPath("$.data.answer.actions", contains("CALL_HOSPITAL", "CALL_119")));
+        ask(jisu, "방금 혈당 58 나왔어요").andExpect(jsonPath("$.data.answer.risk.type").value("HYPO"));
+        verify(chatClient, never()).ask(any(), any(), anyBoolean(), any());
+    }
+
+    @Test
+    void 혈당_140이나_날짜_숫자는_저혈당이_아니다() throws Exception {
+        agreeAll(jisu);
+        given(chatClient.ask(anyString(), anyString(), anyBoolean(), any())).willReturn(reply("UNKNOWN", null));
+
+        ask(jisu, "식후 혈당 140 넘으면 어떡해요?").andExpect(jsonPath("$.data.answer.kind").value("UNKNOWN"));
+        ask(jisu, "혈당 10월 1일부터 보여 줘").andExpect(jsonPath("$.data.answer.kind").value("UNKNOWN"));
+        verify(chatClient, times(2)).ask(anyString(), anyString(), anyBoolean(), any());
+    }
+
+    @Test
+    void 산후에는_태동_없는_위급_안내() throws Exception {
+        jdbc.update("INSERT INTO pregnancies (user_id, due_date, state, created_at, updated_at)"
+                + " VALUES (?, '2026-11-01', 'POSTPARTUM', now(), now())", jisuId);
+
+        ask(jisu, "피가 많이 나요")
+                .andExpect(jsonPath("$.data.answer.risk.type").value("URGENT"))
+                .andExpect(jsonPath("$.data.answer.content").value(not(containsString("태동"))));
+        ask(minji, "피가 많이 나요")                                   // 임신 정보 없음 → 임신 중 문구
+                .andExpect(jsonPath("$.data.answer.content").value(containsString("태동")));
+    }
+
+    @Test
+    void 다_그만두고_싶다는_말도_마음_안내와_119() throws Exception {
+        ask(jisu, "요즘 너무 힘들어요. 다 그만두고 싶어요")
+                .andExpect(jsonPath("$.data.answer.risk.type").value("MIND"))
+                .andExpect(jsonPath("$.data.answer.risk.title").value("혼자 견디지 않아도 돼요"))
+                .andExpect(jsonPath("$.data.answer.actions", contains("CALL_109", "CALL_1577_0199", "CALL_119")));
+    }
+
+    @Test
+    void 폭력은_112_1366_119() throws Exception {
+        ask(jisu, "남편이 때려")
+                .andExpect(jsonPath("$.data.answer.kind").value("RISK"))
+                .andExpect(jsonPath("$.data.answer.risk.type").value("SAFETY"))
+                .andExpect(jsonPath("$.data.answer.actions", contains("CALL_112", "CALL_1366", "CALL_119")));
+        verify(chatClient, never()).ask(any(), any(), anyBoolean(), any());
+    }
+
+    @Test
+    void 약_용량은_위급_틀이_아니다() throws Exception {
+        ask(jisu, "인슐린 몇 단위 맞아야 해요?")
+                .andExpect(jsonPath("$.data.answer.kind").value("DOSE"))
+                .andExpect(jsonPath("$.data.answer.risk").value(nullValue()));
+        ask(jisu, "인슐린 깜빡하고 안 맞았어")
+                .andExpect(jsonPath("$.data.answer.kind").value("DOSE"));
+    }
+
+    // ── 답할 수 없는 이유 (버튼 고르기) ──
+
+    @Test
+    void 답할_수_없으면_이유를_넘기고_글은_AI_글_그대로() throws Exception {
+        agreeAll(jisu);
+        given(chatClient.ask(anyString(), anyString(), anyBoolean(), any()))
+                .willReturn(unknown("RUDE", "도움이 못 돼서 죄송해요."));
+
+        ask(jisu, "바보")
+                .andExpect(jsonPath("$.data.answer.kind").value("UNKNOWN"))
+                .andExpect(jsonPath("$.data.answer.reason").value("RUDE"))
+                .andExpect(jsonPath("$.data.answer.content").value("도움이 못 돼서 죄송해요."))
+                .andExpect(jsonPath("$.data.answer.risk").value(nullValue()));
+    }
+
+    @Test
+    void 이상한_이유나_이유_없음은_NO_SOURCE() throws Exception {   // 예전 AI(reason 없음)여도 동작
+        agreeAll(jisu);
+        given(chatClient.ask(anyString(), anyString(), anyBoolean(), any()))
+                .willReturn(unknown("WHATEVER", null), unknown(null, null));
+
+        ask(jisu, "첫 질문")
+                .andExpect(jsonPath("$.data.answer.reason").value("NO_SOURCE"))
+                .andExpect(jsonPath("$.data.answer.content").value("그 내용은 당당이가 가진 자료에 없어요. 다니는 병원에 물어봐 주세요."));
+        ask(jisu, "둘째 질문").andExpect(jsonPath("$.data.answer.reason").value("NO_SOURCE"));
+    }
+
+    @Test
+    void AI가_위급이나_위기를_고르면_키워드와_같은_위급_안내() throws Exception {   // 키워드가 놓친 말
+        agreeAll(jisu);
+        given(chatClient.ask(anyString(), anyString(), anyBoolean(), any()))
+                .willReturn(unknown("URGENT", "AI 예비 글"), unknown("CRISIS", "AI 예비 글"),
+                        unknown("SAFETY", "AI 예비 글"));
+
+        ask(jisu, "몸이 너무 이상해요")
+                .andExpect(jsonPath("$.data.answer.kind").value("RISK"))
+                .andExpect(jsonPath("$.data.answer.risk.type").value("URGENT"))
+                .andExpect(jsonPath("$.data.answer.content").value(containsString("분만실")))   // AI 글이 아니라 BE 문장
+                .andExpect(jsonPath("$.data.answer.actions", contains("CALL_HOSPITAL", "CALL_119")))
+                .andExpect(jsonPath("$.data.answer.reason").value(nullValue()));
+        ask(jisu, "아무 의미가 없어요")
+                .andExpect(jsonPath("$.data.answer.risk.type").value("MIND"))
+                .andExpect(jsonPath("$.data.answer.actions", contains("CALL_109", "CALL_1577_0199", "CALL_119")));
+        ask(jisu, "집에 가기 무서워요")
+                .andExpect(jsonPath("$.data.answer.risk.type").value("SAFETY"))
+                .andExpect(jsonPath("$.data.answer.actions", contains("CALL_112", "CALL_1366", "CALL_119")));
+        // AI를 불렀으니 횟수에 센다
+        assertThat(redis.opsForValue().get("ai:usage:CHAT:" + jisuId + ":2026-11-09")).isEqualTo("3");
+    }
+
+    @Test
+    void AI가_고른_위급_안내도_다음_질문의_AI_기록에_안_들어간다() throws Exception {
+        agreeAll(jisu);
+        given(chatClient.ask(anyString(), anyString(), anyBoolean(), any()))
+                .willReturn(unknown("URGENT", "AI 예비 글"), reply("UNKNOWN", null));
+
+        ask(jisu, "몸이 너무 이상해요");
+        ask(jisu, "다음 질문");
+
+        verify(chatClient).ask(anyString(), eq("다음 질문"), anyBoolean(), eq(List.of()));
+    }
+
+    @Test
+    void 예전_대화_줄은_이유_없이_읽히고_모르는_칸이나_이름이_있어도_200() throws Exception {
+        agreeAll(jisu);
+        given(chatClient.ask(anyString(), anyString(), anyBoolean(), any())).willReturn(reply("QUESTION_DRAFT", "예전 답"));
+        ask(jisu, "첫 질문");
+        ask(jisu, "둘째 질문");
+        List<Long> answers = jdbc.queryForList(
+                "SELECT id FROM chat_messages WHERE role = 'ASSISTANT' ORDER BY id", Long.class);
+        // 예전 줄: reason·risk 칸이 아예 없음 / 나중에 생길 줄: 모르는 칸과 지금 없는 이유 이름
+        jdbc.update("UPDATE chat_messages SET payload = '{\"questionDraft\":\"x\"}'::jsonb WHERE id = ?",
+                answers.get(0));
+        jdbc.update("UPDATE chat_messages SET payload = '{\"questionDraft\":\"y\",\"future\":1,\"reason\":\"GONE\"}'::jsonb"
+                + " WHERE id = ?", answers.get(1));
+
+        mvc.perform(get("/api/chat/messages").cookie(jisu))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].questionDraft").value("y"))
+                .andExpect(jsonPath("$.data.items[0].reason").value("NO_SOURCE"))   // 모르는 이름 → NO_SOURCE
+                .andExpect(jsonPath("$.data.items[0].risk").value(nullValue()))
+                .andExpect(jsonPath("$.data.items[2].questionDraft").value("x"))
+                .andExpect(jsonPath("$.data.items[2].reason").value(nullValue()))
+                .andExpect(jsonPath("$.data.items[2].risk").value(nullValue()));
     }
 
     // ── 내 기록 (Q-03) ──
@@ -254,7 +421,7 @@ class ChatFlowTest extends ReminderTestBase {
         given(chatClient.ask(anyString(), anyString(), eq(true), any())).willReturn(new ChatClient.Reply(
                 "RECORDS", "지난 7일 공복 혈당 기록이에요.",
                 new ChatClient.Records(LocalDate.of(2026, 11, 3), LocalDate.of(2026, 11, 9), "FASTING"),
-                null, null, "chat-v1"));
+                null, null, null, "chat-v1"));
 
         ask(jisu, "지난주 공복 혈당 보여 줘")
                 .andExpect(status().isCreated())
@@ -273,7 +440,7 @@ class ChatFlowTest extends ReminderTestBase {
         given(chatClient.ask(anyString(), anyString(), anyBoolean(), any())).willReturn(new ChatClient.Reply(
                 "RECORDS", null,
                 new ChatClient.Records(LocalDate.of(2026, 1, 1), LocalDate.of(2026, 12, 31), null),
-                null, null, "chat-v1"));
+                null, null, null, "chat-v1"));
 
         ask(jisu, "올해 기록 다 보여 줘")
                 .andExpect(jsonPath("$.data.answer.content").value("요청하신 기록이에요."))
@@ -286,7 +453,7 @@ class ChatFlowTest extends ReminderTestBase {
     void 기록_사용_동의가_없으면_기록_대신_동의_안내() throws Exception {
         consent(jisu, "OVERSEAS_TRANSFER", true);       // Q-01 「비동의」 = 일반 질문만
         given(chatClient.ask(anyString(), anyString(), eq(false), any())).willReturn(new ChatClient.Reply(
-                "RECORDS", null, new ChatClient.Records(null, null, null), null, null, "chat-v1"));
+                "RECORDS", null, new ChatClient.Records(null, null, null), null, null, null, "chat-v1"));
 
         ask(jisu, "내 기록 보여 줘")
                 .andExpect(jsonPath("$.data.answer.kind").value("CONSENT_NEEDED"))
@@ -301,7 +468,7 @@ class ChatFlowTest extends ReminderTestBase {
         agreeAll(jisu);
         given(chatClient.ask(anyString(), anyString(), anyBoolean(), any())).willReturn(new ChatClient.Reply(
                 "QUESTION_DRAFT", "진료 때 이렇게 물어보면 어떨까요?", null,
-                "아침 공복 혈당이 95 넘게 나온 날이 있었는데, 저녁 식사를 바꿔야 할까요?", null, "chat-v1"));
+                "아침 공복 혈당이 95 넘게 나온 날이 있었는데, 저녁 식사를 바꿔야 할까요?", null, null, "chat-v1"));
 
         ask(jisu, "공복 혈당 높을 때 뭐 물어보지")
                 .andExpect(jsonPath("$.data.answer.kind").value("QUESTION_DRAFT"))
@@ -314,7 +481,7 @@ class ChatFlowTest extends ReminderTestBase {
         agreeAll(jisu);
         given(chatClient.ask(anyString(), anyString(), anyBoolean(), any())).willReturn(new ChatClient.Reply(
                 "INFO", "임신성 당뇨는 대부분 출산 뒤 좋아지지만, 출산 후 검사를 받아야 해요.", null, null,
-                List.of(new ChatClient.Source("대한당뇨병학회 임신성 당뇨병", "https://www.diabetes.or.kr")), "chat-v1"));
+                List.of(new ChatClient.Source("대한당뇨병학회 임신성 당뇨병", "https://www.diabetes.or.kr")), null, "chat-v1"));
 
         ask(jisu, "출산하면 낫나요?")
                 .andExpect(jsonPath("$.data.answer.kind").value("INFO"))
@@ -325,11 +492,12 @@ class ChatFlowTest extends ReminderTestBase {
     void 출처_없는_정보는_보여_주지_않고_병원_안내() throws Exception {
         agreeAll(jisu);
         given(chatClient.ask(anyString(), anyString(), anyBoolean(), any())).willReturn(new ChatClient.Reply(
-                "INFO", "아마 괜찮을 거예요.", null, null, List.of(), "chat-v1"));
+                "INFO", "아마 괜찮을 거예요.", null, null, List.of(), null, "chat-v1"));
 
         ask(jisu, "괜찮을까요?")
                 .andExpect(jsonPath("$.data.answer.kind").value("UNKNOWN"))
-                .andExpect(jsonPath("$.data.answer.content").value("그 내용은 당당이 가진 자료에 없어요. 다니는 병원에 물어봐 주세요."));
+                .andExpect(jsonPath("$.data.answer.content").value("그 내용은 당당이가 가진 자료에 없어요. 다니는 병원에 물어봐 주세요."))
+                .andExpect(jsonPath("$.data.answer.reason").value("NO_SOURCE"));
     }
 
     @Test
@@ -407,7 +575,7 @@ class ChatFlowTest extends ReminderTestBase {
     void 글_없이_출처만_오면_500이_아니라_병원_안내() throws Exception {
         agreeAll(jisu);
         given(chatClient.ask(anyString(), anyString(), anyBoolean(), any())).willReturn(new ChatClient.Reply(
-                "INFO", null, null, null, List.of(new ChatClient.Source("자료", "https://example.com")), "chat-v1"));
+                "INFO", null, null, null, List.of(new ChatClient.Source("자료", "https://example.com")), null, "chat-v1"));
 
         ask(jisu, "출산하면 낫나요?")
                 .andExpect(status().isCreated())
@@ -453,7 +621,7 @@ class ChatFlowTest extends ReminderTestBase {
         }
         given(chatClient.ask(anyString(), anyString(), eq(true), any())).willReturn(new ChatClient.Reply(
                 "RECORDS", null, new ChatClient.Records(LocalDate.of(2026, 11, 1), LocalDate.of(2026, 11, 9), null),
-                null, null, "chat-v1"));
+                null, null, null, "chat-v1"));
 
         ask(jisu, "이번 달 기록 보여 줘")
                 .andExpect(jsonPath("$.data.answer.records.count").value(105))
@@ -466,7 +634,7 @@ class ChatFlowTest extends ReminderTestBase {
     void 미래_시작일만_오면_오늘_하루로_자른다() throws Exception {
         agreeAll(jisu);
         given(chatClient.ask(anyString(), anyString(), anyBoolean(), any())).willReturn(new ChatClient.Reply(
-                "RECORDS", null, new ChatClient.Records(LocalDate.of(2026, 12, 1), null, null), null, null, "chat-v1"));
+                "RECORDS", null, new ChatClient.Records(LocalDate.of(2026, 12, 1), null, null), null, null, null, "chat-v1"));
 
         ask(jisu, "다음 달 기록 보여 줘")
                 .andExpect(jsonPath("$.data.answer.records.from").value("2026-11-09"))
