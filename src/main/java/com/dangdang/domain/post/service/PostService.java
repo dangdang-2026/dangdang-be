@@ -111,7 +111,7 @@ public class PostService {
         Post post = postRepository.findByIdAndDeletedAtIsNull(postId)
                 .orElseThrow(() -> new CustomException(PostErrorCode.POST_NOT_FOUND));
         Long myProfileId = profileService.findMyProfileId(userId).orElse(null);
-        if (blockService.isBlocking(myProfileId, post.getProfile())) {
+        if (blockService.isBlocking(myProfileId, post.getProfile(), post.isAnonymous())) {
             throw new CustomException(PostErrorCode.POST_NOT_FOUND);
         }
         if (post.isHidden()) {
@@ -148,7 +148,7 @@ public class PostService {
     public Post findVisiblePost(Long postId, Long myProfileId) {
         return postRepository.findByIdAndDeletedAtIsNull(postId)
                 .filter(post -> !post.isHidden())
-                .filter(post -> !blockService.isBlocking(myProfileId, post.getProfile()))
+                .filter(post -> !blockService.isBlocking(myProfileId, post.getProfile(), post.isAnonymous()))
                 .orElseThrow(() -> new CustomException(PostErrorCode.POST_NOT_FOUND));
     }
 

@@ -95,20 +95,59 @@ class CommunityAnonymityFlowTest extends ReminderTestBase {
 
     // ── A ──
     @Test
-    void 익명_글로_안_보기_하면_그_사람_이름_글도_안_보이고_목록엔_익명_사용자() throws Exception {
+    void 익명_글로_안_보기_하면_그_사람_익명_글만_안_보이고_이름_글은_보이며_목록엔_익명_사용자() throws Exception {
         String anon = write(jisu, true);
+        String anon2 = write(jisu, true);
         String named = write(jisu, false);
         postJson(minji, "/api/blocks", "{\"postId\":\"" + anon + "\"}")
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.blocked").value(true));
 
-        mvc.perform(get("/api/posts/" + named).cookie(minji)).andExpect(status().isNotFound());
+        mvc.perform(get("/api/posts/" + anon2).cookie(minji)).andExpect(status().isNotFound());
+        mvc.perform(get("/api/posts/" + named).cookie(minji)).andExpect(status().isOk());   // 이름 글은 그대로 → 정체를 짐작 못 함
+        mvc.perform(get("/api/posts").cookie(minji))
+                .andExpect(jsonPath("$.data.items.length()").value(1))
+                .andExpect(jsonPath("$.data.items[0].id").value(named));
         mvc.perform(get("/api/blocks").cookie(minji))
                 .andExpect(jsonPath("$.data.items.length()").value(1))
                 .andExpect(jsonPath("$.data.items[0].nickname").value("익명 사용자"))
                 .andExpect(jsonPath("$.data.items[0].anonymous").value(true))
                 .andExpect(jsonPath("$.data.items[0].profileId").value((Object) null))
                 .andExpect(content().string(not(containsString("말랑한 두부"))));
+    }
+
+    @Test
+    void 이름으로_막으면_이름_글_댓글만_가리고_익명_글_댓글은_보이며_둘_다_막으면_다_안_보인다() throws Exception {
+        String anon = write(jisu, true);
+        String named = write(jisu, false);
+        String minjiPost = write(minji, false);
+        String anonComment = comment(jisu, minjiPost, true);
+        comment(jisu, minjiPost, false);
+        postJson(minji, "/api/blocks", "{\"blockedProfileId\":\"" + myProfileId(jisu) + "\"}").andExpect(status().isOk());
+
+        mvc.perform(get("/api/posts/" + named).cookie(minji)).andExpect(status().isNotFound());
+        mvc.perform(get("/api/posts/" + anon).cookie(minji)).andExpect(status().isOk());
+        mvc.perform(get("/api/posts").param("q", "제목").cookie(minji))          // 검색
+                .andExpect(jsonPath("$.data.items.length()").value(2))
+                .andExpect(jsonPath("$.data.items[0].id").value(minjiPost))
+                .andExpect(jsonPath("$.data.items[1].id").value(anon));
+        mvc.perform(get("/api/posts").param("sort", "POPULAR").cookie(minji))   // 인기
+                .andExpect(jsonPath("$.data.items.length()").value(2));
+        mvc.perform(get("/api/posts/" + minjiPost + "/comments").cookie(minji))
+                .andExpect(jsonPath("$.data.totalCount").value(1))
+                .andExpect(jsonPath("$.data.items[0].id").value(anonComment));
+        mvc.perform(get("/api/posts/" + minjiPost).cookie(minji))
+                .andExpect(jsonPath("$.data.commentCount").value(1));
+
+        postJson(minji, "/api/blocks", "{\"postId\":\"" + anon + "\"}").andExpect(status().isOk());   // 익명도 막기
+        mvc.perform(get("/api/posts/" + anon).cookie(minji)).andExpect(status().isNotFound());
+        mvc.perform(get("/api/posts").cookie(minji))
+                .andExpect(jsonPath("$.data.items.length()").value(1))
+                .andExpect(jsonPath("$.data.items[0].id").value(minjiPost));
+        mvc.perform(get("/api/posts/" + minjiPost + "/comments").cookie(minji))
+                .andExpect(jsonPath("$.data.totalCount").value(0));
+        postJson(minji, "/api/comments/" + anonComment + "/reactions", "{}")      // 안 보이는 댓글엔 공감도 못 한다
+                .andExpect(status().isNotFound());
     }
 
     @Test
@@ -313,6 +352,26 @@ class CommunityAnonymityFlowTest extends ReminderTestBase {
                 .andExpect(jsonPath("$.data.items[0].bestComment.id").value(b));
 
         mvc.perform(delete("/api/comments/" + b).cookie(hana)).andExpect(status().isOk());
+        mvc.perform(get("/api/posts").param("sort", "POPULAR").cookie(jisu))
+                .andExpect(jsonPath("$.data.items[0].bestComment").value((Object) null));
+    }
+
+    @Test
+    void 이름으로_막은_사람의_익명_댓글은_Best에_남고_익명으로_막으면_빠진다() throws Exception {
+        String postId = write(jisu, false);
+        String a = comment(minji, postId, true);
+        for (Cookie who : List.of(jisu, minji, hana)) {
+            react(who, a);
+        }
+        postJson(jisu, "/api/blocks", "{\"blockedProfileId\":\"" + myProfileId(minji) + "\"}").andExpect(status().isOk());
+        mvc.perform(get("/api/posts/" + postId + "/comments").cookie(jisu))
+                .andExpect(jsonPath("$.data.items[0].isBest").value(true));
+        mvc.perform(get("/api/posts").param("sort", "POPULAR").cookie(jisu))
+                .andExpect(jsonPath("$.data.items[0].bestComment.id").value(a));
+
+        postJson(jisu, "/api/blocks", "{\"commentId\":\"" + a + "\"}").andExpect(status().isOk());
+        mvc.perform(get("/api/posts/" + postId + "/comments").cookie(jisu))
+                .andExpect(jsonPath("$.data.items").isEmpty());
         mvc.perform(get("/api/posts").param("sort", "POPULAR").cookie(jisu))
                 .andExpect(jsonPath("$.data.items[0].bestComment").value((Object) null));
     }

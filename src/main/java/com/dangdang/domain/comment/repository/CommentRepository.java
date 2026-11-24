@@ -17,7 +17,8 @@ public interface CommentRepository extends JpaRepository<Comment, Long> {
 
     Optional<Comment> findByIdAndDeletedAtIsNull(Long id);
 
-    // 지운 댓글·가린 댓글·내가 안 보기 한 사람의 댓글, 그리고 그 밑의 답글까지 뺀다. 오래된 순
+    // 지운 댓글·가린 댓글·내가 안 보기 한 댓글, 그리고 그 밑의 답글까지 뺀다. 오래된 순
+    // 안 보기는 이름 차단 줄 = 이름 댓글만, 익명 차단 줄 = 익명 댓글만 (BlockService.isBlocking과 같은 규칙)
     @Query("""
             select c from Comment c
             left join c.parent p
@@ -26,7 +27,8 @@ public interface CommentRepository extends JpaRepository<Comment, Long> {
               and (p is null or (p.deletedAt is null and p.hiddenReason is null))
               and not exists (select 1 from ProfileBlock b
                               where b.profile.id = :viewer
-                                and (b.blockedProfile.id = c.profile.id or b.blockedProfile.id = p.profile.id))
+                                and ((b.blockedProfile.id = c.profile.id and b.viaAnonymous = c.anonymous)
+                                     or (b.blockedProfile.id = p.profile.id and b.viaAnonymous = p.anonymous)))
             order by c.createdAt asc, c.id asc
             """)
     List<Comment> findVisibleByPostId(@Param("postId") Long postId, @Param("viewer") Long viewerProfileId);
@@ -40,7 +42,8 @@ public interface CommentRepository extends JpaRepository<Comment, Long> {
               and (p is null or (p.deletedAt is null and p.hiddenReason is null))
               and not exists (select 1 from ProfileBlock b
                               where b.profile.id = :viewer
-                                and (b.blockedProfile.id = c.profile.id or b.blockedProfile.id = p.profile.id))
+                                and ((b.blockedProfile.id = c.profile.id and b.viaAnonymous = c.anonymous)
+                                     or (b.blockedProfile.id = p.profile.id and b.viaAnonymous = p.anonymous)))
             group by c.post.id
             """)
     List<IdCount> countVisibleByPostIds(@Param("postIds") Collection<Long> postIds, @Param("viewer") Long viewerProfileId);
@@ -75,7 +78,8 @@ public interface CommentRepository extends JpaRepository<Comment, Long> {
             WHERE c.post_id IN (:postIds)
               AND c.parent_id IS NULL AND c.deleted_at IS NULL AND c.hidden_reason IS NULL
               AND NOT EXISTS (SELECT 1 FROM profile_blocks b
-                              WHERE b.profile_id = :viewer AND b.blocked_profile_id = c.profile_id)
+                              WHERE b.profile_id = :viewer AND b.blocked_profile_id = c.profile_id
+                                AND b.via_anonymous = c.is_anonymous)
             GROUP BY c.post_id, c.id, c.created_at
             HAVING count(*) >= :minReactions
             ORDER BY c.post_id, count(*) DESC, c.created_at, c.id
@@ -112,7 +116,8 @@ public interface CommentRepository extends JpaRepository<Comment, Long> {
               and c.deletedAt is null and c.hiddenReason is null
               and p.deletedAt is null and p.hiddenReason is null
               and not exists (select 1 from ProfileBlock b
-                              where b.profile.id = :profileId and b.blockedProfile.id = p.profile.id)
+                              where b.profile.id = :profileId and b.blockedProfile.id = p.profile.id
+                                and b.viaAnonymous = p.anonymous)
             order by c.createdAt desc, c.id desc
             """)
     List<Comment> findMine(@Param("profileId") Long profileId, Limit limit);
@@ -124,7 +129,8 @@ public interface CommentRepository extends JpaRepository<Comment, Long> {
               and c.deletedAt is null and c.hiddenReason is null
               and p.deletedAt is null and p.hiddenReason is null
               and not exists (select 1 from ProfileBlock b
-                              where b.profile.id = :profileId and b.blockedProfile.id = p.profile.id)
+                              where b.profile.id = :profileId and b.blockedProfile.id = p.profile.id
+                                and b.viaAnonymous = p.anonymous)
               and (c.createdAt < :at or (c.createdAt = :at and c.id < :id))
             order by c.createdAt desc, c.id desc
             """)
@@ -138,7 +144,8 @@ public interface CommentRepository extends JpaRepository<Comment, Long> {
               and c.deletedAt is null and c.hiddenReason is null
               and p.deletedAt is null and p.hiddenReason is null
               and not exists (select 1 from ProfileBlock b
-                              where b.profile.id = :profileId and b.blockedProfile.id = p.profile.id)
+                              where b.profile.id = :profileId and b.blockedProfile.id = p.profile.id
+                                and b.viaAnonymous = p.anonymous)
             """)
     long countMine(@Param("profileId") Long profileId);
 }

@@ -34,7 +34,8 @@ public interface ProfileBlockRepository extends JpaRepository<ProfileBlock, Long
     @Query("delete from ProfileBlock b where b.id = :blockId and b.profile.id = :profileId")
     void removeById(@Param("blockId") Long blockId, @Param("profileId") Long profileId);
 
-    boolean existsByProfileIdAndBlockedProfileId(Long profileId, Long blockedProfileId);
+    boolean existsByProfileIdAndBlockedProfileIdAndViaAnonymous(Long profileId, Long blockedProfileId,
+                                                                boolean viaAnonymous);
 
     // M-14 「안 보는 사람 N명」
     long countByProfileId(Long profileId);

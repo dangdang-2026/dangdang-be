@@ -124,7 +124,7 @@ public class CommentService {
     public Comment findVisibleComment(Long commentId, Long myProfileId) {
         Comment comment = commentRepository.findByIdAndDeletedAtIsNull(commentId)
                 .filter(c -> !c.isHidden())
-                .filter(c -> !blockService.isBlocking(myProfileId, c.getProfile()))
+                .filter(c -> !blockService.isBlocking(myProfileId, c.getProfile(), c.isAnonymous()))
                 .orElseThrow(() -> new CustomException(CommentErrorCode.COMMENT_NOT_FOUND));
         postService.findVisiblePost(comment.getPost().getId(), myProfileId);
         return comment;
@@ -146,7 +146,7 @@ public class CommentService {
     private Comment findParent(Long parentId, Long postId, Long myProfileId) {
         Comment parent = commentRepository.findByIdAndDeletedAtIsNull(parentId)
                 .filter(c -> !c.isHidden() && c.getPost().getId().equals(postId))
-                .filter(c -> !blockService.isBlocking(myProfileId, c.getProfile()))
+                .filter(c -> !blockService.isBlocking(myProfileId, c.getProfile(), c.isAnonymous()))
                 .orElseThrow(() -> new CustomException(CommentErrorCode.COMMENT_NOT_FOUND));
         if (parent.isReply()) {     // U-02b는 답글 아래에 답글 버튼이 없다 (1단계까지만)
             throw new CustomException(CommentErrorCode.REPLY_DEPTH_EXCEEDED);

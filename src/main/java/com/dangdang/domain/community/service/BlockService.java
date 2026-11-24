@@ -109,9 +109,12 @@ public class BlockService {
         return new BlockResponse(false);
     }
 
-    // 글·댓글·투표·신고가 부른다 — 내가 안 보기 한 사람인가
-    public boolean isBlocking(Long myProfileId, CommunityProfile author) {
+    // 글·댓글·투표·신고가 부른다 — 이 글·댓글을 안 보기 했나
+    // 이름으로 막은 줄은 이름 글·댓글만, 익명 글·댓글로 막은 줄은 익명 글·댓글만 가린다 (서로 영향 없음)
+    // → 익명 글을 막아도 그 사람 이름 글이 사라지지 않고, 이름을 막아도 익명 글이 사라지지 않아 익명 글쓴이를 짐작할 수 없다
+    public boolean isBlocking(Long myProfileId, CommunityProfile author, boolean anonymous) {
         return myProfileId != null && author != null
-                && blockRepository.existsByProfileIdAndBlockedProfileId(myProfileId, author.getId());
+                && blockRepository.existsByProfileIdAndBlockedProfileIdAndViaAnonymous(myProfileId, author.getId(),
+                anonymous);
     }
 }

@@ -53,8 +53,10 @@ public class PostPopularQuery {
         Root<ProfileBlock> block = blocked.from(ProfileBlock.class);
         blocked.select(block.get("id")).where(
                 cb.equal(block.get("profile").get("id"), viewer),
-                cb.or(cb.equal(block.get("blockedProfile"), comment.get("profile")),
-                        cb.equal(block.get("blockedProfile"), parent.get("profile"))));
+                cb.or(cb.and(cb.equal(block.get("blockedProfile"), comment.get("profile")),
+                                cb.equal(block.get("viaAnonymous"), comment.get("anonymous"))),
+                        cb.and(cb.equal(block.get("blockedProfile"), parent.get("profile")),
+                                cb.equal(block.get("viaAnonymous"), parent.get("anonymous")))));
 
         return sub.select(cb.count(comment)).where(
                 cb.equal(comment.get("post"), post),
