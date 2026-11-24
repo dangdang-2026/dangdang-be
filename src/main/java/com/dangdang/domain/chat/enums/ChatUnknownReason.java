@@ -13,7 +13,8 @@ public enum ChatUnknownReason {
     DISTRESS,    // 우울·지침·외로움 → 1577-0199 · 물어볼 말로 정리
     APP_HELP,    // 앱 사용법 → 「도움말로」
     ABOUT,       // 당당이 소개·개인정보 → 「개인정보 처리방침」
-    // ↓ 이 셋은 저장하기 전에 위급 안내(RISK)로 바뀐다 (RiskSignalRules.forAiReason) → 응답 reason에는 안 나옴
+    // ↓ 이 넷은 저장하기 전에 위급 안내(RISK)로 바뀐다 (RiskSignalRules.forAiReason) → 응답 reason에는 안 나옴
+    HYPO,        // 저혈당 증상 → 저혈당 안내 (산과 위급 문구가 아니라)
     URGENT,
     CRISIS,
     SAFETY;
@@ -33,6 +34,6 @@ public enum ChatUnknownReason {
     }
 
     public boolean isRisk() {
-        return this == URGENT || this == CRISIS || this == SAFETY;
+        return this == HYPO || this == URGENT || this == CRISIS || this == SAFETY;
     }
 }

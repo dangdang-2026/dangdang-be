@@ -24,7 +24,9 @@ public record ChatMessageResponse(
                 + "content는 본문만. 예전 대화는 null")
         ChatPayload.Risk risk,
         @Schema(description = "UNKNOWN일 때 이유. 버튼 고르기용 JUDGMENT · NO_SOURCE · CHITCHAT · RUDE · OFF_TOPIC · "
-                + "NO_CONSENT · DISTRESS · APP_HELP · ABOUT (예전 대화는 null)", example = "RUDE")
+                + "NO_CONSENT · DISTRESS · APP_HELP · ABOUT (예전 대화는 null)", example = "RUDE",
+                allowableValues = {"JUDGMENT", "NO_SOURCE", "CHITCHAT", "RUDE", "OFF_TOPIC", "NO_CONSENT", "DISTRESS",
+                        "APP_HELP", "ABOUT"})
         ChatUnknownReason reason,
         @Schema(description = "도움이 됐나요 (안 눌렀으면 null)") Boolean helpful,
         Instant createdAt) {

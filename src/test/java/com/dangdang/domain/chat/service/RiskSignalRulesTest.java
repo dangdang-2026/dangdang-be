@@ -93,4 +93,53 @@ class RiskSignalRulesTest {
         assertThat(RiskSignalRules.forAiReason(ChatUnknownReason.SAFETY, false))
                 .isEqualTo(RiskSignalRules.match("남편이 때려", false).orElseThrow());
     }
+
+    // ── 11/25 리뷰에서 찾은 말 — ai tests/test_post_check.py와 같은 문장, 같은 결과 ──
+
+    @ParameterizedTest
+    @ValueSource(strings = {"피가 너무 많이 나요.", "피 나요.", "갈색 피비침이 있어요."})
+    void 출혈은_부사가_둘이어도_피비침도_위급(String text) {
+        assertThat(type(text)).isEqualTo(RiskSignalRules.Type.URGENT);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"혈당이 너무 낮아요 어지러워요.", "혈당이 떨어져서 어지러워요.", "혈당 65mg/dL 나왔어요."})
+    void 혈당이_낮다_떨어졌다도_저혈당(String text) {
+        assertThat(type(text)).isEqualTo(RiskSignalRules.Type.HYPO);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "혈당 측정기 15만원이에요.", "혈당 측정 30초면 끝나요.", "혈당 관리하는 50대예요.", "혈당 낮추는 법 알려 주세요.",
+            "혈당 떨어뜨리는 음식 있나요?", "커피 나와요.", "피가 나아졌어요.", "회사 다 그만두고 싶어요.", "엄마 없으면 편해요."})
+    void 돈_시간_나이와_흔한_말은_안_걸린다(String text) {
+        assertThat(type(text)).isNull();
+    }
+
+    @Test
+    void 혈당_뒤_약_용량은_저혈당이_아니라_약_용량() {
+        assertThat(type("혈당 쟀는데 인슐린 12단위 맞아야 해?")).isEqualTo(RiskSignalRules.Type.DOSE);
+        assertThat(type("인슐린 12단위 맞아요")).isEqualTo(RiskSignalRules.Type.DOSE);
+    }
+
+    @Test
+    void 저혈당과_약_용량이_한_문장이면_저혈당_안내가_먼저() {   // ai 글 감지는 둘 다 알리지만 챗봇 답은 하나
+        assertThat(type("란투스 10단위 맞았는데 혈당 65 나왔어요.")).isEqualTo(RiskSignalRules.Type.HYPO);
+        assertThat(type("인슐린 4단위 맞고 손이 떨려요.")).isEqualTo(RiskSignalRules.Type.HYPO);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "고열량 간식 먹어도 돼요?", "열이 나아졌어요", "아기가 배를 발로 때리는 느낌이에요", "아기가 발로 배를 때려요",
+            "약간 어지러운데 깜빡했어요", "약해서 두 번 먹었어요"})
+    void 챗봇만_보는_말의_오탐(String text) {
+        assertThat(type(text)).isNotIn(RiskSignalRules.Type.URGENT, RiskSignalRules.Type.SAFETY, RiskSignalRules.Type.DOSE);
+    }
+
+    @Test
+    void AI가_고른_저혈당_이유는_산과_문구가_아니라_저혈당_안내() {
+        RiskSignalRules.Hit hit = RiskSignalRules.forAiReason(ChatUnknownReason.HYPO, false);
+        assertThat(hit).isEqualTo(RiskSignalRules.match("저혈당 온 것 같아요", false).orElseThrow());
+        assertThat(hit.text()).doesNotContain("태동", "분만실");
+    }
 }

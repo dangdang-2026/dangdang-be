@@ -373,6 +373,23 @@ class ChatFlowTest extends ReminderTestBase {
     }
 
     @Test
+    void AI가_저혈당을_고르면_저혈당_안내이고_예전_AI처럼_모르는_이유면_NO_SOURCE() throws Exception {
+        agreeAll(jisu);
+        given(chatClient.ask(anyString(), anyString(), anyBoolean(), any()))
+                .willReturn(unknown("HYPO", "AI 예비 글"), unknown("SOMETHING_NEW", "AI 예비 글"));
+
+        ask(jisu, "몸이 이상하게 떨리는 것 같아요")
+                .andExpect(jsonPath("$.data.answer.kind").value("RISK"))
+                .andExpect(jsonPath("$.data.answer.risk.type").value("HYPO"))
+                .andExpect(jsonPath("$.data.answer.content").value(not(containsString("분만실"))))
+                .andExpect(jsonPath("$.data.answer.actions", contains("CALL_HOSPITAL", "CALL_119")));
+        ask(jisu, "다음 질문")
+                .andExpect(jsonPath("$.data.answer.kind").value("UNKNOWN"))
+                .andExpect(jsonPath("$.data.answer.reason").value("NO_SOURCE"))
+                .andExpect(jsonPath("$.data.answer.content").value("AI 예비 글"));
+    }
+
+    @Test
     void AI가_고른_위급_안내도_다음_질문의_AI_기록에_안_들어간다() throws Exception {
         agreeAll(jisu);
         given(chatClient.ask(anyString(), anyString(), anyBoolean(), any()))
