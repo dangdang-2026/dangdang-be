@@ -10,6 +10,7 @@ import com.dangdang.domain.reading.dto.request.ReadingUpdateRequest;
 import com.dangdang.domain.reading.dto.response.ReadingPageResponse;
 import com.dangdang.domain.reading.dto.response.ReadingResponse;
 import com.dangdang.domain.reading.entity.Reading;
+import com.dangdang.domain.reading.enums.ReadingType;
 import com.dangdang.domain.reading.exception.ReadingErrorCode;
 import com.dangdang.domain.reading.repository.ReadingRepository;
 import com.dangdang.domain.user.entity.User;
@@ -40,31 +41,39 @@ public class ReadingService {
     private final ReminderService reminderService;
     private final Clock clock;
     private final SensitiveConsentGuard sensitiveConsentGuard;
+    private final ExpectedTimeResolver expectedTimeResolver;
 
     private static final int MAX_PAGE_SIZE = 100;
 
-    // 등록 — 잰 날짜(한국)에 적용 중이던 병원 기준을 붙여서 저장
+    // 등록 — 잰 날짜(한국)에 적용 중이던 병원 기준을 붙여서 저장. 숫자와 HI·LO 중 하나만
     @Transactional
     public ReadingResponse create(Long userId, ReadingCreateRequest req) {
         sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403
+        if (!req.hasOneValue()) {
+            throw new CustomException(ReadingErrorCode.VALUE_OR_METER_LIMIT);
+        }
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
         checkMealIsMine(userId, req.mealId());
         CriteriaVersion criteria = criteriaService.onDateOrEmpty(userId, KoreanTime.dateOf(req.measuredAt()));
-        Reading saved = readingRepository.save(Reading.of(
-                user, criteria, req.readingType(), req.slot(), req.measuredAt(), req.value(),
-                req.mealId(), clock.instant()));
+        Reading reading = Reading.of(
+                user, criteria, req.readingType(), req.slot(), req.measuredAt(), req.valueToSave(),
+                req.meterLimit(), req.mealId(), clock.instant());
+        checkMeasuredAfterMeal(userId, reading);   // 저장 전에 (G-10)
+        Reading saved = readingRepository.save(reading);
         if (saved.getMealId() != null) {   // 식후 혈당을 쟀으니 그 식사의 "재세요" 알림은 끝 처리
             reminderService.completeForMeal(saved.getMealId(), saved.getId());
         } else if (saved.getSlot() != null) {   // 공복, 자기 전 혈당이면 그날 그 알림을 끝 처리
             reminderService.completeForSlot(userId, saved.getSlot(), saved.getMeasuredAt(), saved.getId());
         }
-        return ReadingResponse.from(saved);
+        // 알림 끝 처리 뒤에 구해서, 방금 끝낸 알림의 예정 시각이 재야 할 시각 1순위로 잡힘 (G-07 「늦게 잰 기록」)
+        return ReadingResponse.of(saved, expectedTimeResolver.expectedAtOf(userId, saved));
     }
 
     // 상세
     public ReadingResponse get(Long userId, Long readingId) {
-        return ReadingResponse.from(findMine(userId, readingId));
+        Reading reading = findMine(userId, readingId);
+        return ReadingResponse.of(reading, expectedTimeResolver.expectedAtOf(userId, reading));
     }
 
     // 목록 (기간 + 커서). from·to는 한국 날짜, 둘 다 포함. 첫 페이지는 cursorAt·cursorId 없이 부름
@@ -97,20 +106,25 @@ public class ReadingService {
         if (req.isEmpty()) {
             throw new CustomException(ReadingErrorCode.NOTHING_TO_UPDATE);
         }
+        if (req.hasBothValueAndMeterLimit()) {
+            throw new CustomException(ReadingErrorCode.VALUE_OR_METER_LIMIT);
+        }
         Reading reading = findMine(userId, readingId);
         checkMealIsMine(userId, req.mealId());
         CriteriaVersion criteria = req.measuredAt() != null
                 ? criteriaService.onDateOrEmpty(userId, KoreanTime.dateOf(req.measuredAt()))
                 : null;   // 잰 시각을 안 바꾸면 기준도 그대로
 
-        reading.update(req.value(), req.measuredAt(), criteria, req.readingType(), req.slot(), req.mealId());
+        reading.update(req.value(), req.meterLimit(), req.measuredAt(), criteria, req.readingType(), req.slot(),
+                req.mealId(), clock.instant());
+        checkMeasuredAfterMeal(userId, reading);   // 던지면 위 변경은 트랜잭션째 되돌아감 (G-10)
         if (req.mealId() != null) {   // 수정으로 식사를 붙였으면 그 식사의 알림도 끝 처리
             reminderService.completeForMeal(req.mealId(), reading.getId());
         }
         // save 안 불러도 트랜잭션 끝날 때 바뀐 칸이 DB에 반영됨(변경 감지).
         // 다만 updatedAt은 DB에 쓸 때 채워져서, 응답에 새 값을 담으려고 여기서 먼저 반영함
         readingRepository.flush();
-        return ReadingResponse.from(reading);
+        return ReadingResponse.of(reading, expectedTimeResolver.expectedAtOf(userId, reading));
     }
 
     // 삭제 (soft delete). 이미 지운 기록을 또 지우면 findMine에서 404
@@ -123,6 +137,19 @@ public class ReadingService {
     private Reading findMine(Long userId, Long readingId) {
         return readingRepository.findByIdAndUserIdAndDeletedAtIsNull(readingId, userId)
                 .orElseThrow(() -> new CustomException(ReadingErrorCode.READING_NOT_FOUND));
+    }
+
+    // 식후 혈당은 붙은 식사 시작보다 앞 시각일 수 없음 (G-10 「식사 시작 12:10부터 지금까지」)
+    // 공복·기타는 식사가 붙어 있어도 안 봄 (등록이 공복+식사를 허용해서). 지운 식사에 붙은 채면 비교할 식사가 없어 넘어감
+    private void checkMeasuredAfterMeal(Long userId, Reading reading) {
+        if (reading.getReadingType() != ReadingType.POST_MEAL || reading.getMealId() == null) {
+            return;
+        }
+        mealRepository.findByIdAndUserIdAndDeletedAtIsNull(reading.getMealId(), userId)
+                .filter(meal -> reading.getMeasuredAt().isBefore(meal.getStartedAt()))
+                .ifPresent(meal -> {
+                    throw new CustomException(ReadingErrorCode.MEASURED_BEFORE_MEAL);
+                });
     }
 
     // mealId를 보냈으면 내 식사 + 삭제 안 된 식사인지 확인함. 아니면 404 (남의 식사가 있다는 것도 안 알려줌)

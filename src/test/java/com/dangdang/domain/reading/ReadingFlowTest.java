@@ -20,6 +20,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -346,6 +347,142 @@ class ReadingFlowTest {
                         .content("{\"mealId\":" + othersMeal + "}"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.errorCode").value("MEAL_40401"));
+    }
+
+    // ---------- 처음 값·고친 시각·식사 연결 끊기 ----------
+
+    @Test
+    void 식후를_공복으로_바꾸면_식사_연결이_끊긴다() throws Exception {
+        long mealId = createMeal(access);
+        String body = mvc.perform(post("/api/readings").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content(postMealJson(mealId)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        long id = ((Number) JsonPath.read(body, "$.data.readingId")).longValue();
+
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"readingType\":\"FASTING\",\"slot\":\"FASTING\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.readingType").value("FASTING"))
+                .andExpect(jsonPath("$.data.mealId").value((Object) null))
+                .andExpect(jsonPath("$.data.editedAt").isNotEmpty())
+                .andExpect(jsonPath("$.data.originalValue").value((Object) null));   // 값은 안 고침
+    }
+
+    @Test
+    void 같은_값으로_저장하면_수정으로_안_센다() throws Exception {
+        long id = create(95, Instant.now());
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"value\":95}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.editedAt").value((Object) null))
+                .andExpect(jsonPath("$.data.originalValue").value((Object) null));
+    }
+
+    // ---------- HI·LO (G-11) ----------
+
+    @Test
+    void HI를_보내면_600으로_저장되고_HI가_남는다() throws Exception {
+        mvc.perform(post("/api/readings").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"meterLimit\":\"HI\",\"measuredAt\":\"" + Instant.now() + "\",\"readingType\":\"OTHER\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.value").value(600))
+                .andExpect(jsonPath("$.data.meterLimit").value("HI"))
+                .andExpect(jsonPath("$.data.belowLow").value(false));
+    }
+
+    @Test
+    void 숫자와_HI를_같이_보내거나_둘_다_없으면_400() throws Exception {
+        for (String body : List.of(
+                "{\"value\":120,\"meterLimit\":\"HI\",\"measuredAt\":\"" + Instant.now() + "\",\"readingType\":\"OTHER\"}",
+                "{\"measuredAt\":\"" + Instant.now() + "\",\"readingType\":\"OTHER\"}")) {
+            mvc.perform(post("/api/readings").cookie(access).contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errorCode").value("READING_40004"));
+        }
+    }
+
+    @Test
+    void LO를_숫자로_고치면_LO가_풀리고_처음_값이_남는다() throws Exception {
+        String body = mvc.perform(post("/api/readings").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"meterLimit\":\"LO\",\"measuredAt\":\"" + Instant.now() + "\",\"readingType\":\"FASTING\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.value").value(20))
+                .andExpect(jsonPath("$.data.belowLow").value(true))
+                .andReturn().getResponse().getContentAsString();
+        long id = ((Number) JsonPath.read(body, "$.data.readingId")).longValue();
+
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"value\":45}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.value").value(45))
+                .andExpect(jsonPath("$.data.meterLimit").value((Object) null))
+                .andExpect(jsonPath("$.data.originalValue").value(20))
+                .andExpect(jsonPath("$.data.belowLow").value(true));
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"value\":45,\"meterLimit\":\"LO\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("READING_40004"));
+    }
+
+    @Test
+    void 숫자_600을_HI로_고치면_값은_같아도_고친_것으로_센다() throws Exception {
+        long id = create(600, Instant.now());
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"meterLimit\":\"HI\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.value").value(600))
+                .andExpect(jsonPath("$.data.meterLimit").value("HI"))
+                .andExpect(jsonPath("$.data.originalValue").value(600))
+                .andExpect(jsonPath("$.data.editedAt").isNotEmpty());
+    }
+
+    // ---------- 식후 시각 (G-10) ----------
+
+    @Test
+    void 식후_혈당을_식사_시작보다_앞_시각으로_적거나_고치면_400() throws Exception {
+        long mealId = createMeal(access);   // 2시간 전 시작
+        mvc.perform(post("/api/readings").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"value\":150,\"measuredAt\":\"" + Instant.now().minus(Duration.ofHours(3))
+                                + "\",\"readingType\":\"POST_MEAL\",\"mealId\":" + mealId + "}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("READING_40005"));
+
+        String body = mvc.perform(post("/api/readings").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content(postMealJson(mealId)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        long id = ((Number) JsonPath.read(body, "$.data.readingId")).longValue();
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"measuredAt\":\"" + Instant.now().minus(Duration.ofHours(3)) + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("READING_40005"));
+        mvc.perform(get("/api/readings/" + id).cookie(access))
+                .andExpect(jsonPath("$.data.editedAt").value((Object) null));   // 400이면 고친 것도 안 남음
+    }
+
+    @Test
+    void 식사_시작과_같은_시각은_식후로_적을_수_있다() throws Exception {
+        Instant startedAt = Instant.now().minus(Duration.ofHours(1)).truncatedTo(ChronoUnit.SECONDS);
+        String meal = mvc.perform(post("/api/meals").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mealSlot\":\"LUNCH\",\"startedAt\":\"" + startedAt + "\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        long mealId = ((Number) JsonPath.read(meal, "$.data.mealId")).longValue();
+
+        mvc.perform(post("/api/readings").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"value\":150,\"measuredAt\":\"" + startedAt
+                                + "\",\"readingType\":\"POST_MEAL\",\"mealId\":" + mealId + "}"))
+                .andExpect(status().isCreated());
+    }
+
+    @Test
+    void 공복_혈당은_식사보다_앞이어도_된다() throws Exception {
+        long mealId = createMeal(access);
+        mvc.perform(post("/api/readings").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"value\":90,\"measuredAt\":\"" + Instant.now().minus(Duration.ofHours(3))
+                                + "\",\"readingType\":\"FASTING\",\"mealId\":" + mealId + "}"))
+                .andExpect(status().isCreated());
     }
 
     // ---------- 식후 알림 끝 처리 ----------
