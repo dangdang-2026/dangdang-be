@@ -15,4 +15,8 @@ public interface CriteriaVersionRepository extends JpaRepository<CriteriaVersion
     // 지금 기준: 적용일 <= 오늘 인 것 중 첫 번째 하나 (없으면 Optional.empty)
     Optional<CriteriaVersion> findFirstByUserIdAndEffectiveFromLessThanEqualOrderByEffectiveFromDescIdDesc(
             Long userId, LocalDate today);
+
+    // 이 날짜보다 뒤에 시작하는 첫 기준 (지난 날짜 기준을 적을 때 그 기준이 어디까지 쓰이는지). 적용일 이른 순 → id 작은 순
+    Optional<CriteriaVersion> findFirstByUserIdAndEffectiveFromGreaterThanOrderByEffectiveFromAscIdAsc(
+            Long userId, LocalDate date);
 }

@@ -30,6 +30,7 @@ public class CriteriaVersionController {
                     """
                     **Parameters** postMealMinutes(30~180, 10분 단위, null=아직 몰라요), measureSlots, fastingTarget·postMealTarget(미만, null=비교 안 함), sourceNote, effectiveFrom(비우면 오늘)
                     **Returns** 저장된 기준. 덮어쓰지 않고 새 줄로 쌓인다. 범위 밖이면 GLOBAL_40001
+                    effectiveFrom이 어제 이전이면 그날 0시 ~ 다음 기준 시작 전(다음 기준이 없으면 끝까지)에 이미 잰 혈당(지운 것 포함)도 이 기준으로 목표 밖을 다시 셈. 오늘·미래면 이미 잰 기록은 안 바꿈. 다시 붙여도 「수정됨」(editedAt)은 안 생김
                     """)
     @PostMapping
     public ResponseEntity<BaseResponse<CriteriaVersionResponse>> create(
