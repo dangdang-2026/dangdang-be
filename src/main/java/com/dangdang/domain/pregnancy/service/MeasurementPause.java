@@ -13,7 +13,7 @@ public class MeasurementPause {
 
     private final PregnancyRepository pregnancyRepository;
 
-    // 임신 중이면 보낸다. 입원·산후·졸업이면 멈춘다. 임신 정보를 아직 안 적은 사람은 보낸다
+    // 임신 중이면 보낸다. 입원·다른 상황(PAUSED)·산후·졸업이면 멈춘다. 임신 정보를 아직 안 적은 사람은 보낸다
     @Transactional(readOnly = true)
     public boolean allowsMeasurement(Long userId) {
         return pregnancyRepository.findByUserIdAndStateNot(userId, PregnancyState.ENDED)
