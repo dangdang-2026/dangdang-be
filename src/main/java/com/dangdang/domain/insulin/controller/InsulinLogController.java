@@ -4,7 +4,9 @@ import com.dangdang.domain.insulin.dto.request.InsulinLogCreateRequest;
 import com.dangdang.domain.insulin.dto.request.InsulinLogUpdateRequest;
 import com.dangdang.domain.insulin.dto.response.InsulinLogPageResponse;
 import com.dangdang.domain.insulin.dto.response.InsulinLogResponse;
+import com.dangdang.domain.insulin.enums.InsulinType;
 import com.dangdang.domain.insulin.service.InsulinLogService;
+import com.dangdang.domain.meal.enums.MealSlot;
 import com.dangdang.global.common.BaseResponse;
 import com.dangdang.global.common.QueryParams;
 import com.dangdang.global.security.AuthPrincipal;
@@ -31,10 +33,11 @@ public class InsulinLogController {
             summary = "[ 사용자 | 토큰 O | 인슐린 투여 기록 등록 ]",
             description =
                     """
-                    **Parameters** insulinType(MEAL 식사 때 · BEDTIME 자기 전 · CUSTOM 직접 입력, 필수),
+                    **Parameters** insulinType(MEAL 식사 때 · BEDTIME 자기 전, 필수), mealSlot(MEAL일 때만 필수: BREAKFAST·LUNCH·DINNER),
                     units(맞은 단위, 필수, 0 초과 999.9 이하, 소수 한 자리까지), takenAt(맞은 시각, 필수, 시간대 포함, 2000년 이후 ~ 지금)
-                    **Returns** 저장된 기록 {insulinLogId, insulinType, units, takenAt, createdAt, updatedAt}.
-                    적은 그대로 저장만 함 (권장량 계산·투여 알림 없음). 범위 밖이거나 빠진 값이 있으면 GLOBAL_40001
+                    **Returns** 저장된 기록 {insulinLogId, insulinType, mealSlot, units, takenAt, editedAt, createdAt, updatedAt}.
+                    적은 그대로 저장만 함 (권장량 계산·투여 알림 없음). 범위 밖이거나 빠진 값이 있으면 GLOBAL_40001,
+                    MEAL인데 끼니가 없으면 INSULIN_40003, BEDTIME에 끼니를 보내면 INSULIN_40004, 끼니가 SNACK이면 INSULIN_40005
                     """)
     @PostMapping
     public ResponseEntity<BaseResponse<InsulinLogResponse>> create(
@@ -45,13 +48,32 @@ public class InsulinLogController {
     }
 
     @Operation(
+            summary = "[ 사용자 | 토큰 O | 인슐린 지난 기록 불러오기 ]",
+            description =
+                    """
+                    **Parameters** insulinType(MEAL·BEDTIME, 필수), mealSlot(MEAL이면 필수: BREAKFAST·LUNCH·DINNER, BEDTIME이면 안 보냄)
+                    **Returns** 같은 종류(식사 때면 같은 끼니까지) 중 맞은 시각이 가장 늦은 기록 1건 (등록 응답과 같은 모양, 지운 기록 빼고).
+                    없으면 data 없음 (200). E-02 「지난 기록 · 어제 저녁 식사 때 6단위 불러오기」.
+                    insulinType이 없거나 틀리면 GLOBAL_40001, MEAL인데 끼니가 없으면 INSULIN_40003,
+                    BEDTIME에 끼니를 보내면 INSULIN_40004, 끼니가 SNACK이면 INSULIN_40005
+                    """)
+    @GetMapping("/latest")
+    public ResponseEntity<BaseResponse<InsulinLogResponse>> latest(
+            @AuthenticationPrincipal AuthPrincipal principal,
+            @RequestParam InsulinType insulinType,
+            @RequestParam(required = false) MealSlot mealSlot) {
+        return ResponseEntity.ok(BaseResponse.success(200, "인슐린 지난 기록 조회에 성공했습니다.",
+                insulinLogService.latest(principal.userId(), insulinType, mealSlot)));
+    }
+
+    @Operation(
             summary = "[ 사용자 | 토큰 O | 인슐린 투여 기록 목록 ]",
             description =
                     """
                     **Parameters** from·to(한국 날짜 yyyy-MM-dd, 필수, 둘 다 포함), page(기본 0, 0~10000), size(기본 20, 1~100)
-                    **Returns** items[]{insulinLogId, insulinType, units, takenAt, createdAt, updatedAt}·page·size·hasNext.
+                    **Returns** items[]{insulinLogId, insulinType, mealSlot, units, takenAt, editedAt, createdAt, updatedAt}·page·size·hasNext.
                     맞은 시각 오래된 순, 지운 기록은 빠짐. 없으면 items=[].
-                    날짜가 없거나 형식이 틀리거나 from > to, page·size가 범위 밖이면 GLOBAL_40001
+                    날짜가 없거나 형식이 틀리거나 page·size가 범위 밖이면 GLOBAL_40001, from이 to보다 늦으면 INSULIN_40001
                     """)
     @GetMapping
     public ResponseEntity<BaseResponse<InsulinLogPageResponse>> list(
@@ -73,10 +95,11 @@ public class InsulinLogController {
             summary = "[ 사용자 | 토큰 O | 인슐린 투여 기록 수정 ]",
             description =
                     """
-                    **Parameters** insulinLogId + 바꿀 칸만: insulinType, units(0 초과 999.9 이하, 소수 한 자리), takenAt(2000년 이후 ~ 지금)
-                    안 보내거나 null을 보낸 칸은 그대로 둠 (비우기 없음)
-                    **Returns** 수정된 기록. 바꿀 값이 없으면 INSULIN_40001, 범위 밖이면 GLOBAL_40001,
-                    없거나 삭제됐거나 남의 기록이면 INSULIN_40401
+                    **Parameters** insulinLogId + 바꿀 칸만: insulinType, mealSlot, units(0 초과 999.9 이하, 소수 한 자리), takenAt(2000년 이후 ~ 지금)
+                    안 보내거나 null을 보낸 칸은 그대로 둠 (비우기 없음). 종류를 BEDTIME으로 바꾸면 mealSlot은 서버가 지움
+                    **Returns** 수정된 기록. 값이 실제로 바뀌면 editedAt이 찍힘. 바꿀 값이 없으면 INSULIN_40002, 범위 밖이면 GLOBAL_40001,
+                    MEAL인데 끼니가 없으면(BEDTIME → MEAL로 바꾸며 끼니를 안 보냄 등) INSULIN_40003, BEDTIME에 끼니를 보내면 INSULIN_40004,
+                    끼니가 SNACK이면 INSULIN_40005, 없거나 삭제됐거나 남의 기록이면 INSULIN_40401
                     """)
     @PatchMapping("/{insulinLogId}")
     public ResponseEntity<BaseResponse<InsulinLogResponse>> update(
@@ -91,7 +114,7 @@ public class InsulinLogController {
             description =
                     """
                     **Parameters** insulinLogId
-                    **Returns** 성공 시 data 없음. 이후 목록에서 안 보임 (줄은 남기고 지운 시각만 적음).
+                    **Returns** 성공 시 data 없음. 이후 목록·지난 기록·오늘 화면에서 안 보임 (줄은 남기고 지운 시각만 적음).
                     없거나 이미 삭제됐거나 남의 기록이면 INSULIN_40401
                     """)
     @DeleteMapping("/{insulinLogId}")

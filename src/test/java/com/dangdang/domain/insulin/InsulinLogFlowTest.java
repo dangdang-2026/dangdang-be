@@ -81,13 +81,39 @@ class InsulinLogFlowTest {
     }
 
     @Test
-    void 세_종류_모두_저장된다() throws Exception {
-        create(access, json("MEAL", "6", OCT_20_9AM)).andExpect(status().isCreated());
-        create(access, json("BEDTIME", "10", OCT_20_9AM)).andExpect(status().isCreated())
-                .andExpect(jsonPath("$.data.insulinType").value("BEDTIME"));
-        create(access, json("CUSTOM", "2", OCT_20_9AM)).andExpect(status().isCreated())
-                .andExpect(jsonPath("$.data.insulinType").value("CUSTOM"));
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM insulin_logs", Long.class)).isEqualTo(3);
+    void 식사_때는_끼니와_함께_자기_전은_끼니_없이_저장된다() throws Exception {
+        long meal = createAndGetId(access, json("MEAL", "DINNER", "6", OCT_20_9AM));
+        long bedtime = createAndGetId(access, json("BEDTIME", null, "10", OCT_20_9AM));
+
+        list(access, "?from=2026-10-20&to=2026-10-20")
+                .andExpect(jsonPath("$.data.items[0].insulinLogId").value(meal))
+                .andExpect(jsonPath("$.data.items[0].mealSlot").value("DINNER"))
+                .andExpect(jsonPath("$.data.items[1].insulinLogId").value(bedtime))
+                .andExpect(jsonPath("$.data.items[1].mealSlot").doesNotExist());
+        assertThat(jdbc.queryForObject("SELECT meal_slot FROM insulin_logs WHERE id = ?", String.class, meal))
+                .isEqualTo("DINNER");
+        assertThat(jdbc.queryForObject("SELECT meal_slot FROM insulin_logs WHERE id = ?", String.class, bedtime))
+                .isNull();
+    }
+
+    @Test
+    void 끼니가_종류와_안_맞으면_400() throws Exception {
+        create(access, json("MEAL", null, "6", OCT_20_9AM))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("INSULIN_40003"));
+        create(access, json("BEDTIME", "LUNCH", "10", OCT_20_9AM))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("INSULIN_40004"));
+        create(access, json("MEAL", "SNACK", "6", OCT_20_9AM))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("INSULIN_40005"));
+        create(access, json("MEAL", "BRUNCH", "6", OCT_20_9AM))     // 없는 끼니
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("GLOBAL_40001"));
+        create(access, json("CUSTOM", null, "2", OCT_20_9AM))       // 직접 입력은 빠짐
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("GLOBAL_40001"));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM insulin_logs", Long.class)).isZero();
     }
 
     @Test
@@ -202,7 +228,7 @@ class InsulinLogFlowTest {
         list(access, "?from=2026/10/20&to=2026-10-21").andExpect(status().isBadRequest());
         list(access, "?from=2026-10-21&to=2026-10-20")
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.errorCode").value("GLOBAL_40001"));
+                .andExpect(jsonPath("$.errorCode").value("INSULIN_40001"));
         list(access, "?from=1999-12-31&to=2026-10-20").andExpect(status().isBadRequest());
         list(access, "?from=2026-10-20&to=2026-10-20&page=-1").andExpect(status().isBadRequest());
         list(access, "?from=2026-10-20&to=2026-10-20&size=0").andExpect(status().isBadRequest());
@@ -223,11 +249,14 @@ class InsulinLogFlowTest {
                 .andExpect(jsonPath("$.data.insulinType").value("MEAL"))
                 .andExpect(jsonPath("$.data.takenAt").value(Instant.parse("2026-10-20T00:00:00Z").toString()));
 
+        // 자기 전으로 바꾸면 끼니는 서버가 지움
         update(access, id, "{\"insulinType\":\"BEDTIME\",\"takenAt\":\"2026-10-21T22:00:00+09:00\"}")
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.insulinType").value("BEDTIME"))
+                .andExpect(jsonPath("$.data.mealSlot").doesNotExist())
                 .andExpect(jsonPath("$.data.units").value(4.5))
                 .andExpect(jsonPath("$.data.takenAt").value(Instant.parse("2026-10-21T13:00:00Z").toString()));
+        assertThat(jdbc.queryForObject("SELECT meal_slot FROM insulin_logs WHERE id = ?", String.class, id)).isNull();
 
         // 맞은 시각을 옮기면 목록에서도 옮긴 날짜로 나옴
         list(access, "?from=2026-10-20&to=2026-10-20").andExpect(jsonPath("$.data.items", hasSize(0)));
@@ -235,14 +264,90 @@ class InsulinLogFlowTest {
     }
 
     @Test
+    void 수정할_때도_끼니_규칙을_지킨다() throws Exception {
+        long bedtime = createAndGetId(access, json("BEDTIME", null, "10", OCT_20_9AM));
+        update(access, bedtime, "{\"insulinType\":\"MEAL\"}")                   // 끼니 없이 식사 때로
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("INSULIN_40003"));
+        update(access, bedtime, "{\"mealSlot\":\"LUNCH\"}")                     // 자기 전에 끼니
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("INSULIN_40004"));
+        update(access, bedtime, "{\"insulinType\":\"MEAL\",\"mealSlot\":\"SNACK\"}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("INSULIN_40005"));
+        update(access, bedtime, "{\"insulinType\":\"MEAL\",\"mealSlot\":\"LUNCH\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.mealSlot").value("LUNCH"));
+
+        // 식사 때 기록은 끼니만 바꿀 수 있고, 다른 칸만 바꾸면 끼니는 그대로
+        update(access, bedtime, "{\"mealSlot\":\"DINNER\"}").andExpect(jsonPath("$.data.mealSlot").value("DINNER"));
+        update(access, bedtime, "{\"units\":7}").andExpect(jsonPath("$.data.mealSlot").value("DINNER"));
+    }
+
+    @Test
+    void 값이_실제로_바뀔_때만_editedAt이_찍힌다() throws Exception {
+        long id = createAndGetId(access, json("MEAL", "DINNER", "6", OCT_20_9AM));
+        list(access, "?from=2026-10-20&to=2026-10-20").andExpect(jsonPath("$.data.items[0].editedAt").doesNotExist());
+
+        update(access, id, "{\"units\":6.0,\"mealSlot\":\"DINNER\"}")   // 같은 값
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.editedAt").doesNotExist());
+        update(access, id, "{\"units\":7}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.editedAt").exists());
+        assertThat(jdbc.queryForObject("SELECT edited_at FROM insulin_logs WHERE id = ?", Instant.class, id)).isNotNull();
+    }
+
+    // ---------- 지난 기록 불러오기 ----------
+
+    @Test
+    void 지난_기록은_같은_종류_같은_끼니_중_가장_늦게_맞은_것() throws Exception {
+        create(access, json("MEAL", "DINNER", "5", "2026-10-19T18:00:00+09:00")).andExpect(status().isCreated());
+        long dinner = createAndGetId(access, json("MEAL", "DINNER", "6", "2026-10-20T18:00:00+09:00"));
+        create(access, json("MEAL", "LUNCH", "4", "2026-10-21T12:00:00+09:00")).andExpect(status().isCreated());   // 끼니 다름
+        long bedtime = createAndGetId(access, json("BEDTIME", null, "10", "2026-10-20T22:00:00+09:00"));
+        create(other, json("MEAL", "DINNER", "9", "2026-10-21T18:00:00+09:00")).andExpect(status().isCreated());   // 남의 것
+
+        latest(access, "?insulinType=MEAL&mealSlot=DINNER")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.insulinLogId").value(dinner))
+                .andExpect(jsonPath("$.data.mealSlot").value("DINNER"))
+                .andExpect(jsonPath("$.data.units").value(6.0));
+        latest(access, "?insulinType=BEDTIME")
+                .andExpect(jsonPath("$.data.insulinLogId").value(bedtime));
+
+        // 지우면 그 앞의 기록이 나옴
+        delete(access, dinner).andExpect(status().isOk());
+        latest(access, "?insulinType=MEAL&mealSlot=DINNER").andExpect(jsonPath("$.data.units").value(5.0));
+    }
+
+    @Test
+    void 지난_기록이_없으면_data_없이_200() throws Exception {
+        latest(access, "?insulinType=MEAL&mealSlot=BREAKFAST")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    @Test
+    void 지난_기록_조건이_틀리면_400() throws Exception {
+        latest(access, "").andExpect(status().isBadRequest()).andExpect(jsonPath("$.errorCode").value("GLOBAL_40001"));
+        latest(access, "?insulinType=CUSTOM").andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("GLOBAL_40001"));
+        latest(access, "?insulinType=MEAL").andExpect(jsonPath("$.errorCode").value("INSULIN_40003"));
+        latest(access, "?insulinType=BEDTIME&mealSlot=LUNCH").andExpect(jsonPath("$.errorCode").value("INSULIN_40004"));
+        latest(access, "?insulinType=MEAL&mealSlot=SNACK").andExpect(jsonPath("$.errorCode").value("INSULIN_40005"));
+    }
+
+    @Test
     void 바꿀_값이_없으면_400() throws Exception {
         long id = createAndGetId(access, json("MEAL", "4", OCT_20_9AM));
         update(access, id, "{}")
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.errorCode").value("INSULIN_40001"));
+                .andExpect(jsonPath("$.errorCode").value("INSULIN_40002"));
         update(access, id, "{\"units\":null}")   // null은 안 보낸 것과 같음 (비우기 없음)
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.errorCode").value("INSULIN_40001"));
+                .andExpect(jsonPath("$.errorCode").value("INSULIN_40002"));
     }
 
     @Test
@@ -335,8 +440,19 @@ class InsulinLogFlowTest {
         return ((Number) JsonPath.read(body, "$.data.insulinLogId")).longValue();
     }
 
+    private ResultActions latest(Cookie who, String query) throws Exception {
+        return mvc.perform(get("/api/insulin-logs/latest" + query).cookie(who));
+    }
+
+    // 끼니를 따로 안 정하는 테스트용: 식사 때면 아침 식사로 채움
     private static String json(String type, String units, String takenAt) {
-        return "{\"insulinType\":\"" + type + "\",\"units\":" + units + ",\"takenAt\":\"" + takenAt + "\"}";
+        return json(type, "MEAL".equals(type) ? "BREAKFAST" : null, units, takenAt);
+    }
+
+    // mealSlot이 null이면 칸을 아예 안 보냄
+    private static String json(String type, String mealSlot, String units, String takenAt) {
+        String slot = mealSlot == null ? "" : ",\"mealSlot\":\"" + mealSlot + "\"";
+        return "{\"insulinType\":\"" + type + "\"" + slot + ",\"units\":" + units + ",\"takenAt\":\"" + takenAt + "\"}";
     }
 
     private ResultActions create(Cookie who, String json) throws Exception {

@@ -1,6 +1,7 @@
 package com.dangdang.domain.insulin.dto.request;
 
 import com.dangdang.domain.insulin.enums.InsulinType;
+import com.dangdang.domain.meal.enums.MealSlot;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
@@ -10,10 +11,12 @@ import jakarta.validation.constraints.PastOrPresent;
 import java.math.BigDecimal;
 import java.time.Instant;
 
-// 인슐린 기록 등록 요청 (E-02). 셋 다 필수
+// 인슐린 기록 등록 요청 (E-02). 끼니는 식사 때(MEAL)일 때만 필수, 나머지 셋은 항상 필수
 public record InsulinLogCreateRequest(
-        @NotNull(message = "종류를 골라 주세요. (MEAL·BEDTIME·CUSTOM)")
+        @NotNull(message = "식사 때·자기 전 중 하나를 골라 주세요.")
         InsulinType insulinType,
+
+        MealSlot mealSlot,           // insulinType=MEAL일 때만 (필수, BREAKFAST·LUNCH·DINNER). BEDTIME이면 안 보냄
 
         @NotNull(message = "맞은 단위를 입력해 주세요.")
         @DecimalMin(value = "0", inclusive = false, message = "단위는 0보다 크게 입력해 주세요.")

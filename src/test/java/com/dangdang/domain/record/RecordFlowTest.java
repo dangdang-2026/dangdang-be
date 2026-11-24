@@ -143,9 +143,12 @@ class RecordFlowTest {
                 .andExpect(jsonPath("$.data.insulinLogs[1].units").value(10.5));
     }
 
+    // 식사 때(MEAL)는 끼니가 필수라 아침 식사로 채움
     private long createInsulin(Cookie who, String type, String units, Instant takenAt) throws Exception {
+        String slot = "MEAL".equals(type) ? ",\"mealSlot\":\"BREAKFAST\"" : "";
         String body = mvc.perform(post("/api/insulin-logs").cookie(who).contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"insulinType\":\"" + type + "\",\"units\":" + units + ",\"takenAt\":\"" + takenAt + "\"}"))
+                        .content("{\"insulinType\":\"" + type + "\"" + slot + ",\"units\":" + units
+                                + ",\"takenAt\":\"" + takenAt + "\"}"))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         return ((Number) JsonPath.read(body, "$.data.insulinLogId")).longValue();
