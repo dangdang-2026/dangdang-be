@@ -125,7 +125,8 @@ class RecordFlowTest {
 
     @Test
     void 오늘_인슐린_기록만_맞은_시각_순으로_온다() throws Exception {
-        // 지금 시각과 상관없이 늘 지난 시각이 되게 오늘 0시 1분·2분과 어젯밤으로 만듦 (새벽에 돌려도 같음)
+        // 오늘 0시 1분·2분과 어젯밤으로 만듦. 0시 3분 전에 돌면 0시 2분이 아직 미래라 등록이 400 → 건너뜀
+        assumeTrue(LocalTime.now(ClockConfig.KST).isAfter(LocalTime.of(0, 3)), "오늘 00:02 기록을 만들려면 00:03 이후여야 함");
         long first = createInsulin(access, "MEAL", "4", kst(today(), 0, 1));
         long second = createInsulin(access, "BEDTIME", "10.5", kst(today(), 0, 2));
         createInsulin(access, "MEAL", "6", kst(today().minusDays(1), 23, 59));     // 어젯밤 → 안 나옴
