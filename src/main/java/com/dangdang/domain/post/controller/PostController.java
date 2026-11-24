@@ -36,7 +36,7 @@ public class PostController {
             description =
                     """
                     **Parameters** category, q, cursor, size(1~100, 기본 20) · sort(LATEST 기본 · POPULAR) · audience(ALL · PREGNANT · POSTPARTUM)
-                    · period(POPULAR일 때만: REALTIME 기본 24시간 · WEEK 7일 · MONTH 30일 · ALL 기간 없이 — 검색 결과 인기순)
+                    · period(POPULAR일 때만: REALTIME 기본 24시간 · WEEK 7일 · MONTH 30일 · ALL 기간 없이, 검색 결과 인기순이라 q가 없으면 400 GLOBAL_40001)
                     **Returns** items, nextCursor, hasNext. POPULAR는 공감+댓글 많은 순 50개(size 무시), 다음 페이지 없음(nextCursor null)
                     items[].author.weekBadge 「임신 27주」·「산후 3개월」(배지 켠 사람의 이름 글만). POPULAR일 때만 items[].bestComment(없으면 null)
                     식단(MEAL)·진료 후기(VISIT)·당당 소식(NEWS)에 POPULAR면 400 POST_40002 (최신순만). 모르는 값은 sort와 상관없이 400 GLOBAL_40001

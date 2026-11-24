@@ -54,17 +54,18 @@ public class BlockService {
     }
 
     // 글·댓글로 오면 서버가 글쓴이를 찾는다 → 익명이어도 프로필 번호가 화면에 나갈 일이 없다
-    // 지운 글·댓글, 탈퇴한 글쓴이(profile null)는 없는 대상
+    // 화면에 보이는 글·댓글만 된다: 지운·가린 글, 지운·가린 댓글, 지운·가린 글의 댓글, 탈퇴한 글쓴이(profile null)는 없는 대상
     private Target resolve(BlockRequest request) {
         if (request.postId() != null) {
             Post post = postRepository.findByIdAndDeletedAtIsNull(request.postId())
-                    .filter(p -> p.getProfile() != null)
+                    .filter(p -> !p.isHidden() && p.getProfile() != null)
                     .orElseThrow(() -> new CustomException(CommunityErrorCode.BLOCK_TARGET_NOT_FOUND));
             return new Target(post.getProfile().getId(), post.isAnonymous());
         }
         if (request.commentId() != null) {
             Comment comment = commentRepository.findByIdAndDeletedAtIsNull(request.commentId())
-                    .filter(c -> c.getProfile() != null)
+                    .filter(c -> !c.isHidden() && c.getProfile() != null)
+                    .filter(c -> c.getPost().getDeletedAt() == null && !c.getPost().isHidden())
                     .orElseThrow(() -> new CustomException(CommunityErrorCode.BLOCK_TARGET_NOT_FOUND));
             return new Target(comment.getProfile().getId(), comment.isAnonymous());
         }

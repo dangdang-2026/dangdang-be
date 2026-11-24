@@ -31,6 +31,7 @@ import com.dangdang.domain.user.enums.Role;
 import com.dangdang.global.common.IdCount;
 import com.dangdang.global.common.TimeCursor;
 import com.dangdang.global.exception.CustomException;
+import com.dangdang.global.exception.GlobalErrorCode;
 import com.dangdang.global.security.AuthPrincipal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Sort;
@@ -219,6 +220,9 @@ public class PostService {
                                      Long myProfileId) {
         if (category != null && LATEST_ONLY_CATEGORIES.contains(category)) {
             throw new CustomException(PostErrorCode.LATEST_ONLY);
+        }
+        if (period == PopularPeriod.ALL && q == null) {   // 기간 없이 전체 글 점수를 매기지 않게 — 검색 결과에서만
+            throw new CustomException(GlobalErrorCode.INVALID_INPUT, "period=ALL은 검색어(q)와 같이 보내 주세요.");
         }
         Specification<Post> filter = PostSpecifications.feed(category, q, null, myProfileId, who)
                 .and((root, query, cb) -> root.get("category").in(LATEST_ONLY_CATEGORIES).not());

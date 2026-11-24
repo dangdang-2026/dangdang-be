@@ -7,7 +7,7 @@ public record MyCommunityCountsResponse(
         @Schema(description = "내가 쓴 글 (GET /api/me/posts와 같은 조건)") long postCount,
         @Schema(description = "내가 쓴 댓글 (GET /api/me/comments와 같은 조건)") long commentCount,
         @Schema(description = "공감한 글 (GET /api/me/reactions와 같은 조건)") long reactedPostCount,
-        @Schema(description = "안 보는 사람 (GET /api/blocks 전체 수)") long blockedCount) {
+        @Schema(description = "차단한 줄 수 (GET /api/blocks 전체 줄 수). 같은 사람을 이름으로 한 번, 익명으로 한 번 막으면 2") long blockedCount) {
 
     public static MyCommunityCountsResponse empty() {
         return new MyCommunityCountsResponse(0, 0, 0, 0);

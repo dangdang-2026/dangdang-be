@@ -33,6 +33,8 @@ public class BlockController {
                     **Returns** blocked=true. 다시 해도 200
                     가리는 범위: 이름(blockedProfileId·이름 글·이름 댓글)으로 막으면 그 사람의 이름 글·댓글만,
                     익명 글·댓글로 막으면 그 사람의 익명 글·댓글만 (서로 영향 없음 → 익명 글쓴이를 짐작할 수 없게). 둘 다 막으면 전부
+                    익명으로 막으면 그 글·댓글 하나가 아니라 그 사람의 익명 글·댓글 전부가 가려진다
+                    가려지거나 지운 글·댓글, 가려진 글의 댓글로는 막을 수 없다 (COMMUNITY_40402)
                     자기 자신 COMMUNITY_40003, 없는(지운·탈퇴) 대상 COMMUNITY_40402, 셋 중 둘 이상·하나도 없음 GLOBAL_40001
                     """)
     @PostMapping

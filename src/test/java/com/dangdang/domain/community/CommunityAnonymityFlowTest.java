@@ -202,6 +202,26 @@ class CommunityAnonymityFlowTest extends ReminderTestBase {
         postJson(minji, "/api/blocks", "{\"postId\":\"" + anon + "\"}").andExpect(status().isOk());
         postJson(minji, "/api/blocks", "{\"postId\":\"" + anon + "\"}").andExpect(status().isOk());
         assertThat(jdbc.queryForObject("SELECT count(*) FROM profile_blocks", Long.class)).isEqualTo(2L);
+        mvc.perform(get("/api/me/community-activity/counts").cookie(minji))   // 사람 수가 아니라 줄 수
+                .andExpect(jsonPath("$.data.blockedCount").value(2));
+    }
+
+    @Test
+    void 가려진_글_댓글과_가려진_글의_댓글로는_막을_수_없다() throws Exception {
+        String hiddenPost = write(jisu, true);
+        String postId = write(minji, false);
+        String hiddenComment = comment(jisu, postId, true);
+        String onHiddenPost = comment(hana, hiddenPost, true);
+        jdbc.update("UPDATE posts SET hidden_reason = 'MEDICATION' WHERE id = ?", Long.valueOf(hiddenPost));
+        jdbc.update("UPDATE comments SET hidden_reason = 'MEDICATION' WHERE id = ?", Long.valueOf(hiddenComment));
+
+        for (String body : List.of("{\"postId\":\"" + hiddenPost + "\"}", "{\"commentId\":\"" + hiddenComment + "\"}",
+                "{\"commentId\":\"" + onHiddenPost + "\"}")) {
+            postJson(minji, "/api/blocks", body)
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.errorCode").value("COMMUNITY_40402"));
+        }
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM profile_blocks", Long.class)).isZero();
     }
 
     // ── B ──
@@ -216,6 +236,36 @@ class CommunityAnonymityFlowTest extends ReminderTestBase {
                 .andExpect(jsonPath("$.data.items[0].isPostAuthor").value(true))
                 .andExpect(jsonPath("$.data.items[0].anonymousNo").value((Object) null))
                 .andExpect(content().string(not(containsString("말랑한 두부"))));
+    }
+
+    @Test
+    void 예전에_익명_글쓴이가_이름으로_단_댓글은_글쓴이_라벨이_안_붙고_마이그레이션_뒤엔_익명_글쓴이_댓글() throws Exception {
+        String postId = write(jisu, true);
+        // 이번 PR 전에 쌓인 모양: 익명 글의 글쓴이가 자기 글에 이름으로 단 댓글
+        jdbc.update("""
+                INSERT INTO comments (post_id, profile_id, content, is_anonymous, created_at, updated_at)
+                SELECT ?, profile_id, '예전 댓글', false, now(), now() FROM posts WHERE id = ?
+                """, Long.valueOf(postId), Long.valueOf(postId));
+
+        mvc.perform(get("/api/posts/" + postId + "/comments").cookie(minji))   // 라벨이 닉네임과 같이 나가면 익명 글쓴이가 드러난다
+                .andExpect(jsonPath("$.data.items[0].isPostAuthor").value(false));
+
+        jdbc.update(migrationStatement("SET is_anonymous = true"));   // V20261124_95의 예전 댓글 고치기 그대로
+        mvc.perform(get("/api/posts/" + postId + "/comments").cookie(minji))
+                .andExpect(jsonPath("$.data.items[0].author.displayName").value("익명 산모"))
+                .andExpect(jsonPath("$.data.items[0].author.profileId").value((Object) null))
+                .andExpect(jsonPath("$.data.items[0].isPostAuthor").value(true))
+                .andExpect(jsonPath("$.data.items[0].anonymousNo").value((Object) null))
+                .andExpect(content().string(not(containsString("말랑한 두부"))));
+    }
+
+    // 마이그레이션 파일에서 marker가 든 UPDATE 문 하나를 꺼낸다
+    private String migrationStatement(String marker) throws Exception {
+        String sql = new String(getClass().getResourceAsStream("/db/migration/V20261124_95__community_anonymity.sql")
+                .readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        int at = sql.indexOf(marker);
+        int start = sql.lastIndexOf("UPDATE", at);
+        return sql.substring(start, sql.indexOf(';', at));
     }
 
     @Test
@@ -395,5 +445,8 @@ class CommunityAnonymityFlowTest extends ReminderTestBase {
                 .andExpect(jsonPath("$.data.items").isEmpty());          // 기본 24시간
         mvc.perform(get("/api/posts").param("sort", "POPULAR").param("period", "ALL").param("q", "제목").cookie(minji))
                 .andExpect(jsonPath("$.data.items.length()").value(1));
+        mvc.perform(get("/api/posts").param("sort", "POPULAR").param("period", "ALL").cookie(minji))   // 검색어 없이 전체는 안 된다
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("GLOBAL_40001"));
     }
 }
