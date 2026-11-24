@@ -324,6 +324,9 @@ class MyPageFlowTest extends ReminderTestBase {
         json(post("/api/me/withdrawal"), jisu, "{}")
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errorCode").value("USER_40004"));
+        json(post("/api/me/withdrawal"), jisu, "{\"kakaoCode\":\"ok-code\",\"redirectUri\":\"\"}")   // 빈 주소도 다시 확인 (리뷰 #128)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("USER_40004"));
         assertThat(jdbc.queryForObject("SELECT count(*) FROM users WHERE id = ?", Integer.class, jisuId)).isOne();
 
         json(post("/api/me/withdrawal"), jisu, "{\"kakaoCode\":\"ok-code\",\"redirectUri\":\"" + REDIRECT + "\"}")

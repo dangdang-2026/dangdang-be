@@ -85,7 +85,8 @@ public class WithdrawalService {
             }
             return;
         }
-        if (req.kakaoCode() == null || req.kakaoCode().isBlank() || req.redirectUri() == null) {
+        if (req.kakaoCode() == null || req.kakaoCode().isBlank()
+                || req.redirectUri() == null || req.redirectUri().isBlank()) {
             throw new CustomException(UserErrorCode.KAKAO_REAUTH_REQUIRED);
         }
         KakaoUser kakao = kakaoCodeReader.read(req.kakaoCode(), req.redirectUri());   // 주소 AUTH_40007 · 틀린 코드 AUTH_40006
