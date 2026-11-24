@@ -470,9 +470,9 @@ class ReadingFlowTest {
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         long id = ((Number) JsonPath.read(body, "$.data.readingId")).longValue();
-        mvc.perform(patch("/api/meals/" + mealId).cookie(access).contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"startedAt\":\"" + Instant.now().minus(Duration.ofMinutes(30)) + "\"}"))
-                .andExpect(status().isOk());   // 식사 시작이 혈당(1시간 전)보다 뒤가 됨
+        // 식사 시작이 혈당(1시간 전)보다 뒤인 예전 데이터 (지금은 식사 수정이 MEAL_40008로 막아서 DB로 만듦)
+        jdbc.update("UPDATE meals SET started_at = ? WHERE id = ?",
+                java.sql.Timestamp.from(Instant.now().minus(Duration.ofMinutes(30))), mealId);
 
         mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"value\":160}"))

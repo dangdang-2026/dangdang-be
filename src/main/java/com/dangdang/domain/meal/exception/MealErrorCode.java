@@ -18,6 +18,8 @@ public enum MealErrorCode implements BaseErrorCode {
     ITEM_NUTRITION_WITH_FOOD("MEAL_40005", "고른 음식의 영양값은 항목을 추가한 뒤 영양값 직접 입력으로 고쳐 주세요.", HttpStatus.BAD_REQUEST),
     ITEM_NAME_OF_FOOD("MEAL_40006", "고른 음식의 이름은 바꿀 수 없어요. 다른 음식이면 지우고 새로 추가해 주세요.", HttpStatus.BAD_REQUEST),
     ITEM_NUTRITION_EMPTY("MEAL_40007", "영양값을 하나 이상 적어 주세요.", HttpStatus.BAD_REQUEST),
+    // 식사 수정 입력 오류 — 혈당 쪽 READING_40005(식후 혈당은 식사 시작 뒤)를 식사 쪽에서 지킴
+    STARTED_AFTER_READING("MEAL_40008", "이 식사에 붙은 식후 혈당보다 늦게 시작할 수는 없어요.", HttpStatus.BAD_REQUEST),
     // 화면을 연 뒤 다른 곳(다른 기기 등)에서 식사가 먼저 바뀜
     MEAL_CHANGED("MEAL_40901", "다른 곳에서 식사가 먼저 바뀌었어요. 새로 불러온 뒤 다시 해 주세요.", HttpStatus.CONFLICT),
     // 직접 적은 음식은 되돌릴 공공 영양값이 없음
