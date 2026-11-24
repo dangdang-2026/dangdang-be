@@ -42,7 +42,7 @@ public class ReadingController {
                     **Parameters** value(20~600) 또는 meterLimit(HI·LO, 혈당계에 숫자 대신 뜬 글자) 중 하나, measuredAt(잰 시각, 필수), readingType(FASTING/POST_MEAL/OTHER, 필수), slot(선택), mealId(어떤 식사의 식후 혈당인지, 선택)
                     **Returns** 저장된 기록. 잰 날짜의 병원 기준이 자동으로 붙고(없으면 빈 기준), 30분 넘게 늦게 적으면 enteredLate=true.
                     HI는 value 600, LO는 value 20으로 같이 저장되고 meterLimit에 HI·LO가 옴.
-                    판정 칸: targetValue(잴 때 목표, 없으면 null)·aboveTarget(목표 이상이면 true, 목표가 없으면 null)·belowLow(70 미만)·expectedAt(재야 할 시각, 식후만)·timing(EARLY·ON_TIME·LATE)·originalValue·editedAt(등록 땐 null).
+                    판정 칸: targetValue(잴 때 목표, 없으면 null)·aboveTarget(목표 이상이면 true, 목표가 없으면 null)·belowLow(70 미만)·expectedAt(재야 할 시각, 식후만)·timing(EARLY·ON_TIME·LATE)·originalValue·originalMeterLimit·editedAt(등록 땐 null).
                     범위 밖이면 GLOBAL_40001, value와 meterLimit을 같이 보내거나 둘 다 없으면 READING_40004,
                     식후 혈당이 붙은 식사 시작보다 앞 시각이면 READING_40005, mealId가 없거나 삭제됐거나 남의 식사면 MEAL_40401
                     """)
@@ -115,7 +115,7 @@ public class ReadingController {
             description =
                     """
                     **Parameters** readingId
-                    **Returns** 기록 하나 (등록 응답과 같은 칸: meterLimit·판정 칸·expectedAt·timing·originalValue·editedAt). 없거나 삭제됐거나 남의 기록이면 READING_40401
+                    **Returns** 기록 하나 (등록 응답과 같은 칸: meterLimit·판정 칸·expectedAt·timing·originalValue·originalMeterLimit·editedAt). 없거나 삭제됐거나 남의 기록이면 READING_40401
                     """)
     @GetMapping("/{readingId}")
     public ResponseEntity<BaseResponse<ReadingResponse>> get(
@@ -131,7 +131,7 @@ public class ReadingController {
                     **Parameters** readingId + 바꿀 칸만: value(20~600) 또는 meterLimit(HI·LO), measuredAt(지금 이전), readingType, slot, mealId
                     **Returns** 수정된 기록. 잰 시각을 바꾸면 그 날짜의 병원 기준이 다시 붙고 enteredLate도 다시 계산됨.
                     식후 → 공복·기타로 바꾸면서 mealId를 안 보내면 식사 연결이 끊김(mealId null).
-                    값·HI·LO·시점·잰 때·시각을 실제로 바꿨을 때만 editedAt이 바뀜(식사만 붙이거나 같은 값이면 안 바뀜). 처음 값은 originalValue(값을 안 고쳤으면 null).
+                    값·HI·LO·시점·잰 때·시각을 실제로 바꿨을 때만 editedAt이 바뀜(식사만 붙이거나 같은 값이면 안 바뀜). 처음 값은 originalValue·originalMeterLimit(처음이 HI·LO였으면 그 글자). 값을 안 고쳤거나 처음 값(숫자·HI·LO까지 같게)으로 되돌리면 둘 다 null, editedAt은 남음.
                     바꿀 값이 없으면 READING_40003, value와 meterLimit을 같이 보내면 READING_40004, 고친 뒤 식후 혈당이 식사 시작보다 앞이면 READING_40005,
                     없거나 삭제됐거나 남의 기록이면 READING_40401, mealId가 내 식사가 아니면 MEAL_40401,
                     같은 기록을 다른 곳에서 동시에 먼저 고쳤으면 READING_40903(새로고침 뒤 다시)

@@ -437,6 +437,53 @@ class ReadingFlowTest {
                 .andExpect(jsonPath("$.data.editedAt").isNotEmpty());
     }
 
+    @Test
+    void HI를_숫자로_고치면_처음_값에_HI가_남는다() throws Exception {
+        String body = mvc.perform(post("/api/readings").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"meterLimit\":\"HI\",\"measuredAt\":\"" + Instant.now() + "\",\"readingType\":\"OTHER\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.originalMeterLimit").value((Object) null))
+                .andReturn().getResponse().getContentAsString();
+        long id = ((Number) JsonPath.read(body, "$.data.readingId")).longValue();
+
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"value\":450}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.value").value(450))
+                .andExpect(jsonPath("$.data.originalValue").value(600))
+                .andExpect(jsonPath("$.data.originalMeterLimit").value("HI"));   // 「처음 600」이 아니라 「처음 HI」
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"value\":600}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.originalValue").value(600))   // 숫자 600은 처음(HI)과 다름
+                .andExpect(jsonPath("$.data.originalMeterLimit").value("HI"));
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"meterLimit\":\"HI\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.originalValue").value((Object) null))   // 처음 그대로 HI로 돌아옴
+                .andExpect(jsonPath("$.data.originalMeterLimit").value((Object) null));
+    }
+
+    @Test
+    void 처음_값으로_되돌리면_처음_값은_비고_고친_시각은_남는다() throws Exception {
+        long id = create(100, Instant.now());
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"value\":120}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.originalValue").value(100));
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"value\":100}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.value").value(100))
+                .andExpect(jsonPath("$.data.originalValue").value((Object) null))
+                .andExpect(jsonPath("$.data.originalMeterLimit").value((Object) null))
+                .andExpect(jsonPath("$.data.editedAt").isNotEmpty());
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"value\":130}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.originalValue").value(100));   // 다시 고치면 처음 값이 다시 남음
+    }
+
     // ---------- 식후 시각 (G-10) ----------
 
     @Test

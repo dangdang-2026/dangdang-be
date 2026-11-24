@@ -7,11 +7,16 @@ ALTER TABLE readings
     ADD COLUMN original_value SMALLINT CHECK (original_value BETWEEN 20 AND 600),  -- 처음 저장한 값. 값을 안 고쳤으면 NULL
     ADD COLUMN edited_at TIMESTAMPTZ,                                              -- 사용자가 마지막으로 고친 시각. 안 고쳤으면 NULL
     ADD COLUMN meter_limit VARCHAR(2),                                             -- HI / LO. 숫자로 적었으면 NULL
+    ADD COLUMN original_meter_limit VARCHAR(2),                                    -- 처음 저장 때 HI·LO였으면 그 글자 (original_value와 같이 채움)
     ADD COLUMN row_version BIGINT NOT NULL DEFAULT 0,                              -- 동시에 고치면 나중 것을 409로 (JPA @Version)
     ADD CONSTRAINT ck_readings_meter_limit CHECK (
         meter_limit IS NULL
         OR (meter_limit = 'HI' AND value = 600)
-        OR (meter_limit = 'LO' AND value = 20));
+        OR (meter_limit = 'LO' AND value = 20)),
+    ADD CONSTRAINT ck_readings_original_meter_limit CHECK (
+        original_meter_limit IS NULL
+        OR (original_meter_limit = 'HI' AND original_value = 600)
+        OR (original_meter_limit = 'LO' AND original_value = 20));
 
 -- 지금까지 있던 기록은 edited_at을 비워 둔 채 시작함 (updated_at > created_at으로 채우지 않음)
 -- updated_at은 식사만 붙여도 올라가서, 그걸로 채우면 "식사만 붙인 건 고친 게 아님" 규칙과 어긋남

@@ -33,7 +33,7 @@ public record RecordEventResponse(
                         r.getCriteriaVersion().getId(), r.getScheduledAt(), r.isEnteredLate(),
                         ReadingEvaluator.targetOf(r), ReadingEvaluator.aboveTarget(r), ReadingEvaluator.belowLow(r),
                         expectedAt, ReadingEvaluator.timing(r.getMeasuredAt(), expectedAt),
-                        r.getOriginalValue(), r.getEditedAt()),
+                        r.getOriginalValue(), r.getOriginalMeterLimit(), r.getEditedAt()),
                 null);
     }
 
@@ -59,7 +59,8 @@ public record RecordEventResponse(
             boolean belowLow,         // 70 미만 (D-04 「목표보다 낮아요」)
             Instant expectedAt,       // 재야 할 시각 (D-01 「n분 늦게 측정」)
             ReadingTiming timing,     // EARLY·ON_TIME·LATE (모르면 null)
-            Integer originalValue,    // 처음 값 (안 고쳤으면 null)
+            Integer originalValue,    // 처음 값 (안 고쳤거나 처음 값으로 되돌렸으면 null)
+            MeterLimit originalMeterLimit,   // 처음 저장 때 HI·LO였으면 그 글자. 아니면 null
             Instant editedAt) {       // 고친 시각 (안 고쳤으면 null)
     }
 

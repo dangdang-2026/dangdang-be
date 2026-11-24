@@ -26,7 +26,8 @@ public record ReadingResponse(
         boolean belowLow,         // 70 미만 (D-04 · G-05)
         Instant expectedAt,       // 재야 할 시각 (식후만, 모르면 null) — D-01 「n분 늦게 측정」
         ReadingTiming timing,     // 재야 할 시각과 비교 EARLY·ON_TIME·LATE (모르면 null)
-        Integer originalValue,    // 처음 저장한 값. 값을 한 번도 안 고쳤으면 null (D-05 「처음 128」)
+        Integer originalValue,    // 처음 저장한 값. 값을 안 고쳤거나 처음 값으로 되돌렸으면 null (D-05 「처음 128」)
+        MeterLimit originalMeterLimit,   // 처음 저장 때 HI·LO였으면 그 글자 (「처음 HI」). 아니면 null
         Instant editedAt,         // 사용자가 마지막으로 고친 시각. 안 고쳤으면 null (D-07 「수정됨」)
         Instant createdAt,
         Instant updatedAt) {
@@ -44,7 +45,7 @@ public record ReadingResponse(
                 r.getMealId(), r.isEnteredLate(),
                 ReadingEvaluator.targetOf(r), ReadingEvaluator.aboveTarget(r), ReadingEvaluator.belowLow(r),
                 expectedAt, ReadingEvaluator.timing(r.getMeasuredAt(), expectedAt),
-                r.getOriginalValue(), r.getEditedAt(),
+                r.getOriginalValue(), r.getOriginalMeterLimit(), r.getEditedAt(),
                 r.getCreatedAt(), r.getUpdatedAt());
     }
 }
