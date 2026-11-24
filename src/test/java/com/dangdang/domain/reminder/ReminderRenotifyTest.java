@@ -6,11 +6,14 @@ import com.dangdang.support.ReminderTestBase;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
 
 import java.sql.Timestamp;
 import java.time.Duration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 // 13:00에 보낸 알림을 두고 시계를 앞으로 옮겨 가며 scheduler.run()을 직접 부른다
 class ReminderRenotifyTest extends ReminderTestBase {
@@ -141,5 +144,34 @@ class ReminderRenotifyTest extends ReminderTestBase {
         assertThat(fakeSender.sent).hasSize(1);
         assertThat(renotified()).isTrue();
         assertThat(inboxCount()).isEqualTo(1);
+    }
+
+    // 첫 알림(13:00) 뒤 13:05에 상태를 바꾸면 13:10 재알림은 안 가고 닫힌다
+    private void patchAt5Minutes(String url, String json) throws Exception {
+        clock.set(NOW.plus(Duration.ofMinutes(5)));
+        mvc.perform(patch(url).cookie(login("jisu@x.com")).contentType(MediaType.APPLICATION_JSON).content(json))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void 보낸_뒤_다른_상황으로_멈추면_재알림이_안_간다() throws Exception {
+        patchAt5Minutes("/api/me/measurement-pause", "{\"paused\":true}");
+
+        runAt(TEN);
+        runAt(TEN.plusMinutes(1));
+
+        assertThat(fakeSender.sent).isEmpty();
+        assertThat(renotified()).isTrue();                     // 닫아서 다시 보지 않는다
+        assertThat(inboxCount()).isEqualTo(1);                 // 첫 알림 한 줄만
+    }
+
+    @Test
+    void 보낸_뒤_입원하면_재알림이_안_간다() throws Exception {
+        patchAt5Minutes("/api/me/hospitalization", "{\"hospitalized\":true}");
+
+        runAt(TEN);
+
+        assertThat(fakeSender.sent).isEmpty();
+        assertThat(renotified()).isTrue();
     }
 }
