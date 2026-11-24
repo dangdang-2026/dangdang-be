@@ -41,6 +41,13 @@ public class LoginService {
         }
         // ② 비교하기 전에 먼저 센다 → 동시에 많이 보내도 비교는 5번까지만 (리뷰: 세고 나서 비교)
         long attempt = loginAttemptStore.countAttempt(email);
+        // 세는 사이 다른 요청이 잠갔으면(lock이 LOCK을 먼저 쓰고 FAILS를 지움) 비교하지 않는다 (리뷰 #126)
+        // 이 요청이 잠금 뒤 새로 센 FAILS는 지워서, 잠금이 풀린 뒤 남은 횟수로 다시 잠기지 않게
+        long lockedNow = loginAttemptStore.lockSecondsLeft(email);
+        if (lockedNow > 0) {
+            loginAttemptStore.clear(email);
+            throw locked(lockedNow);
+        }
         if (attempt > LoginAttemptStore.MAX_FAILS) {   // 동시에 몰려 5번을 넘긴 나머지 요청
             loginAttemptStore.lock(email);
             throw locked(LoginAttemptStore.LOCK_TTL.toSeconds());
