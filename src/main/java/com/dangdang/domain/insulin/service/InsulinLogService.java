@@ -100,9 +100,9 @@ public class InsulinLogService {
         findMine(userId, insulinLogId).delete(clock.instant());   // 변경 감지로 트랜잭션 끝날 때 반영됨
     }
 
-    // 내 것 + 삭제 안 된 것만. 없음·삭제됨·남의 것은 전부 404 (수정·삭제가 같이 씀)
+    // 내 것 + 삭제 안 된 것만, 줄을 잠그고 읽음. 없음·삭제됨·남의 것은 전부 404 (수정·삭제가 같이 씀)
     private InsulinLog findMine(Long userId, Long insulinLogId) {
-        return insulinLogRepository.findByIdAndUserIdAndDeletedAtIsNull(insulinLogId, userId)
+        return insulinLogRepository.findMineForUpdate(insulinLogId, userId)
                 .orElseThrow(() -> new CustomException(InsulinErrorCode.INSULIN_LOG_NOT_FOUND));
     }
 
