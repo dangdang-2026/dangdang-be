@@ -26,7 +26,8 @@ import java.time.LocalDate;
 @RequiredArgsConstructor
 public class VisitNoteOrganizeService {
 
-    static final int MAX_MEMO_FOR_AI = 3000;   // AI 서버가 받는 메모 길이
+    static final int MAX_MEMO_FOR_AI = 3000;      // 메모 원문 길이 상한 (화면 안내와 같음)
+    static final int MAX_MASKED_FOR_AI = 4000;    // 가린 글 상한 = AI 서버가 받는 길이 (dangdang-ai visit_note OrganizeRequest)
 
     private final VisitService visitService;
     private final VisitNoteRepository visitNoteRepository;
@@ -43,10 +44,14 @@ public class VisitNoteOrganizeService {
         VisitNote note = visitNoteRepository.findByIdAndVisitIdAndDeletedAtIsNull(noteId, visitId)
                 .orElseThrow(() -> new CustomException(VisitErrorCode.NOTE_NOT_FOUND));
         String memo = note.getContent().strip();
+        if (memo.length() > MAX_MEMO_FOR_AI) {
+            throw new CustomException(VisitErrorCode.NOTE_TOO_LONG_FOR_AI);
+        }
         // AI 서버(해외)로 보낼 글 — 내 이름·병원 이름·전화번호를 자리표시로 (C-11). DB의 메모는 그대로
         // 원문(memo)은 4)의 「그사이 메모가 바뀌었나」 비교에만 쓴다
+        // 자리표시가 원래 말보다 길 수 있어서 AI 서버는 4000자까지 받는다. 그래도 넘는 드문 경우만 같은 400
         String forAi = visitMemoMasker.mask(userId, memo);
-        if (forAi.length() > MAX_MEMO_FOR_AI) {   // 자리표시가 이름보다 길 수 있어서 보낼 글로 잰다
+        if (forAi.length() > MAX_MASKED_FOR_AI) {
             throw new CustomException(VisitErrorCode.NOTE_TOO_LONG_FOR_AI);
         }
         // 진료일: "2주 뒤 금요일"을 날짜로 바꿀 때 기준. 날짜 미정 일정이면 오늘 (메모는 보통 진료 당일·다음 날 씀)

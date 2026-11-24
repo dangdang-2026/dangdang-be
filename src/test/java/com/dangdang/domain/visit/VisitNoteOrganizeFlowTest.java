@@ -414,6 +414,15 @@ class VisitNoteOrganizeFlowTest {
     }
 
     @Test
+    void 길이는_원문으로_재서_가린_글이_길어져도_3000자_메모는_보낸다() throws Exception {
+        long note = createNote(access, visitId, "테스트 ".repeat(750).strip());   // 2999자, 가리면 [이름]이라 더 길어짐
+        given(organizeClient.organize(anyString(), any(), any())).willReturn(EXTRACT);
+
+        organize(access, visitId, note).andExpect(status().isOk());
+        verify(organizeClient).organize(anyString(), eq(("[이름] ".repeat(750)).strip()), any());
+    }
+
+    @Test
     void 지운_병원_이름도_가린다() throws Exception {   // 지우기 전에 쓴 메모에 이름이 남아 있을 수 있음
         long site = careSite(access, "한빛산부인과");
         mvc.perform(delete("/api/care-sites/" + site).cookie(access)).andExpect(status().isOk());

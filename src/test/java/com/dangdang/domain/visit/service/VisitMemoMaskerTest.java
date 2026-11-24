@@ -71,6 +71,18 @@ class VisitMemoMaskerTest {
     }
 
     @Test
+    void 두_글자_이름이_낱말_안에_있으면_안_가린다() {   // 앞에 한글이 두 글자 이상 붙으면 낱말의 일부로 본다
+        known("지수", null);
+        assertThat(mask("혈당지수가 낮은 음식, 지수님")).isEqualTo("혈당지수가 낮은 음식, [이름]님");
+    }
+
+    @Test
+    void 세_글자_이상_이름은_낱말_안에_있어도_가린다() {
+        known("김지수", "튼튼맘");
+        assertThat(mask("담당김지수님, 우리튼튼맘")).isEqualTo("담당[이름]님, 우리[이름]");
+    }
+
+    @Test
     void 이름에_없는_글자가_섞인_말은_안_가린다() {
         known("지수", null);
         assertThat(mask("지난주 수치가 높았어요")).isEqualTo("지난주 수치가 높았어요");

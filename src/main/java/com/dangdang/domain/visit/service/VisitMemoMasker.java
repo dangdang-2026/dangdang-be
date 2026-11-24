@@ -30,6 +30,10 @@ public class VisitMemoMasker {
 
     // 한 글자는 안 가린다 — 「수」를 가리면 「수치」「수요일」까지 바뀌어 AI가 메모를 못 읽는다
     private static final int MIN_LENGTH = 2;
+    // 두 글자 이름은 앞에 한글이 두 글자 이상 붙어 있으면 낱말의 일부로 보고 안 가린다 (「혈당지수」의 「지수」)
+    // 성 한 글자(「김지수」)나 뒤에 붙는 말(「지수님」「지수가」)은 그대로 가린다. 세 글자 이상은 늘 가린다
+    private static final int SHORT_LENGTH = 2;
+    private static final String NOT_INSIDE_WORD = "(?<![가-힣]{2})";
     // 전화번호: 0으로 시작하는 9~11자리(010-1234-5678 · 01012345678 · 02-123-4567 · 010 1234 5678 · 010.1234.5678 · +82 10-1234-5678)
     // 또는 대표번호(1588-1234, 가운데 구분 글자가 있어야). 앞뒤에 숫자가 붙으면 안 봄
     // → 혈당(95)·날짜(11/27)·주수(32주)와 안 겹친다
@@ -54,7 +58,7 @@ public class VisitMemoMasker {
         // 긴 말부터 — 「지수산부인과」가 먼저 [병원]이 돼야 이름 「지수」만 바뀌어 「[이름]산부인과」가 되는 일이 없다
         String words = tags.keySet().stream()
                 .sorted(Comparator.comparingInt((String word) -> key(word).length()).reversed())
-                .map(VisitMemoMasker::spaceInsensitive)
+                .map(word -> (key(word).length() <= SHORT_LENGTH ? NOT_INSIDE_WORD : "") + spaceInsensitive(word))
                 .collect(Collectors.joining("|"));
         // 전화번호와 말을 한 번에 훑는다 — 바꿔 넣은 자리표시([병원] 등)를 다른 말이 다시 바꾸는 일이 없게
         Pattern pattern = Pattern.compile("(" + PHONE_NUMBER + ")" + (words.isEmpty() ? "" : "|" + words),
