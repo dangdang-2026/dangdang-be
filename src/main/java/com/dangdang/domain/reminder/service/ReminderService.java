@@ -124,6 +124,35 @@ public class ReminderService {
         }
     }
 
+    // 혈당의 식사·시점·잰 때·잰 시각을 고쳤을 때: 붙어 있던 알림이 지금 혈당과 안 맞으면 풀고, 지금 맞는 알림을 끝 처리
+    // 맞는 알림 = 식사 알림이면 같은 식사, 식사 없는 알림(공복, 자기 전)이면 식사 없는 혈당 + 같은 시점 + 같은 날(한국)
+    // 고친 뒤 끝 처리는 등록과 같은 규칙 (식사가 있으면 식사 알림, 없으면 시점 알림)
+    @Transactional
+    public void relinkAfterEdit(Long userId, Long readingId, Long mealId, MeasureSlot slot, Instant measuredAt) {
+        Optional<Reminder> linked = reminderRepository.findByReadingId(readingId);
+        if (linked.isPresent()) {
+            if (matches(linked.get(), mealId, slot, measuredAt)) {
+                return;
+            }
+            linked.get().release(clock.instant());
+            reminderRepository.flush();   // reading_id가 unique라, 새 알림에 붙이기 전에 푼 것을 먼저 DB에 씀
+        }
+        if (mealId != null) {
+            completeForMeal(mealId, readingId);
+        } else if (slot != null) {
+            completeForSlot(userId, slot, measuredAt, readingId);
+        }
+    }
+
+    private static boolean matches(Reminder reminder, Long mealId, MeasureSlot slot, Instant measuredAt) {
+        if (reminder.getMealId() != null) {
+            return reminder.getMealId().equals(mealId);
+        }
+        return mealId == null && reminder.getSlot() == slot
+                && reminder.getScheduledAt().atZone(ClockConfig.KST).toLocalDate()
+                        .equals(measuredAt.atZone(ClockConfig.KST).toLocalDate());
+    }
+
     // 알림을 눌러서 들어왔을 때 — 알림함의 같은 알림(재알림 포함)도 읽음으로 (H-15)
     @Transactional
     public ReminderOpenResponse open(Long userId, Long reminderId) {

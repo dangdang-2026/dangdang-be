@@ -32,6 +32,11 @@ public record ReadingUpdateRequest(
                 && meterLimit == null;
     }
 
+    // 어느 알림에 붙을지가 바뀔 수 있는 칸(식사·잰 때·시점·잰 시각)을 보냈는지. 값만 고치면 알림은 그대로
+    public boolean changesReminderLink() {
+        return mealId != null || readingType != null || slot != null || measuredAt != null;
+    }
+
     // 숫자와 HI·LO를 같이 보냈는지 (어느 쪽으로 고칠지 모름 → 400)
     public boolean hasBothValueAndMeterLimit() {
         return value != null && meterLimit != null;

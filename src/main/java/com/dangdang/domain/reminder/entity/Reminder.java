@@ -75,6 +75,22 @@ public class Reminder {
         this.readingId = readingId;
     }
 
+    // 혈당을 고쳐서 이 알림과 안 맞게 됐을 때(다른 식사·다른 날 등) 혈당 연결을 풀고, 혈당이 없었다면의 상태로 돌림
+    // 열어 봤으면 OPENED, 보냈으면 SENT (→ 통계의 "놓친 측정"으로 셈), 안 보냈고 울릴 시각이 남았으면 SCHEDULED
+    // 안 보냈는데 울릴 시각이 이미 지났으면 SKIPPED — SCHEDULED로 두면 스케줄러가 지난 알림을 뒤늦게 보내 버려서
+    public void release(Instant now) {
+        this.readingId = null;
+        if (this.openedAt != null) {
+            this.status = ReminderStatus.OPENED;
+        } else if (this.sentAt != null) {
+            this.status = ReminderStatus.SENT;
+        } else if (dueAt().isAfter(now)) {
+            this.status = ReminderStatus.SCHEDULED;
+        } else {
+            this.status = ReminderStatus.SKIPPED;
+        }
+    }
+
     // 보냈다 — 예약 상태일 때만 바뀐다 (보내는 사이 사용자가 먼저 저장했으면 그 상태를 지킨다)
     public void markSent(Instant now) {
         if (this.status == ReminderStatus.SCHEDULED) {

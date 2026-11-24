@@ -21,7 +21,7 @@ import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 // 식후 혈당마다 "재야 할 시각"을 한 번에 구함 (오늘 화면 · 기록 목록 · 같은 메뉴 지난 기록 · 혈당 저장·수정·상세 응답이 같이 씀)
-// 1순위 이 혈당이 끝낸 알림의 예정 시각, 2순위 식사 시작 + 그 날짜 병원 식후 시간 (ReadingEvaluator.expectedAt)
+// 1순위 이 혈당이 끝낸 지금 식사 알림의 예정 시각, 2순위 식사 시작 + 그 날짜 병원 식후 시간 (ReadingEvaluator.expectedAt)
 // 부르는 쪽 트랜잭션 안에서 돈다
 @Component
 @RequiredArgsConstructor
@@ -42,8 +42,12 @@ public class ExpectedTimeResolver {
         }
 
         // 이 혈당이 끝낸 측정 알림의 예정 시각 (reminders.reading_id는 unique라 혈당 하나에 알림 하나)
+        // 지금 붙은 식사의 알림일 때만 씀 — 공복 알림이나 예전 식사 알림이면 그 시각은 이 식사와 상관없어서 2순위로 구함
+        Map<Long, Long> mealIdByReading = new HashMap<>();
+        postMeal.forEach(r -> mealIdByReading.put(r.getId(), r.getMealId()));   // mealId가 null일 수 있어 toMap 안 씀
         Map<Long, Instant> reminderAtByReading = reminderRepository
-                .findByReadingIdIn(postMeal.stream().map(Reading::getId).toList()).stream()
+                .findByReadingIdIn(mealIdByReading.keySet()).stream()
+                .filter(rm -> rm.getMealId() != null && rm.getMealId().equals(mealIdByReading.get(rm.getReadingId())))
                 .collect(Collectors.toMap(Reminder::getReadingId, Reminder::getScheduledAt));
 
         Map<Long, Meal> mealsById = liveMealsOf(userId, postMeal, knownMeals);

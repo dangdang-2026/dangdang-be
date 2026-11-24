@@ -26,6 +26,9 @@ public interface ReminderRepository extends JpaRepository<Reminder, Long> {
     // 이 혈당이 이미 어떤 알림에 붙어 있는지
     boolean existsByReadingId(Long readingId);
 
+    // 이 혈당이 끝낸 알림 (reading_id가 unique라 많아야 하나)
+    Optional<Reminder> findByReadingId(Long readingId);
+
     // 이 혈당들이 끝낸 알림 (오늘 화면에서 "알림 예정 시각 대비 언제 쟀는지" 계산용)
     List<Reminder> findByReadingIdIn(Collection<Long> readingIds);
 

@@ -546,6 +546,77 @@ class ReadingFlowTest {
     }
 
     @Test
+    void 공복으로_적은_혈당을_식후로_바꾸면_공복_알림_시각으로_재야_할_시각을_구하지_않는다() throws Exception {
+        LocalDate day = today().minusDays(1);
+        mvc.perform(post("/api/criteria-versions").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"postMealMinutes\":60,\"measureSlots\":[\"FASTING\",\"BREAKFAST_AFTER\"],"
+                                + "\"effectiveFrom\":\"" + day.minusDays(10) + "\"}"))
+                .andExpect(status().isCreated());
+        Long userId = jdbc.queryForObject("SELECT id FROM users WHERE email = 'jisu@x.com'", Long.class);
+        jdbc.update("INSERT INTO reminders (user_id, slot, scheduled_at, status, sent_at) VALUES (?, 'FASTING', ?, 'SENT', ?)",
+                userId, java.sql.Timestamp.from(kst(day, 7, 30)), java.sql.Timestamp.from(kst(day, 7, 30)));
+        String created = mvc.perform(post("/api/readings").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"value\":150,\"measuredAt\":\"" + kst(day, 8, 0)
+                                + "\",\"readingType\":\"FASTING\",\"slot\":\"FASTING\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        long id = ((Number) JsonPath.read(created, "$.data.readingId")).longValue();
+        assertThat(jdbc.queryForObject("SELECT status FROM reminders WHERE slot = 'FASTING'", String.class))
+                .isEqualTo("DONE");   // 공복 알림을 이 혈당이 끝냄
+        String meal = mvc.perform(post("/api/meals").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mealSlot\":\"BREAKFAST\",\"startedAt\":\"" + kst(day, 6, 0) + "\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        long breakfast = ((Number) JsonPath.read(meal, "$.data.mealId")).longValue();
+
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"readingType\":\"POST_MEAL\",\"slot\":\"BREAKFAST_AFTER\",\"mealId\":" + breakfast + "}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.expectedAt").value(kst(day, 7, 0).toString()))   // 아침 6시 + 60분 (공복 알림 7:30 아님)
+                .andExpect(jsonPath("$.data.timing").value("LATE"));
+
+        Map<String, Object> fasting = jdbc.queryForMap("SELECT status, reading_id FROM reminders WHERE slot = 'FASTING'");
+        assertThat(fasting.get("status")).isEqualTo("SENT");   // 보낸 알림이라 다시 "놓친 측정"으로 셈
+        assertThat(fasting.get("reading_id")).isNull();
+    }
+
+    @Test
+    void 점심_혈당을_저녁_식사로_옮기면_점심_알림은_풀리고_저녁_알림이_끝난다() throws Exception {
+        mvc.perform(post("/api/criteria-versions").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"postMealMinutes\":60,\"measureSlots\":[\"LUNCH_AFTER\",\"DINNER_AFTER\"]}"))
+                .andExpect(status().isCreated());
+        long lunch = mealStartedNow("LUNCH");
+        long dinner = mealStartedNow("DINNER");
+        jdbc.update("UPDATE reminders SET status = 'SENT', sent_at = now() WHERE meal_id = ?", lunch);   // 점심 알림은 이미 보냄
+        String body = mvc.perform(post("/api/readings").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content(postMealJson(lunch)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        long id = ((Number) JsonPath.read(body, "$.data.readingId")).longValue();
+        assertThat(reminderOf(lunch).get("status")).isEqualTo("DONE");
+
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mealId\":" + dinner + "}"))
+                .andExpect(status().isOk());
+
+        Map<String, Object> lunchReminder = reminderOf(lunch);
+        assertThat(lunchReminder.get("status")).isEqualTo("SENT");   // 점심은 다시 "놓친 측정"
+        assertThat(lunchReminder.get("reading_id")).isNull();
+        Map<String, Object> dinnerReminder = reminderOf(dinner);
+        assertThat(dinnerReminder.get("status")).isEqualTo("DONE");
+        assertThat(((Number) dinnerReminder.get("reading_id")).longValue()).isEqualTo(id);
+    }
+
+    // 지금 시작한 식사 (병원 기준이 있으면 식후 알림이 예약됨)
+    private long mealStartedNow(String mealSlot) throws Exception {
+        String body = mvc.perform(post("/api/meals").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mealSlot\":\"" + mealSlot + "\",\"startedAt\":\"" + Instant.now() + "\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return ((Number) JsonPath.read(body, "$.data.mealId")).longValue();
+    }
+
+    @Test
     void 로그인_안_하면_401() throws Exception {
         mvc.perform(get("/api/readings")
                         .param("from", today().toString()).param("to", today().toString()))

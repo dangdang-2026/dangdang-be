@@ -118,8 +118,9 @@ public class ReadingService {
         reading.update(req.value(), req.meterLimit(), req.measuredAt(), criteria, req.readingType(), req.slot(),
                 req.mealId(), clock.instant());
         checkMeasuredAfterMeal(userId, reading);   // 던지면 위 변경은 트랜잭션째 되돌아감 (G-10)
-        if (req.mealId() != null) {   // 수정으로 식사를 붙였으면 그 식사의 알림도 끝 처리
-            reminderService.completeForMeal(req.mealId(), reading.getId());
+        if (req.changesReminderLink()) {   // 식사·시점·잰 때·시각이 바뀌면 예전 알림은 풀고 지금 맞는 알림을 끝 처리
+            reminderService.relinkAfterEdit(userId, reading.getId(), reading.getMealId(), reading.getSlot(),
+                    reading.getMeasuredAt());
         }
         // save 안 불러도 트랜잭션 끝날 때 바뀐 칸이 DB에 반영됨(변경 감지).
         // 다만 updatedAt은 DB에 쓸 때 채워져서, 응답에 새 값을 담으려고 여기서 먼저 반영함
