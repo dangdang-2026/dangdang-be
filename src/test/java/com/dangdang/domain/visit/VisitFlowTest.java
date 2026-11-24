@@ -222,6 +222,11 @@ class VisitFlowTest {
                 .andExpect(jsonPath("$.data.careSiteId").value(careSiteId))
                 .andExpect(jsonPath("$.data.visitAt").value(Instant.parse("2025-06-10T05:00:00Z").toString()));
 
+        // 지운 병원의 지난 일정을 다가오는 날짜로 옮기는 건 안 됨 (지운 병원의 다가오는 일정은 남지 않게, C-20)
+        update(access, id, "{\"visitAt\":\"2099-01-01T10:00:00+09:00\"}")
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("CARE_SITE_40401"));
+
         // 지운 병원으로 새로 바꾸는 건 안 됨
         long another = createAndGetId(access, "{}");
         update(access, another, "{\"careSiteId\":" + careSiteId + "}")

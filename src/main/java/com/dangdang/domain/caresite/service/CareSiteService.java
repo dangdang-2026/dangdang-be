@@ -113,14 +113,17 @@ public class CareSiteService {
     @Transactional
     public void delete(Long userId, Long careSiteId) {
         Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);   // DB(TIMESTAMPTZ)와 같은 정밀도 (일정 삭제와 같게)
-        findMine(userId, careSiteId).delete(now);   // 아래 일괄 수정이 먼저 DB에 써 준다 (flushAutomatically)
-        List<Long> visitIds = visitRepository.findUpcomingIdsAtCareSite(userId, careSiteId, now);
-        if (!visitIds.isEmpty()) {
-            visitQuestionRepository.deleteAllOfVisits(visitIds, now);
-            visitNoteRepository.deleteAllOfVisits(visitIds, now);
-            visitRepository.deleteAllByIds(visitIds, now);
+        // 병원 줄을 FOR UPDATE로 잠근다 → 지우는 동안 일정 등록·수정(FOR SHARE)이 이 병원에 다가오는 일정을 못 넣는다
+        CareSite careSite = careSiteRepository.findMineForUpdate(careSiteId, userId)
+                .orElseThrow(() -> new CustomException(CareSiteErrorCode.CARE_SITE_NOT_FOUND));
+        careSite.delete(now);   // 아래 일괄 수정이 먼저 DB에 써 준다 (flushAutomatically)
+        // 일정 하나 지우기(VisitService.delete)와 같은 순서: 일정 → 질문 → 메모 (서로 반대로 잠가 데드락 나지 않게)
+        int visits = visitRepository.deleteUpcomingAtCareSite(userId, careSiteId, now);
+        if (visits > 0) {
+            visitQuestionRepository.deleteAllOfVisitsDeletedWithCareSite(userId, careSiteId, now);
+            visitNoteRepository.deleteAllOfVisitsDeletedWithCareSite(userId, careSiteId, now);
         }
-        log.info("[CareSite] 병원 삭제 - 사용자: {}, 같이 지운 다가오는 일정: {}개", userId, visitIds.size());
+        log.info("[CareSite] 병원 삭제 - 사용자: {}, 같이 지운 다가오는 일정: {}개", userId, visits);
     }
 
     // 병원 검색. page는 0부터, size는 1~50으로 맞춤

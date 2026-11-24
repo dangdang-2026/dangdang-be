@@ -96,6 +96,11 @@ public class VisitService {
         if (req.isCareSiteIdSent() && !Objects.equals(req.getCareSiteId(), visit.getCareSiteId())) {
             checkMyCareSite(userId, req.getCareSiteId());
             visit.changeCareSite(req.getCareSiteId());
+        } else if (visit.getCareSiteId() != null && req.isVisitAtSent()
+                && becomesUpcoming(visit.getVisitAt(), req.getVisitAt())) {
+            // 지난 일정을 다가오는 일정(또는 날짜 미정)으로 옮길 때도 병원을 본다
+            // 지운 병원의 다가오는 일정은 병원 지우기 때 같이 지워지므로(C-20), 지운 병원으로는 미래로 못 옮긴다
+            checkMyCareSite(userId, visit.getCareSiteId());
         }
         if (req.isVisitAtSent()) {
             checkVisitAt(req.getVisitAt());
@@ -137,9 +142,27 @@ public class VisitService {
     }
 
     // 병원을 골랐으면 내 병원(삭제 안 된 것)이어야 함. 없음·삭제됨·남의 병원은 병원 API와 같은 404
+    // 병원 줄을 FOR SHARE로 잠그고 본다 → 병원 지우기(FOR UPDATE)와 겹치면 지우기가 끝난 뒤 지워진 상태를 보고 404
+    // (안 잠그면 지우는 사이 새로 넣은 다가오는 일정이 지운 병원에 남는다). 잠금 순서는 care_sites → visits
     private void checkMyCareSite(Long userId, Long careSiteId) {
-        if (careSiteId != null && careSiteRepository.findByIdAndUserIdAndDeletedAtIsNull(careSiteId, userId).isEmpty()) {
+        if (careSiteId == null) {
+            return;
+        }
+        boolean alive = careSiteRepository.findMineForShare(careSiteId, userId)
+                .map(site -> site.getDeletedAt() == null)
+                .orElse(false);
+        if (!alive) {
             throw new CustomException(CareSiteErrorCode.CARE_SITE_NOT_FOUND);
         }
+    }
+
+    // 지난 일정이 다가오는 일정(지금 이후 또는 날짜 미정)이 되는지. 병원 지우기가 지우는 범위와 같은 기준
+    private boolean becomesUpcoming(Instant before, Instant after) {
+        Instant now = clock.instant();
+        return !isUpcoming(before, now) && isUpcoming(after, now);
+    }
+
+    private static boolean isUpcoming(Instant visitAt, Instant now) {
+        return visitAt == null || !visitAt.isBefore(now);
     }
 }
