@@ -80,6 +80,27 @@ public class Pregnancy {
         this.updatedAt = now;
     }
 
+    // 다른 상황이에요 — 측정 알림만 멈춘다 (E-03 · E-03b). 입원 중에 눌러도 이쪽으로 바뀐다
+    public void pause(Instant now) {
+        this.state = PregnancyState.PAUSED;
+        this.hospitalizedAt = null;
+        this.updatedAt = now;
+    }
+
+    // 다시 켜기 — 임신 중으로
+    public void resume(Instant now) {
+        this.state = PregnancyState.PREGNANT;
+        this.updatedAt = now;
+    }
+
+    // 출산 되돌리기 (E-06 잘못 눌렀을 때) — 임신 중으로. 출산일·다시 물어볼 날을 지운다
+    public void undoDelivery(Instant now) {
+        this.deliveryDate = null;
+        this.postpartumAskOn = null;
+        this.state = PregnancyState.PREGNANT;
+        this.updatedAt = now;
+    }
+
     public void askLater(LocalDate askOn, Instant now) {
         this.postpartumAskOn = askOn;
         this.updatedAt = now;

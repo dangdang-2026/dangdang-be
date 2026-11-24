@@ -69,10 +69,6 @@ public class VisitReportService {
 
     // 한 리포트 기간 최대 길이 (임신 기간 전체 280일 + 여유, 혈당 통계 기간 직접 고르기와 같음)
     static final int MAX_DAYS = 300;
-    // 이 값 미만이면 「70 미만」으로 셈
-    private static final int LOW_VALUE = ReadingEvaluator.LOW_VALUE;
-    // 이 값 이상이면 「200 이상」으로 셈 (C-06 「70 미만 없음 · 200 이상 없음」)
-    private static final int HIGH_VALUE = 200;
     // 임신 기간 (예정일에서 거꾸로 세는 기준)
     private static final int PREGNANCY_DAYS = 280;
 
@@ -307,7 +303,7 @@ public class VisitReportService {
                 user.getDisplayName(),
                 pregnancyWeeks(userId, from, to),
                 criteriaIn(userId, from, to, readings),
-                summary(rows, missed.size()),
+                summary(readings, rows, missed.size()),
                 slotCounts(rows, missed),
                 rows,
                 missed.stream()
@@ -316,7 +312,8 @@ public class VisitReportService {
                 visit == null ? null : visitQuestionRepository.countByVisitIdAndDeletedAtIsNull(visit.getId()));
     }
 
-    private VisitReportResponse.Summary summary(List<VisitReportResponse.Row> rows, long missed) {
+    private VisitReportResponse.Summary summary(List<Reading> readings, List<VisitReportResponse.Row> rows,
+                                                long missed) {
         // 목표가 있었던 기록만 안/밖을 셈 (혈당 통계와 같은 방식)
         long judged = rows.stream().filter(r -> r.aboveTarget() != null).count();
         int outOfTarget = (int) rows.stream().filter(r -> Boolean.TRUE.equals(r.aboveTarget())).count();
@@ -324,8 +321,8 @@ public class VisitReportService {
                 rows.size(),
                 missed,
                 (int) rows.stream().filter(VisitReportResponse.Row::enteredLate).count(),
-                (int) rows.stream().filter(r -> r.value() < LOW_VALUE).count(),
-                (int) rows.stream().filter(r -> r.value() >= HIGH_VALUE).count(),
+                (int) readings.stream().filter(ReadingEvaluator::belowLow).count(),     // 70 미만 (LO 포함)
+                (int) readings.stream().filter(ReadingEvaluator::aboveHigh).count(),    // 200 이상 (HI 포함)
                 outOfTarget,
                 inTargetRate(judged, outOfTarget),
                 judged > 0);

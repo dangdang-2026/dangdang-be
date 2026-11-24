@@ -74,4 +74,18 @@ class MeDueDateFlowTest extends ReminderTestBase {
                 .andExpect(jsonPath("$.data.pregnancyState").value("HOSPITALIZED"))
                 .andExpect(jsonPath("$.data.dueDate").value("2026-11-20"));
     }
+
+    @Test
+    void 다른_상황이면_주수를_주지_않는다() throws Exception {
+        mvc.perform(patch("/api/me/due-date").cookie(jisu).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"dueDate\":\"2026-12-20\"}"))
+                .andExpect(status().isOk());
+        mvc.perform(patch("/api/me/measurement-pause").cookie(jisu).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"paused\":true}"))
+                .andExpect(status().isOk());
+
+        mvc.perform(get("/api/me").cookie(jisu))
+                .andExpect(jsonPath("$.data.pregnancyState").value("PAUSED"))
+                .andExpect(jsonPath("$.data.pregnancyWeek").value(nullValue()));
+    }
 }
