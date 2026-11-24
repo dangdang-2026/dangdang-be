@@ -8,7 +8,7 @@ import org.springframework.http.HttpStatus;
 @Getter
 @RequiredArgsConstructor
 public enum CommunityErrorCode implements BaseErrorCode {
-    INVALID_NICKNAME("COMMUNITY_40001", "닉네임은 2~10자, 한글·영문·숫자로 적어 주세요.", HttpStatus.BAD_REQUEST),
+    INVALID_NICKNAME("COMMUNITY_40001", "닉네임은 2~10자, 한글·영문·숫자·띄어쓰기(한 칸)로 적어 주세요.", HttpStatus.BAD_REQUEST),
     EMPTY_PROFILE_UPDATE("COMMUNITY_40002", "바꿀 내용을 하나 이상 보내 주세요.", HttpStatus.BAD_REQUEST),
     CANNOT_BLOCK_SELF("COMMUNITY_40003", "자기 자신은 안 보기 할 수 없어요.", HttpStatus.BAD_REQUEST),
     INVALID_CURSOR("COMMUNITY_40004", "페이지 정보가 올바르지 않아요. 처음부터 다시 불러와 주세요.", HttpStatus.BAD_REQUEST),
