@@ -472,6 +472,22 @@ class PostpartumFlowTest extends ReminderTestBase {
     }
 
     @Test
+    void 당일_알림도_밤_10시가_지나면_안_가고_지난_날짜_검사는_알림이_없다() throws Exception {
+        deliver(jisu, "2026-11-01");
+        clock.set(Instant.parse("2026-11-09T13:00:00Z"));        // 한국 11/9 22:00
+        addTest(jisu, "당화혈색소", "2026-11-09");                // 오늘 (검사 끝나고 적음)
+        addTest(jisu, "지난 검사", "2026-11-05");                 // 지난 날짜
+        scheduler.run();
+        assertThat(fakeSender.sent).isEmpty();
+
+        clock.set(Instant.parse("2026-11-09T22:00:00Z"));        // 한국 11/10 07:00 — 다음 날에도 지난 검사는 안 감
+        scheduler.run();
+        assertThat(fakeSender.sent).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM notifications WHERE type = 'POSTPARTUM'", Integer.class))
+                .isZero();
+    }
+
+    @Test
     void 이름이_검사로_끝나면_검사를_또_붙이지_않는다() throws Exception {
         deliver(jisu, "2026-11-01");
         addTest(jisu, "당화혈색소 검사", "2026-11-09");
