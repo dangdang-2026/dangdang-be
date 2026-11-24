@@ -11,6 +11,8 @@ public enum UserErrorCode implements BaseErrorCode {
     REQUIRED_CONSENT_REFUSED("USER_40001", "필수 항목에 모두 동의해야 시작할 수 있어요.", HttpStatus.BAD_REQUEST),
     KAKAO_NO_PASSWORD("USER_40002", "카카오로 가입한 계정은 비밀번호가 없어요.", HttpStatus.BAD_REQUEST),
     CURRENT_PASSWORD_MISMATCH("USER_40003", "지금 비밀번호가 맞지 않아요.", HttpStatus.BAD_REQUEST),
+    KAKAO_REAUTH_REQUIRED("USER_40004", "카카오로 한 번 더 확인해 주세요.", HttpStatus.BAD_REQUEST),
+    KAKAO_REAUTH_MISMATCH("USER_40301", "지금 로그인한 카카오 계정과 달라요.", HttpStatus.FORBIDDEN),
     USER_NOT_FOUND("USER_40401", "회원 정보를 찾을 수 없어요.", HttpStatus.NOT_FOUND),
     VERSION_CONFLICT("USER_40901", "다른 곳에서 먼저 고쳤어요. 새로고침한 뒤 다시 시도해 주세요.", HttpStatus.CONFLICT);
 

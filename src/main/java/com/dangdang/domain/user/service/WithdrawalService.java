@@ -1,6 +1,8 @@
 package com.dangdang.domain.user.service;
 
 import com.dangdang.domain.auth.infra.RefreshTokenStore;
+import com.dangdang.domain.auth.infra.kakao.KakaoCodeReader;
+import com.dangdang.domain.auth.infra.kakao.KakaoUser;
 import com.dangdang.domain.user.dto.request.WithdrawalRequest;
 import com.dangdang.domain.user.entity.User;
 import com.dangdang.domain.user.enums.AuthProvider;
@@ -31,15 +33,13 @@ public class WithdrawalService {
     private final RefreshTokenStore refreshTokenStore;
     private final JdbcTemplate jdbc;
     private final Clock clock;
+    private final KakaoCodeReader kakaoCodeReader;
 
     @Transactional
     public void withdraw(Long userId, WithdrawalRequest req) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
-        if (user.getAuthProvider() == AuthProvider.EMAIL
-                && (req.password() == null || !passwordEncoder.matches(req.password(), user.getPasswordHash()))) {
-            throw new CustomException(UserErrorCode.CURRENT_PASSWORD_MISMATCH);
-        }
+        confirmOwner(user, req);   // 이메일은 비밀번호, 카카오는 카카오로 다시 (M-08)
         boolean keepPosts = Boolean.TRUE.equals(req.keepPosts());
         Timestamp now = Timestamp.from(clock.instant());   // 시각은 앱 Clock 하나로 (CommentService.delete와 같게)
         if (!keepPosts) {
@@ -66,5 +66,22 @@ public class WithdrawalService {
             }
         });
         log.info("[탈퇴] 완료 - 사용자: {}, 글 남김: {}", userId, keepPosts);
+    }
+
+    // 되돌릴 수 없는 작업이라 본인인지 한 번 더 (M-08). DB를 고치기 전에 부른다
+    private void confirmOwner(User user, WithdrawalRequest req) {
+        if (user.getAuthProvider() == AuthProvider.EMAIL) {   // 카카오를 연결한 이메일 계정도 여기 (비밀번호)
+            if (req.password() == null || !passwordEncoder.matches(req.password(), user.getPasswordHash())) {
+                throw new CustomException(UserErrorCode.CURRENT_PASSWORD_MISMATCH);
+            }
+            return;
+        }
+        if (req.kakaoCode() == null || req.kakaoCode().isBlank() || req.redirectUri() == null) {
+            throw new CustomException(UserErrorCode.KAKAO_REAUTH_REQUIRED);
+        }
+        KakaoUser kakao = kakaoCodeReader.read(req.kakaoCode(), req.redirectUri());   // 주소 AUTH_40007 · 틀린 코드 AUTH_40006
+        if (!kakao.kakaoId().equals(user.getProviderSubject())) {
+            throw new CustomException(UserErrorCode.KAKAO_REAUTH_MISMATCH);
+        }
     }
 }
