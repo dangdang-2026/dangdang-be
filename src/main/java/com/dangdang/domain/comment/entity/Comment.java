@@ -39,6 +39,9 @@ public class Comment {
     @Column(name = "is_anonymous", nullable = false)
     private boolean anonymous;
 
+    @Column(name = "anonymous_no")
+    private Integer anonymousNo;             // 같은 글 안 「익명 1·2」 번호. 이름 댓글·익명 글의 글쓴이 댓글은 null
+
     @Column(length = 50)
     private String hiddenReason;
 
@@ -51,13 +54,14 @@ public class Comment {
     private Instant deletedAt;
 
     public static Comment of(Post post, CommunityProfile profile, Comment parent, String content,
-                             boolean anonymous, Instant now) {
+                             boolean anonymous, Integer anonymousNo, Instant now) {
         Comment comment = new Comment();
         comment.post = post;
         comment.profile = profile;
         comment.parent = parent;
         comment.content = content;
         comment.anonymous = anonymous;
+        comment.anonymousNo = anonymousNo;
         comment.createdAt = now;
         comment.updatedAt = now;
         return comment;
@@ -82,5 +86,11 @@ public class Comment {
 
     public boolean isReply() {
         return parent != null;
+    }
+
+    // U-02b 「글쓴이」 라벨. 이름 글에 글쓴이가 익명으로 단 댓글은 빼고 다른 익명 댓글처럼 번호를 단다
+    // (「글쓴이」를 붙이면 익명 댓글이 그 이름 글쓴이라는 게 드러난다)
+    public boolean isByPostAuthor() {
+        return profile != null && post.isOwnedBy(profile.getId()) && (post.isAnonymous() || !anonymous);
     }
 }

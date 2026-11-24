@@ -31,6 +31,7 @@ public class CommentController {
                     """
                     **Parameters** postId
                     **Returns** items(오래된 순, parentId로 답글 구분), totalCount. 지운·가린 댓글과 그 답글은 빠진다
+                    items[].isPostAuthor(「글쓴이」) · anonymousNo(「익명 1」, 아니면 null) · isBest(공감 3개 이상 가장 많은 댓글 하나) · author.weekBadge
                     """)
     @GetMapping("/api/posts/{postId}/comments")
     public ResponseEntity<BaseResponse<CommentListResponse>> list(
@@ -45,7 +46,7 @@ public class CommentController {
             description =
                     """
                     **Parameters** postId, parentId(선택, 답글일 때), content(1000자), isAnonymous(선택)
-                    **Returns** 저장된 댓글. 답글의 답글 COMMENT_40001, 글·부모 댓글 없음 POST_40401·COMMENT_40401
+                    **Returns** 저장된 댓글. 익명 글의 글쓴이가 자기 글에 단 댓글은 isAnonymous와 상관없이 익명. 답글의 답글 COMMENT_40001, 글·부모 댓글 없음 POST_40401·COMMENT_40401
                     """)
     @PostMapping("/api/posts/{postId}/comments")
     public ResponseEntity<BaseResponse<CommentResponse>> create(

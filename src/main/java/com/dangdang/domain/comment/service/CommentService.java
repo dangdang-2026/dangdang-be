@@ -12,6 +12,7 @@ import com.dangdang.domain.community.entity.CommunityProfile;
 import com.dangdang.domain.community.service.BlockService;
 import com.dangdang.domain.community.service.CommunityProfileService;
 import com.dangdang.domain.community.service.SanctionService;
+import com.dangdang.domain.community.service.WeekBadges;
 import com.dangdang.domain.post.dto.response.ReactionResponse;
 import com.dangdang.domain.post.entity.Post;
 import com.dangdang.domain.post.service.PostService;
@@ -38,6 +39,7 @@ public class CommentService {
     private final CommunityProfileService profileService;
     private final SanctionService sanctionService;
     private final BlockService blockService;
+    private final WeekBadges weekBadges;
     private final Clock clock;
 
     public CommentListResponse list(Long userId, Long postId) {
@@ -53,8 +55,13 @@ public class CommentService {
                 .collect(Collectors.toMap(IdCount::getId, IdCount::getCnt));
         Set<Long> reacted = myProfileId == null ? Set.of()
                 : reactionRepository.findReactedCommentIds(ids, myProfileId);
+        // U-02b 「Best」는 지금 보이는 댓글 중에서 고른다 (지운·가린 댓글, 안 보기 한 사람 댓글은 이미 빠져 있다)
+        Long bestId = BestComment.pick(comments, counts);
+        Map<Long, String> badges = weekBadges.of(comments.stream()
+                .filter(c -> !c.isAnonymous()).map(Comment::getProfile).toList());   // 임신 표는 한 번만
         List<CommentResponse> items = comments.stream()
-                .map(c -> CommentResponse.of(c, myProfileId, counts.getOrDefault(c.getId(), 0L), reacted.contains(c.getId())))
+                .map(c -> CommentResponse.of(c, myProfileId, counts.getOrDefault(c.getId(), 0L),
+                        reacted.contains(c.getId()), c.getId().equals(bestId), badges))
                 .toList();
         return new CommentListResponse(items, items.size());
     }
@@ -65,10 +72,16 @@ public class CommentService {
         sanctionService.assertCanWrite(userId);   // 이용 제한 중이면 403 (U-17)
         Post post = postService.findVisiblePost(postId, profile.getId());
         Comment parent = request.parentId() == null ? null : findParent(request.parentId(), postId, profile.getId());
-        Comment comment = Comment.of(post, profile, parent, request.content().trim(),
-                Boolean.TRUE.equals(request.isAnonymous()), clock.instant());
+        boolean byAuthor = post.isOwnedBy(profile.getId());
+        // U-18: 익명 글의 글쓴이가 자기 글에 다는 댓글은 보낸 값과 상관없이 익명 (이름으로 달면 익명 글쓴이가 드러난다)
+        boolean anonymous = Boolean.TRUE.equals(request.isAnonymous()) || (post.isAnonymous() && byAuthor);
+        // 익명 글의 글쓴이는 번호 대신 「글쓴이」 라벨
+        Integer anonymousNo = anonymous && !(post.isAnonymous() && byAuthor)
+                ? anonymousNoFor(postId, profile.getId()) : null;
+        Comment comment = Comment.of(post, profile, parent, request.content().trim(), anonymous, anonymousNo,
+                clock.instant());
         commentRepository.save(comment);
-        return CommentResponse.of(comment, profile.getId(), 0, false);
+        return CommentResponse.of(comment, profile.getId(), 0, false, false, badgesOf(comment));
     }
 
     @Transactional
@@ -81,7 +94,8 @@ public class CommentService {
         }
         comment.edit(request.content().trim(), clock.instant());
         commentRepository.flush();
-        return CommentResponse.of(comment, profile.getId(), reactionRepository.countByCommentId(commentId), false);
+        return CommentResponse.of(comment, profile.getId(), reactionRepository.countByCommentId(commentId), false,
+                false, badgesOf(comment));
     }
 
     @Transactional
@@ -114,6 +128,19 @@ public class CommentService {
                 .orElseThrow(() -> new CustomException(CommentErrorCode.COMMENT_NOT_FOUND));
         postService.findVisiblePost(comment.getPost().getId(), myProfileId);
         return comment;
+    }
+
+    // U-02b 「익명 1·2」: 이 글에서 처음 익명 댓글을 단 순서. 같은 사람은 늘 같은 번호
+    // 글마다 차례로 정해서(advisory lock, 트랜잭션 끝까지) 동시에 첫 댓글을 달아도 번호가 겹치지 않는다
+    private int anonymousNoFor(Long postId, Long profileId) {
+        commentRepository.lockAnonymousNumbers(postId);
+        return commentRepository.findAnonymousNo(postId, profileId)
+                .orElseGet(() -> commentRepository.nextAnonymousNo(postId));
+    }
+
+    // 쓰기·고치기 응답 한 개짜리 — 익명 댓글이면 배지가 안 붙으니 임신 표를 읽지 않는다
+    private Map<Long, String> badgesOf(Comment comment) {
+        return comment.isAnonymous() ? Map.of() : weekBadges.of(List.of(comment.getProfile()));
     }
 
     private Comment findParent(Long parentId, Long postId, Long myProfileId) {

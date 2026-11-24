@@ -1,12 +1,15 @@
 package com.dangdang.domain.post.service;
 
 import com.dangdang.domain.comment.repository.CommentRepository;
+import com.dangdang.domain.comment.service.BestComment;
 import com.dangdang.domain.community.entity.CommunityProfile;
 import com.dangdang.domain.community.service.BlockService;
 import com.dangdang.domain.community.service.CommunityProfileService;
 import com.dangdang.domain.community.service.SanctionService;
+import com.dangdang.domain.community.service.WeekBadges;
 import com.dangdang.domain.post.dto.request.PostCreateRequest;
 import com.dangdang.domain.post.dto.request.PostUpdateRequest;
+import com.dangdang.domain.post.dto.response.BestCommentResponse;
 import com.dangdang.domain.post.dto.response.PollResponse;
 import com.dangdang.domain.post.dto.response.PostDetailResponse;
 import com.dangdang.domain.post.dto.response.PostListResponse;
@@ -61,6 +64,7 @@ public class PostService {
     private final BlockService blockService;
     private final CommunityProfileService profileService;
     private final SanctionService sanctionService;
+    private final WeekBadges weekBadges;
     private final Clock clock;
 
     public PostListResponse list(Long userId, PostCategory category, PostSort sort, PopularPeriod period,
@@ -177,11 +181,14 @@ public class PostService {
         Map<Long, Long> comments = toMap(commentRepository.countVisibleByPostIds(ids, viewerKey(myProfileId)));
         Set<Long> reacted = myProfileId == null ? Set.of()
                 : reactionRepository.findReactedPostIds(ids, myProfileId);
+        // 주수 배지: 글쓴이가 몇 명이어도 임신 표는 한 번 (익명 글은 배지를 안 붙이니 빼고 센다)
+        Map<Long, String> badges = weekBadges.of(posts.stream()
+                .filter(post -> !post.isAnonymous()).map(Post::getProfile).toList());
         return posts.stream()
                 .map(post -> PostSummaryResponse.of(post, myProfileId,
                         reactions.getOrDefault(post.getId(), 0L),
                         comments.getOrDefault(post.getId(), 0L),
-                        reacted.contains(post.getId())))
+                        reacted.contains(post.getId()), badges))
                 .toList();
     }
 
@@ -195,8 +202,10 @@ public class PostService {
         long commentCount = toMap(commentRepository.countVisibleByPostIds(List.of(postId), viewerKey(myProfileId)))
                 .getOrDefault(postId, 0L);
         boolean reacted = myProfileId != null && reactionRepository.existsByPostIdAndProfileId(postId, myProfileId);
+        Map<Long, String> badges = post.isAnonymous() || post.getProfile() == null ? Map.of()
+                : weekBadges.of(List.of(post.getProfile()));
         return PostDetailResponse.of(post, myProfileId, viewCount, reactionCount, commentCount, reacted,
-                pollOf(post, myProfileId));
+                pollOf(post, myProfileId), badges);
     }
 
     // 프로필이 없는 사람은 차단한 사람도 없다 → 절대 안 맞는 번호를 넘긴다
@@ -211,13 +220,31 @@ public class PostService {
         if (category != null && LATEST_ONLY_CATEGORIES.contains(category)) {
             throw new CustomException(PostErrorCode.LATEST_ONLY);
         }
-        Instant since = clock.instant().minus(period.window());
         Specification<Post> filter = PostSpecifications.feed(category, q, null, myProfileId, who)
-                .and((root, query, cb) -> cb.and(
-                        cb.greaterThanOrEqualTo(root.<Instant>get("createdAt"), since),
-                        root.get("category").in(LATEST_ONLY_CATEGORIES).not()));
+                .and((root, query, cb) -> root.get("category").in(LATEST_ONLY_CATEGORIES).not());
+        if (period.window() != null) {   // ALL(검색 결과 인기순, U-06)은 기간 조건 없이
+            Instant since = clock.instant().minus(period.window());
+            filter = filter.and((root, query, cb) -> cb.greaterThanOrEqualTo(root.<Instant>get("createdAt"), since));
+        }
         List<Post> top = popularQuery.findTop(filter, viewerKey(myProfileId), POPULAR_MAX);
-        return new PostListResponse(toSummaries(top, myProfileId), null, false);
+        return new PostListResponse(withBestComments(toSummaries(top, myProfileId), myProfileId), null, false);
+    }
+
+    // U-23 인기 카드 아래 베스트 댓글 — 글 50개여도 쿼리 2번 (글마다 댓글 API를 부르지 않게)
+    private List<PostSummaryResponse> withBestComments(List<PostSummaryResponse> items, Long myProfileId) {
+        if (items.isEmpty()) {
+            return items;
+        }
+        List<Long> postIds = items.stream().map(i -> Long.valueOf(i.id())).toList();
+        Map<Long, Long> counts = toMap(commentRepository.findBestComments(postIds, viewerKey(myProfileId),
+                BestComment.MIN_REACTIONS));
+        if (counts.isEmpty()) {
+            return items;
+        }
+        Map<Long, BestCommentResponse> byPost = commentRepository.findWithProfileByIdIn(counts.keySet()).stream()
+                .collect(Collectors.toMap(c -> c.getPost().getId(),
+                        c -> BestCommentResponse.of(c, counts.get(c.getId()), myProfileId)));
+        return items.stream().map(i -> i.withBestComment(byPost.get(Long.valueOf(i.id())))).toList();
     }
 
     private String normalizeSearch(String rawQ) {
