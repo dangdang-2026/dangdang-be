@@ -197,7 +197,7 @@ public class ReadingStatsService {
         Instant rangeEnd = KoreanTime.endOfDay(range.to());
         Instant graceEnd = clock.instant().minus(MISSED_GRACE);
         Instant end = rangeEnd.isBefore(graceEnd) ? rangeEnd : graceEnd;
-        return reminderRepository.countByUserIdAndSlotInAndStatusInAndScheduledAtGreaterThanEqualAndScheduledAtLessThan(
+        return reminderRepository.countMissed(
                 userId, slots, MISSED_STATUSES, KoreanTime.startOfDay(range.from()), end);
     }
 

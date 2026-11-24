@@ -32,9 +32,21 @@ public interface ReminderRepository extends JpaRepository<Reminder, Long> {
     // 이 혈당들이 끝낸 알림 (오늘 화면에서 "알림 예정 시각 대비 언제 쟀는지" 계산용)
     List<Reminder> findByReadingIdIn(Collection<Long> readingIds);
 
-    // 기간 안 이 시점들 알림 중 이 상태인 것 (혈당 통계의 "놓친 측정" — 보냈거나 열었거나 건너뛰었는데 혈당이 안 붙은 알림)
-    long countByUserIdAndSlotInAndStatusInAndScheduledAtGreaterThanEqualAndScheduledAtLessThan(
-            Long userId, Collection<MeasureSlot> slots, Collection<ReminderStatus> statuses, Instant from, Instant to);
+    // 기간 안 이 시점들 알림 중 이 상태인 것 (혈당 통계·진료 리포트의 "놓친 측정" — 보냈거나 열었거나 건너뛰었는데 혈당이 안 붙은 알림)
+    // 지운 식사의 알림은 안 셈 (기간 지우기·하나 지우기 뒤 「놓친 측정」만 남지 않게). 알림 상태는 그대로 둬서 되돌리면 다시 셈
+    // 식사 없는 알림(공복·자기 전)은 그대로 셈
+    @Query("""
+            SELECT count(r) FROM Reminder r
+            WHERE r.user.id = :userId
+              AND r.slot IN :slots
+              AND r.status IN :statuses
+              AND r.scheduledAt >= :from
+              AND r.scheduledAt < :to
+              AND (r.mealId IS NULL
+                   OR EXISTS (SELECT 1 FROM Meal m WHERE m.id = r.mealId AND m.deletedAt IS NULL))
+            """)
+    long countMissed(Long userId, Collection<MeasureSlot> slots, Collection<ReminderStatus> statuses,
+                     Instant from, Instant to);
 
     // 공복과 자기 전 알림을 이 시각으로 이미 만들었는지 (30초마다 돌아도 하루 한 번만)
     boolean existsByUserIdAndSlotAndScheduledAt(Long userId, MeasureSlot slot, Instant scheduledAt);

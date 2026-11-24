@@ -12,6 +12,7 @@ import java.sql.Timestamp;
 import java.time.Duration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -98,6 +99,50 @@ class MeasureSkipFlowTest extends ReminderTestBase {
                         .content("{\"readingType\":\"FASTING\"}"))
                 .andExpect(status().isOk());
         assertThat(statusOf(reminderId)).isEqualTo("DISMISSED");
+    }
+
+    @Test
+    void 이미_식후_혈당을_잰_끼니는_409_MEAL_40905() throws Exception {
+        mvc.perform(post("/api/readings").cookie(jisu).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"value\":120,\"measuredAt\":\"2026-11-09T04:05:00Z\","
+                                + "\"readingType\":\"POST_MEAL\",\"mealId\":" + mealId + "}"))
+                .andExpect(status().isCreated());
+        mvc.perform(post("/api/meals/" + mealId + "/measure-skip").cookie(jisu))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.errorCode").value("MEAL_40905"));
+        assertThat(statusOf(reminderId)).isEqualTo("DONE");
+        assertThat(jdbc.queryForObject("SELECT measure_skipped_at IS NULL FROM meals WHERE id = ?", Boolean.class, mealId))
+                .isTrue();
+    }
+
+    // 지운 식사의 알림은 「놓친 측정」에서 빠지고, 되돌리면 다시 센다 (통계·진료 리포트 같은 쿼리)
+    @Test
+    void 건너뛴_식사를_기간_지우기로_지우면_놓친_측정에서_빠지고_되돌리면_다시_센다() throws Exception {
+        mvc.perform(post("/api/meals/" + mealId + "/measure-skip").cookie(jisu)).andExpect(status().isOk());
+        String reportBody = mvc.perform(post("/api/visit-reports").cookie(jisu).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"kind\":\"CUSTOM\",\"from\":\"2026-11-09\",\"to\":\"2026-11-09\"}"))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        Number reportId = com.jayway.jsonpath.JsonPath.read(reportBody, "$.data.id");
+        clock.set(NOW.plus(Duration.ofMinutes(31)));   // 알림 시각 + 30분이 지나야 놓침으로 셈
+        assertMissed(reportId, 1);
+
+        mvc.perform(delete("/api/records").param("from", "2026-11-09").param("to", "2026-11-09").cookie(jisu))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.deletedMeals").value(1));
+        assertMissed(reportId, 0);
+        assertThat(statusOf(reminderId)).isEqualTo("DISMISSED");   // 알림 상태는 안 건드림
+
+        clock.set(NOW.plus(Duration.ofMinutes(32)));
+        mvc.perform(post("/api/meals/" + mealId + "/restore").cookie(jisu)).andExpect(status().isOk());
+        assertMissed(reportId, 1);
+    }
+
+    private void assertMissed(Number reportId, int expected) throws Exception {
+        mvc.perform(get("/api/readings/stats").cookie(jisu).param("period", "1W"))
+                .andExpect(jsonPath("$.data.current.missed").value(expected));
+        mvc.perform(get("/api/visit-reports/" + reportId).cookie(jisu))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.summary.missed").value(expected));
     }
 
     @Test
