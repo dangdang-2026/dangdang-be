@@ -14,7 +14,7 @@ public record MeResponse(
         @Schema(description = "이메일(카카오는 없을 수 있음)", example = "jisu@example.com") String email,
         @Schema(description = "부를 이름", example = "지수") String displayName,
         @Schema(description = "가입 방식", example = "EMAIL") AuthProvider authProvider,
-        @Schema(description = "필수 동의를 마쳤는지 (false면 A-01로)", example = "true") boolean consentCompleted,
+        @Schema(description = "필수 동의를 지금 문서 버전으로 마쳤는지 (false면 A-01로 — 건강정보 철회·문서 버전 올림 포함)", example = "true") boolean consentCompleted,
         @Schema(description = "이름 바꿀 때 그대로 보낼 수정 버전 (BIGINT 문자열)", example = "0") String version,
         @Schema(description = "출산 예정일 (안 적었으면 null)", example = "2026-12-20") LocalDate dueDate,
         @Schema(description = "임신 상태 PREGNANT·HOSPITALIZED·POSTPARTUM (임신 정보가 없으면 null)", example = "PREGNANT")
