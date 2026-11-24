@@ -19,7 +19,9 @@ public enum CommunityErrorCode implements BaseErrorCode {
     BLOCK_TARGET_NOT_FOUND("COMMUNITY_40402", "안 보기 할 사람을 찾을 수 없어요.", HttpStatus.NOT_FOUND),
     NICKNAME_DUPLICATED("COMMUNITY_40901", "이미 누가 쓰고 있는 이름이에요.", HttpStatus.CONFLICT),
     PROFILE_ALREADY_EXISTS("COMMUNITY_40902", "이미 커뮤니티 프로필이 있어요.", HttpStatus.CONFLICT),
-    NICKNAME_SUGGESTION_FAILED("COMMUNITY_40903", "추천할 이름을 찾지 못했어요. 직접 적어 주세요.", HttpStatus.CONFLICT);
+    NICKNAME_SUGGESTION_FAILED("COMMUNITY_40903", "추천할 이름을 찾지 못했어요. 직접 적어 주세요.", HttpStatus.CONFLICT),
+    NOT_RESTRICTED("COMMUNITY_40904", "지금 걸려 있는 이용 제한이 없어요.", HttpStatus.CONFLICT),
+    ALREADY_APPEALED("COMMUNITY_40905", "이미 이의 신청을 했어요. 운영자가 확인하고 있어요.", HttpStatus.CONFLICT);
 
     private final String code;
     private final String message;

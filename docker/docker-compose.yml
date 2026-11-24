@@ -1,18 +1,29 @@
-# 서버(운영)용: cd.yml이 이 파일을 서버 ~/dangdang/docker/ 로 복사해서 실행
+# 서버용: cd.yml(운영)·cd-dev.yml(개발)이 이 파일과 deploy.sh를 서버 ~/dangdang/docker/ 로 복사해서 실행
+# 이미지 태그: .env에 IMAGE_TAG·AI_IMAGE_TAG가 없으면 latest(운영), 개발 .env는 IMAGE_TAG=dev
+# 블루그린: app-blue(8080)·app-green(8081) 중 하나만 손님을 받는다. 어느 쪽인지는 Nginx upstream 파일이 정한다
+#          그냥 `docker compose up -d`를 치면 app은 안 뜬다(profiles) — 배포는 항상 deploy.sh로
+x-app: &app
+  image: ${DOCKER_REPO}:${IMAGE_TAG:-latest}
+  env_file: .env
+  environment:
+    DB_URL: jdbc:postgresql://db:5432/${DB_NAME}
+    REDIS_HOST: redis
+    AI_BASE_URL: http://ai:8000
+  depends_on:
+    db: { condition: service_healthy }
+    redis: { condition: service_started }
+  restart: unless-stopped
+  stop_grace_period: 40s          # Spring graceful shutdown(30s)이 끝날 때까지 기다렸다가 끔 (기본 10s면 하던 요청이 잘림)
+  profiles: ["app"]
+  logging: { driver: json-file, options: { max-size: "10m", max-file: "3" } }
+
 services:
-  app:
-    image: ${DOCKER_REPO}:latest
-    env_file: .env
-    environment:
-      DB_URL: jdbc:postgresql://db:5432/${DB_NAME}
-      REDIS_HOST: redis
-      AI_BASE_URL: http://ai:8000
+  app-blue:
+    <<: *app
     ports: ["127.0.0.1:8080:8080"]
-    depends_on:
-      db: { condition: service_healthy }
-      redis: { condition: service_started }
-    restart: unless-stopped
-    logging: { driver: json-file, options: { max-size: "10m", max-file: "3" } }
+  app-green:
+    <<: *app
+    ports: ["127.0.0.1:8081:8080"]
   db:
     image: pgvector/pgvector:pg16
     environment:
@@ -35,7 +46,7 @@ services:
     ports: ["127.0.0.1:9999:8080"]
     restart: unless-stopped
   ai:
-    image: dahyun0423/dangdang-ai:latest
+    image: dahyun0423/dangdang-ai:${AI_IMAGE_TAG:-latest}
     environment:
       INTERNAL_TOKEN: ${INTERNAL_TOKEN}
       LLM_API_KEY: ${LLM_API_KEY:-}

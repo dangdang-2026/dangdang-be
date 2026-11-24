@@ -64,10 +64,12 @@ public class ChatService {
             return pair(question, answer);
         }
 
-        // 2) 문지기 — 동의가 없거나 오늘 상한이면 여기서 403·429 (아무것도 저장 안 함)
+        // 2) 문지기 — 오늘 상한이면 여기서 429 (아무것도 저장 안 함). 일반 질문은 국외 이전 동의 없이도 답한다 (11/23)
         AiGuard.AiCall call = aiGuard.begin(userId, AiFeature.CHAT);
         List<ChatClient.Turn> history = history(userId);          // 이번 질문을 저장하기 전에 읽는다 (위험 신호면 안 읽음)
-        boolean recordsAllowed = consentService.isGranted(userId, ConsentType.AI_CHAT_RECORDS);
+        // 내 기록(건강정보)을 OpenAI(국외)로 보내려면 기록 사용 동의와 국외 이전 동의가 둘 다 있어야 한다 (PR #120 리뷰)
+        boolean recordsAllowed = consentService.isGranted(userId, ConsentType.AI_CHAT_RECORDS)
+                && consentService.isGranted(userId, ConsentType.OVERSEAS_TRANSFER);
         ChatMessage question = chatMessageRepository.save(ChatMessage.question(user, content, clock.instant()));
 
         // 3) AI 서버 → 4) 답 만들기. 어디서 어떤 예외가 나도 오늘 횟수를 돌려주고 FAILED로 끝낸다 (리뷰 #79)

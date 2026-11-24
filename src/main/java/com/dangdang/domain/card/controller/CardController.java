@@ -27,7 +27,7 @@ public class CardController {
     private final CardService cardService;
 
     @Operation(summary = "[ 사용자 | 토큰 O | 카드뉴스 목록 ]",
-            description = "**Parameters** series(선택: BEFORE_VISIT·GUIDELINE·POSTPARTUM·MIND) **Returns** 최신순, saved(내가 저장했는지). 내려간 카드는 빠짐")
+            description = "**Parameters** series(선택: BEFORE_VISIT·GUIDELINE·POSTPARTUM·MIND) **Returns** 최신순, seriesLabel · sourceCount · slideCount · saved. 내려간 카드는 빠짐")
     @GetMapping("/api/cards")
     public ResponseEntity<BaseResponse<List<CardSummaryResponse>>> list(
             @AuthenticationPrincipal AuthPrincipal principal, @RequestParam(required = false) String series) {
@@ -36,7 +36,7 @@ public class CardController {
     }
 
     @Operation(summary = "[ 사용자 | 토큰 O | 카드뉴스 보기 (U-26) ]",
-            description = "**Returns** slides·sources·checkedOn·reviewer. CORRECTED면 correctionNote(U-26b), WITHDRAWN이면 내용 없이 withdrawnAt(U-26c). 공감 수 없음")
+            description = "**Returns** seriesLabel·slides(eyebrow·source)·sources·questions·checkedOn·reviewer. CORRECTED면 correctionSummary·correctionNote(U-26b), WITHDRAWN이면 내용 없이 withdrawnAt(U-26c). 공감은 reacted만 (숫자 없음)")
     @GetMapping("/api/cards/{cardId}")
     public ResponseEntity<BaseResponse<CardDetailResponse>> detail(
             @AuthenticationPrincipal AuthPrincipal principal, @PathVariable Long cardId) {
@@ -57,6 +57,21 @@ public class CardController {
             @AuthenticationPrincipal AuthPrincipal principal, @PathVariable Long cardId) {
         cardService.unsave(principal.userId(), cardId);
         return ResponseEntity.ok(BaseResponse.success(200, "저장을 취소했습니다.", null));
+    }
+
+    @Operation(summary = "[ 사용자 | 토큰 O | 카드 공감 ]", description = "두 번 눌러도 한 번. 숫자는 어디에도 안 보임(reacted만). 내려간 카드는 409 CARD_40903")
+    @PutMapping("/api/cards/{cardId}/reaction")
+    public ResponseEntity<BaseResponse<CardDetailResponse>> react(
+            @AuthenticationPrincipal AuthPrincipal principal, @PathVariable Long cardId) {
+        return ResponseEntity.ok(BaseResponse.success(200, "카드에 공감했습니다.", cardService.react(principal.userId(), cardId)));
+    }
+
+    @Operation(summary = "[ 사용자 | 토큰 O | 카드 공감 취소 ]", description = "안 눌렀어도 200")
+    @DeleteMapping("/api/cards/{cardId}/reaction")
+    public ResponseEntity<BaseResponse<Void>> unreact(
+            @AuthenticationPrincipal AuthPrincipal principal, @PathVariable Long cardId) {
+        cardService.unreact(principal.userId(), cardId);
+        return ResponseEntity.ok(BaseResponse.success(200, "공감을 취소했습니다.", null));
     }
 
     @Operation(summary = "[ 사용자 | 토큰 O | 저장한 카드 (U-27 · U-27b) ]", description = "최근에 저장한 순. 내려간 카드도 status WITHDRAWN으로 남음. 없으면 []")
@@ -87,7 +102,7 @@ public class CardController {
         return ResponseEntity.ok(BaseResponse.success(200, "카드를 올렸습니다.", cardService.publish(cardId)));
     }
 
-    @Operation(summary = "[ 운영자 | 카드 정정 (U-26b) ]", description = "**Parameters** note(필수) · body · checkedOn → CORRECTED")
+    @Operation(summary = "[ 운영자 | 카드 정정 (U-26b) ]", description = "**Parameters** summary(필수, 40자) · note(자세한 내용) · body · questions · checkedOn → CORRECTED")
     @PostMapping("/api/admin/cards/{cardId}/correct")
     public ResponseEntity<BaseResponse<CardDetailResponse>> correct(
             @PathVariable Long cardId, @Valid @RequestBody CardCorrectRequest request) {

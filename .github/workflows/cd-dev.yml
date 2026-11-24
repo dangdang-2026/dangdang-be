@@ -1,0 +1,59 @@
+name: CD (dev)
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+concurrency:              # develop 머지가 연달아 와도 배포는 한 번에 하나씩 (뒤에 온 것이 기다림)
+  group: cd-dev
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: development
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_REPO }}:dev
+            ${{ secrets.DOCKER_REPO }}:dev-${{ github.sha }}
+
+      - uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEV_SERVER_HOST }}
+          port: ${{ secrets.DEV_SERVER_PORT }}
+          username: ${{ secrets.DEV_SERVER_USER }}
+          key: ${{ secrets.DEV_SERVER_SSH_KEY }}
+          source: docker/docker-compose.yml,docker/deploy.sh   # deploy.sh = 블루그린 전환 스크립트
+          target: ~/dangdang
+
+      - uses: appleboy/ssh-action@v1.0.3
+        env:
+          ENV_DEV: ${{ secrets.ENV_DEV }}
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PULL_TOKEN: ${{ secrets.DOCKER_PULL_TOKEN }}   # 서버엔 읽기 전용 토큰만 남긴다 (빌드·푸시는 위 DOCKER_PASSWORD)
+        with:
+          host: ${{ secrets.DEV_SERVER_HOST }}
+          port: ${{ secrets.DEV_SERVER_PORT }}
+          username: ${{ secrets.DEV_SERVER_USER }}
+          key: ${{ secrets.DEV_SERVER_SSH_KEY }}
+          envs: ENV_DEV,DOCKER_USERNAME,DOCKER_PULL_TOKEN   # Secret을 스크립트 글자에 끼우지 않고 환경변수로 넘김 ($·백틱이 셸에서 바뀌지 않게)
+          script: |
+            set -e
+            cd ~/dangdang/docker
+            printf '%s\n' "$ENV_DEV" > .env
+            chmod 600 .env
+            printf '%s' "$DOCKER_PULL_TOKEN" | docker login -u "$DOCKER_USERNAME" --password-stdin
+            bash deploy.sh   # 쉬던 색 띄우기 → 건강 확인 → Nginx 전환 → 이전 색 끄기 (실패하면 이전 색 그대로)

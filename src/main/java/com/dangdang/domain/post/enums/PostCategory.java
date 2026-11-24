@@ -8,5 +8,7 @@ public enum PostCategory {
     VISIT,        // 진료 후기
     MIND,         // 마음
     BIRTH,        // 출산
-    POSTPARTUM    // 출산·산후 탭
+    POSTPARTUM,   // 출산·산후 탭
+    FREE,         // 자유 (11/20 추가)
+    QUESTION      // 질문 (11/20 추가)
 }

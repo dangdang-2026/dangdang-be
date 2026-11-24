@@ -20,6 +20,6 @@ public class SwaggerConfig {
 						.version("v1"))
 				.servers(List.of(
                         new Server().url("http://localhost:8080").description("로컬"),
-						new Server().url("https://dang-dang.site").description("운영")));
+						new Server().url("https://api.dang-dang.site").description("운영")));
 	}
 }

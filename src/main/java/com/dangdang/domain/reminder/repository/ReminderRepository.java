@@ -7,6 +7,7 @@ import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 
 import java.time.Instant;
@@ -82,5 +83,34 @@ public interface ReminderRepository extends JpaRepository<Reminder, Long> {
             ORDER BY COALESCE(r.snoozedUntil, r.scheduledAt)
             """)
     List<Reminder> findNextByDueTime(Long userId, ReminderStatus status, Limit limit);
+
+
+    // 보내기 직전에 「내가 보낸다」고 잡는다 — 아직 예약 상태이고, 울릴 시각이 됐고, 아무도 안 잡았을 때만 1
+    // (다른 서버가 잡고 있거나, 그사이 보냄·미룸·취소로 바뀌었으면 0 → 이 알림은 건너뜀)
+    @Modifying
+    @Query("""
+            UPDATE Reminder r SET r.claimedUntil = :until
+            WHERE r.id = :id
+              AND r.status = com.dangdang.domain.reminder.enums.ReminderStatus.SCHEDULED
+              AND COALESCE(r.snoozedUntil, r.scheduledAt) <= :now
+              AND (r.claimedUntil IS NULL OR r.claimedUntil < :now)
+            """)
+    int claimDue(Long id, Instant now, Instant until);
+
+    // 재알림을 보내기 직전에 잡는다 — 보낸 상태이고, 아직 재알림 전이고, 아무도 안 잡았을 때만 1
+    @Modifying
+    @Query("""
+            UPDATE Reminder r SET r.claimedUntil = :until
+            WHERE r.id = :id
+              AND r.status = com.dangdang.domain.reminder.enums.ReminderStatus.SENT
+              AND r.renotified = false
+              AND (r.claimedUntil IS NULL OR r.claimedUntil < :now)
+            """)
+    int claimRenotify(Long id, Instant now, Instant until);
+
+    // 잡은 것을 푼다 — 푸시가 잠깐 실패해서 다음 바퀴에 다시 시도할 때
+    @Modifying
+    @Query("UPDATE Reminder r SET r.claimedUntil = NULL WHERE r.id = :id")
+    int release(Long id);
 
 }

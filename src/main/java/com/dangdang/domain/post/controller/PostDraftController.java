@@ -49,4 +49,13 @@ public class PostDraftController {
         return ResponseEntity.ok(BaseResponse.success(200, "내 게시글 임시저장 조회에 성공했습니다.",
                 draftService.getMine(principal.userId())));
     }
+
+    @Operation(
+            summary = "[ 사용자 | 토큰 O | 임시 저장 글 지우기 (U-16 「저장 안 함」) ]",
+            description = "**Returns** data 없음. 임시 글이 없어도 200")
+    @DeleteMapping
+    public ResponseEntity<BaseResponse<Void>> deleteMine(@AuthenticationPrincipal AuthPrincipal principal) {
+        draftService.deleteMine(principal.userId());
+        return ResponseEntity.ok(BaseResponse.success(200, "임시 저장 글을 지웠습니다.", null));
+    }
 }

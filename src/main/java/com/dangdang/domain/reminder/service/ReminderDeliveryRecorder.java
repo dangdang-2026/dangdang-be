@@ -3,7 +3,7 @@ package com.dangdang.domain.reminder.service;
 import com.dangdang.domain.meal.entity.Meal;
 import com.dangdang.domain.meal.repository.MealRepository;
 import com.dangdang.domain.notification.entity.Notification;
-import com.dangdang.domain.notification.repository.NotificationRepository;
+import com.dangdang.domain.notification.service.NotificationService;
 import com.dangdang.domain.reminder.entity.Reminder;
 import com.dangdang.domain.reminder.repository.ReminderRepository;
 import lombok.RequiredArgsConstructor;
@@ -18,8 +18,25 @@ import java.time.Instant;
 public class ReminderDeliveryRecorder {
 
     private final ReminderRepository reminderRepository;
-    private final NotificationRepository notificationRepository;
+    private final NotificationService notificationService;
     private final MealRepository mealRepository;
+
+    // 보내기 직전 「내가 보낸다」 표시 — false면 다른 서버가 보내는 중이거나 이미 끝난 알림
+    @Transactional
+    public boolean claimDue(Long reminderId, Instant now, Instant until) {
+        return reminderRepository.claimDue(reminderId, now, until) == 1;
+    }
+
+    @Transactional
+    public boolean claimRenotify(Long reminderId, Instant now, Instant until) {
+        return reminderRepository.claimRenotify(reminderId, now, until) == 1;
+    }
+
+    // 다음 바퀴에 다시 시도할 수 있게 표시를 푼다
+    @Transactional
+    public void release(Long reminderId) {
+        reminderRepository.release(reminderId);
+    }
 
     @Transactional
     public void recordSent(Long reminderId, Instant now) {
@@ -57,7 +74,7 @@ public class ReminderDeliveryRecorder {
     private void saveInbox(Reminder reminder, boolean renotify, Instant now) {
         Instant mealStartedAt = mealStartedAt(reminder);
         String title = renotify ? ReminderMessages.RENOTIFY_TITLE : ReminderMessages.inboxTitle(reminder, mealStartedAt);
-        notificationRepository.save(Notification.measure(reminder.getUser(), reminder.getId(),
+        notificationService.record(Notification.measure(reminder.getUser(), reminder.getId(),
                 title, ReminderMessages.inboxBody(mealStartedAt),
                 ReminderMessages.deepLink(reminder), now));
     }
