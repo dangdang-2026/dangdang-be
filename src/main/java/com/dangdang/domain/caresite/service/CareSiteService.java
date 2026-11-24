@@ -21,7 +21,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.util.List;
-import java.util.Locale;
 
 @Service
 @RequiredArgsConstructor
@@ -101,7 +100,7 @@ public class CareSiteService {
     }
 
     // 병원 검색. page는 0부터, size는 1~50으로 맞춤
-    // 받아 둔 병원 목록(hospitals)이 있으면 DB에서 찾고, 아직 비어 있으면(처음 적재 전) 예전처럼 심평원에 물어봄
+    // 끝까지 받은 병원 목록(hospitals)이 있으면 DB에서 찾고, 아직 없으면(첫 적재 전·도중·중간에 멈춤) 예전처럼 심평원에 물어봄
     public HospitalSearchResponse search(String keyword, int page, int size) {
         String trimmed = keyword == null ? "" : keyword.strip();
         if (trimmed.length() < MIN_KEYWORD || trimmed.length() > MAX_KEYWORD) {
@@ -109,15 +108,10 @@ public class CareSiteService {
         }
         int pageNo = Math.max(page, 0);
         int pageSize = Math.clamp(size, 1, MAX_SEARCH_SIZE);
-        HospitalSearchResult result = hospitalRepository.hasAny()
-                ? hospitalRepository.search(toSearchName(trimmed), (long) pageNo * pageSize, pageSize)
+        HospitalSearchResult result = hospitalRepository.hasCompletedSync()
+                ? hospitalRepository.search(HospitalRepository.toSearchName(trimmed), (long) pageNo * pageSize, pageSize)
                 : hospitalSearchClient.search(trimmed, pageNo + 1, pageSize);   // 심평원은 1부터
         return HospitalSearchResponse.of(result, pageNo, pageSize);
-    }
-
-    // hospitals.search_name과 같은 모양으로: 빈칸 지우고 소문자 ("CHA 의과" -> "cha의과")
-    private static String toSearchName(String keyword) {
-        return keyword.replace(" ", "").toLowerCase(Locale.ROOT);
     }
 
     // 지금 대표 병원이 있으면 대표를 풂 (대표는 사용자당 하나만)

@@ -68,7 +68,8 @@ class HospitalSearchFlowTest {
     @BeforeEach
     void loginFirst() throws Exception {
         calls.clear();
-        jdbc.update("DELETE FROM hospitals");   // 이 테스트는 「DB가 비어 있으면 심평원으로」 경로를 봄
+        jdbc.update("DELETE FROM hospitals");             // 이 테스트는 「끝까지 받은 적재가 없으면 심평원으로」 경로를 봄
+        jdbc.update("DELETE FROM hospital_sync_state");
         userRepository.save(User.ofEmail("jisu@x.com", "테스트", passwordEncoder.encode("abcd1234"), Instant.now()));
         access = mvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)

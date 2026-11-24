@@ -61,12 +61,14 @@ class HospitalDbSearchFlowTest {
     @BeforeEach
     void setUp() throws Exception {
         hiraCalls.clear();
+        jdbc.update("DELETE FROM hospital_sync_state");
         jdbc.update("DELETE FROM hospitals");
         hospital("CODE-1", "서울대학교병원", "상급종합");
         hospital("CODE-2", "분당서울대학교병원", "상급종합");
         hospital("CODE-3", "서울대학교치과병원", "치과병원");
         hospital("CODE-4", "CHA의과대학교 분당차병원", "종합병원");
         hospital("CODE-5", "강남세브란스병원", "상급종합");
+        jdbc.update("INSERT INTO hospital_sync_state (id, completed_at, total, saved, removed) VALUES (1, now(), 5, 5, 0)");
 
         userRepository.save(User.ofEmail("jisu@x.com", "테스트", passwordEncoder.encode("abcd1234"), Instant.now()));
         access = mvc.perform(post("/api/auth/login")
@@ -77,6 +79,7 @@ class HospitalDbSearchFlowTest {
 
     @AfterEach
     void clean() {
+        jdbc.update("DELETE FROM hospital_sync_state");
         jdbc.update("DELETE FROM hospitals");
         jdbc.update("DELETE FROM users");
         redis.getConnectionFactory().getConnection().serverCommands().flushDb();
@@ -137,5 +140,23 @@ class HospitalDbSearchFlowTest {
                     .andExpect(jsonPath("$.data.totalCount").value(0))
                     .andExpect(jsonPath("$.data.items", hasSize(0)));
         }
+    }
+
+    @Test
+    void 탭이나_NBSP_전각_빈칸이_섞여도_찾는다() throws Exception {
+        for (String keyword : List.of("서울대학교\u00A0병원", "서울대학교\t병원", "서울대학교\u3000병원")) {
+            mvc.perform(get("/api/care-sites/search").cookie(access).param("keyword", keyword))
+                    .andExpect(jsonPath("$.data.items[0].hiraCode").value("CODE-1"));
+        }
+    }
+
+    @Test
+    void 첫_적재가_끝나지_않았으면_받은_데까지가_아니라_심평원으로_찾는다() throws Exception {
+        jdbc.update("DELETE FROM hospital_sync_state");   // 병원 줄은 있지만 끝까지 받은 적은 없음
+
+        mvc.perform(get("/api/care-sites/search").cookie(access).param("keyword", "서울대"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalCount").value(0));   // 가짜 심평원은 빈 결과
+        assertThat(hiraCalls).containsExactly("서울대");
     }
 }
