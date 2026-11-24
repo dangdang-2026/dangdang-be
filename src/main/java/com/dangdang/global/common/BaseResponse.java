@@ -18,4 +18,9 @@ public record BaseResponse<T> (boolean success, int code, String message, String
     public static <T> BaseResponse<T> fail(BaseErrorCode errorCode, String message){
         return new BaseResponse<>(false,errorCode.getStatus().value(), message,errorCode.getCode(), null);
     }
+
+    // 실패해도 숫자를 같이 줄 때 (예: 남은 횟수·남은 초)
+    public static <T> BaseResponse<T> fail(BaseErrorCode errorCode, String message, T data) {
+        return new BaseResponse<>(false, errorCode.getStatus().value(), message, errorCode.getCode(), data);
+    }
 }

@@ -5,6 +5,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
+import java.util.concurrent.TimeUnit;
 
 // 로그인 실패 횟수와 잠금을 Redis 에 둔다 (AUTH-04: 5번 틀리면 5분 잠금)
 @Component
@@ -19,8 +20,10 @@ public class LoginAttemptStore {
 
     private final StringRedisTemplate redis;
 
-    public boolean isLocked(String email) {
-        return Boolean.TRUE.equals(redis.hasKey(LOCK + email));
+    // 잠겨 있으면 풀릴 때까지 남은 초, 아니면 0
+    public long lockSecondsLeft(String email) {
+        Long ttl = redis.getExpire(LOCK + email, TimeUnit.SECONDS);
+        return ttl == null || ttl < 0 ? 0 : ttl;   // -2 = 키 없음, -1 = 만료 없음(생기면 안 됨)
     }
 
     // 실패 +1. 5번이 되면 잠그고 횟수는 지운다. 올린 뒤 값을 돌려준다
