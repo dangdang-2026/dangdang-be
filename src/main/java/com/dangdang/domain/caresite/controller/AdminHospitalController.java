@@ -13,6 +13,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Instant;
+
 // /api/admin/** 는 SecurityConfig에서 ADMIN만 들어온다
 @Tag(name = "Admin · Hospital", description = "운영자 병원 목록 적재 API")
 @RestController
@@ -23,7 +25,8 @@ public class AdminHospitalController {
     private final HospitalSyncService hospitalSyncService;
     private final HospitalRepository hospitalRepository;
 
-    public record SyncStatus(long count, boolean running) {
+    // count = 받아 둔 병원 수, running = 이 서버에서 받는 중인지, lastCompletedAt = 마지막으로 끝까지 받은 시각(없으면 null)
+    public record SyncStatus(long count, boolean running, Instant lastCompletedAt) {
     }
 
     @Operation(
@@ -39,7 +42,7 @@ public class AdminHospitalController {
         boolean started = hospitalSyncService.startInBackground();
         return ResponseEntity.status(HttpStatus.ACCEPTED)
                 .body(BaseResponse.success(202, started ? "병원 목록 받기를 시작했습니다." : "이미 받는 중입니다.",
-                        new SyncStatus(hospitalRepository.count(), true)));
+                        new SyncStatus(hospitalRepository.count(), true, hospitalRepository.lastCompletedAt())));
     }
 
     @Operation(
@@ -47,11 +50,12 @@ public class AdminHospitalController {
             description =
                     """
                     **Parameters** 없음
-                    **Returns** count(받아 둔 병원 수) · running(지금 받는 중인지)
+                    **Returns** count(받아 둔 병원 수) · running(이 서버에서 받는 중인지) · lastCompletedAt(마지막으로 끝까지 받은 시각, 없으면 null — 이게 있어야 검색이 DB에서 됨)
                     """)
     @GetMapping
     public ResponseEntity<BaseResponse<SyncStatus>> status() {
         return ResponseEntity.ok(BaseResponse.success(200, "병원 목록 상태 조회에 성공했습니다.",
-                new SyncStatus(hospitalRepository.count(), hospitalSyncService.isRunning())));
+                new SyncStatus(hospitalRepository.count(), hospitalSyncService.isRunning(),
+                        hospitalRepository.lastCompletedAt())));
     }
 }
