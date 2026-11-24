@@ -23,6 +23,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.YearMonth;
+import java.util.List;
 
 import static com.dangdang.support.TestConsents.grantSensitive;
 import static org.hamcrest.Matchers.hasSize;
@@ -355,6 +356,28 @@ class RecordFlowTest {
                 .andExpect(jsonPath("$.data.days[0].events[2].reading.targetValue").value(140))
                 .andExpect(jsonPath("$.data.days[0].events[2].reading.expectedAt").value(kst(day, 13, 0).toString()))
                 .andExpect(jsonPath("$.data.days[0].events[2].reading.timing").value("LATE"));
+    }
+
+    @Test
+    void 재야_할_시각은_식사_날짜에_적용_중이던_기준으로_구한다() throws Exception {
+        LocalDate day1 = today().minusDays(3);
+        LocalDate day2 = today().minusDays(1);
+        for (String body : List.of(
+                "{\"postMealMinutes\":60,\"effectiveFrom\":\"" + day1.minusDays(1) + "\"}",
+                "{\"postMealMinutes\":90,\"effectiveFrom\":\"" + day2 + "\"}",
+                "{\"postMealMinutes\":120,\"effectiveFrom\":\"" + day2 + "\"}")) {   // 같은 적용일이면 나중 것(id 큰 것)
+            mvc.perform(post("/api/criteria-versions").cookie(access).contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andExpect(status().isCreated());
+        }
+        long meal1 = createMeal(access, "LUNCH", kst(day1, 12, 0));
+        createReading(access, 130, "POST_MEAL", kst(day1, 13, 0), meal1);
+        long meal2 = createMeal(access, "LUNCH", kst(day2, 12, 0));
+        createReading(access, 130, "POST_MEAL", kst(day2, 14, 0), meal2);
+
+        mvc.perform(get("/api/records").cookie(access).param("from", day1.toString()).param("to", day2.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.days[0].events[1].reading.expectedAt").value(kst(day1, 13, 0).toString()))
+                .andExpect(jsonPath("$.data.days[2].events[1].reading.expectedAt").value(kst(day2, 14, 0).toString()));
     }
 
     @Test

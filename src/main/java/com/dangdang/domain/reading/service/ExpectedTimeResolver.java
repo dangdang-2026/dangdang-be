@@ -17,7 +17,7 @@ import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 // 식후 혈당마다 "재야 할 시각"을 한 번에 구함 (오늘 화면 · 기록 목록 · 같은 메뉴 지난 기록 · 혈당 저장·수정·상세 응답이 같이 씀)
@@ -47,15 +47,17 @@ public class ExpectedTimeResolver {
                 .collect(Collectors.toMap(Reminder::getReadingId, Reminder::getScheduledAt));
 
         Map<Long, Meal> mealsById = liveMealsOf(userId, postMeal, knownMeals);
-        Map<LocalDate, Optional<Integer>> postMealMinutesByDate = new HashMap<>();   // 같은 날짜 기준을 또 조회하지 않게
+        TreeMap<LocalDate, CriteriaVersion> criteriaByDate = null;   // 식사로 구해야 하는 혈당이 처음 나올 때 한 번만 읽음
 
         Map<Long, Instant> result = new HashMap<>();
         for (Reading r : postMeal) {
             Meal meal = r.getMealId() == null ? null : mealsById.get(r.getMealId());
             Instant mealStartedAt = meal == null ? null : meal.getStartedAt();
-            Integer postMealMinutes = meal == null ? null : postMealMinutesByDate
-                    .computeIfAbsent(KoreanTime.dateOf(mealStartedAt), date -> postMealMinutesOn(userId, date))
-                    .orElse(null);
+            Integer postMealMinutes = null;
+            if (meal != null) {
+                if (criteriaByDate == null) criteriaByDate = criteriaByDate(userId);
+                postMealMinutes = postMealMinutesOn(criteriaByDate, KoreanTime.dateOf(mealStartedAt));
+            }
             Instant expectedAt = ReadingEvaluator.expectedAt(
                     r, reminderAtByReading.get(r.getId()), mealStartedAt, postMealMinutes);
             if (expectedAt != null) {
@@ -87,10 +89,18 @@ public class ExpectedTimeResolver {
         return mealsById;
     }
 
-    // 그 날짜(한국)에 적용 중이던 병원 식후 시간. 기준이 없거나 식후 시간을 안 적었으면 empty
-    private Optional<Integer> postMealMinutesOn(Long userId, LocalDate date) {
-        return criteriaVersionRepository
-                .findFirstByUserIdAndEffectiveFromLessThanEqualOrderByEffectiveFromDescIdDesc(userId, date)
-                .map(CriteriaVersion::getPostMealMinutes);
+    // 이 사람 병원 기준 전부를 적용일별로 (날짜마다 조회하지 않게 한 번에 읽음)
+    // 같은 적용일에 여러 개면 id 큰 것 (CriteriaVersionRepository의 "적용일 늦은 순 → id 큰 순 첫 번째"와 같음)
+    private TreeMap<LocalDate, CriteriaVersion> criteriaByDate(Long userId) {
+        TreeMap<LocalDate, CriteriaVersion> byDate = new TreeMap<>();
+        criteriaVersionRepository.findAllByUserIdOrderByEffectiveFromDescIdDesc(userId)
+                .forEach(c -> byDate.putIfAbsent(c.getEffectiveFrom(), c));   // id 큰 순으로 오니 처음 것이 남음
+        return byDate;
+    }
+
+    // 그 날짜(한국)에 적용 중이던 병원 식후 시간 (적용일 <= 그 날짜 중 가장 늦은 기준). 기준이 없거나 식후 시간을 안 적었으면 null
+    private static Integer postMealMinutesOn(TreeMap<LocalDate, CriteriaVersion> criteriaByDate, LocalDate date) {
+        Map.Entry<LocalDate, CriteriaVersion> entry = criteriaByDate.floorEntry(date);
+        return entry == null ? null : entry.getValue().getPostMealMinutes();
     }
 }
