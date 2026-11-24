@@ -297,6 +297,16 @@ class ChatFlowTest extends ReminderTestBase {
     }
 
     @Test
+    void 다른_상황_PAUSED도_태동_없는_위급_안내() throws Exception {   // 무슨 일인지 모르니 태동 이야기를 꺼내지 않는다
+        jdbc.update("INSERT INTO pregnancies (user_id, due_date, state, created_at, updated_at)"
+                + " VALUES (?, '2026-12-20', 'PAUSED', now(), now())", jisuId);
+
+        ask(jisu, "피가 많이 나요")
+                .andExpect(jsonPath("$.data.answer.risk.type").value("URGENT"))
+                .andExpect(jsonPath("$.data.answer.content").value(not(containsString("태동"))));
+    }
+
+    @Test
     void 다_그만두고_싶다는_말도_마음_안내와_119() throws Exception {
         ask(jisu, "요즘 너무 힘들어요. 다 그만두고 싶어요")
                 .andExpect(jsonPath("$.data.answer.risk.type").value("MIND"))

@@ -173,6 +173,7 @@ public class ChatService {
 
     // 산후·졸업이면 「태동」 없는 위급 안내 (정해진 안내도 모드를 따라감)
     // 임신 정보가 없거나 임신 중·입원 중이면 임신 중 문구. 「임신 중·입원 중이 아니면」으로 써서 상태가 늘어도 산후 쪽
+    // PAUSED(다른 상황)는 산후가 아니지만 임신 중인지도 모르니 태동 이야기를 꺼내지 않는 쪽(산후 문구)으로 둔다
     private boolean afterBirth(Long userId) {
         return pregnancyRepository.findByUserIdAndStateNot(userId, PregnancyState.ENDED)
                 .map(p -> p.getState() != PregnancyState.PREGNANT && p.getState() != PregnancyState.HOSPITALIZED)
