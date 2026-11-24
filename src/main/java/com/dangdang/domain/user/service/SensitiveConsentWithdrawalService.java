@@ -46,6 +46,7 @@ public class SensitiveConsentWithdrawalService {
                     + " AND type IN (" + healthNotificationTypes() + ")"),
             new Step("reminders", "DELETE FROM reminders WHERE user_id = ?"),
             new Step("readings", "DELETE FROM readings WHERE user_id = ?"),
+            new Step("insulin_logs", "DELETE FROM insulin_logs WHERE user_id = ?"),   // 인슐린 기록 (develop #⑦)
             new Step("meals", "DELETE FROM meals WHERE user_id = ?"),
             new Step("criteria_versions", "DELETE FROM criteria_versions WHERE user_id = ?"),
             new Step("saved_reports", "DELETE FROM saved_reports WHERE user_id = ?"),

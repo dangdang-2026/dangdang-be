@@ -60,6 +60,8 @@ class SensitiveConsentWithdrawalFlowTest extends ReminderTestBase {
         long deleted = id(send(post("/api/readings"), who, READING).andExpect(status().isCreated()), "$.data.readingId");
         mvc.perform(delete("/api/readings/" + deleted).cookie(who)).andExpect(status().isOk());
         send(post("/api/readings"), who, READING).andExpect(status().isCreated());
+        send(post("/api/insulin-logs"), who, "{\"insulinType\":\"BEDTIME\",\"units\":6,\"takenAt\":\"" + NOW.minus(Duration.ofMinutes(5)) + "\"}")
+                .andExpect(status().isCreated());
         send(patch("/api/me/due-date"), who, "{\"dueDate\":\"2027-03-01\"}").andExpect(status().isOk());
         long site = id(send(post("/api/care-sites"), who, "{\"name\":\"한빛산부인과\",\"department\":\"OBGYN\"}")
                 .andExpect(status().isCreated()), "$.data.careSiteId");
@@ -132,7 +134,7 @@ class SensitiveConsentWithdrawalFlowTest extends ReminderTestBase {
         mvc.perform(post("/api/me/consents/sensitive/withdraw").cookie(jisu)).andExpect(status().isOk());
         send(post("/api/readings"), jisu, READING)
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.errorCode").value("USER_40301"));
+                .andExpect(jsonPath("$.errorCode").value("USER_40302"));
         send(patch("/api/me/due-date"), jisu, "{\"dueDate\":\"2027-03-01\"}")
                 .andExpect(status().isForbidden());
         assertThat(count("readings", jisuId)).isZero();
@@ -144,7 +146,7 @@ class SensitiveConsentWithdrawalFlowTest extends ReminderTestBase {
         jdbc.update("DELETE FROM consent_events WHERE user_id = ? AND consent_type = 'SENSITIVE'", jisuId);
         send(post("/api/meals"), jisu, "{\"mealSlot\":\"DINNER\",\"startedAt\":\"" + NOW + "\"}")
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.errorCode").value("USER_40301"));
+                .andExpect(jsonPath("$.errorCode").value("USER_40302"));
     }
 
     @Test

@@ -15,8 +15,9 @@ public record SignupRequest(
         @NotBlank(message = "부를 이름을 적어 주세요.")
         @Size(max = 10, message = "부를 이름은 10자까지예요.")
         String displayName,
-        @Schema(description = "비밀번호 (8자 이상, 영문·숫자)", example = "abcd1234")
+        @Schema(description = "비밀번호 8~64자, 영문과 숫자 모두 포함, 특수문자 가능 (한글·띄어쓰기 X)", example = "abcd1234!")
+        @NotBlank(message = "비밀번호를 입력해 주세요.")
         @Pattern(
-                regexp = "^(?=.*[A-Za-z])(?=.*\\d).{8,}$",
-                message = "비밀번호는 8자 이상, 영문과 숫자를 섞어 주세요.")
+                regexp = "^(?=.*[A-Za-z])(?=.*\\d)[\\x21-\\x7E]{8,64}$",
+                message = "비밀번호는 8~64자, 영문과 숫자를 모두 넣어 주세요. 한글·띄어쓰기는 쓸 수 없어요.")
         String password) {}

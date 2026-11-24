@@ -61,7 +61,7 @@ public class ConsentController {
                     혈당 · 식사(음식 항목) · 병원 기준 · 측정 알림 · 건강 알림함 · 임신 정보 · 산후 검사 · 진료 일정·질문·메모 · 진료 리포트 · 다니는 병원 · 식사 안내 · 당당이 대화
                     남는 것: 계정 · 커뮤니티 글·댓글 · 내 음식 · 알림 설정(측정 알림은 끔). AI_CHAT_RECORDS 동의도 같이 끈다 (철회 뒤 다시 켰어도).
                     다음에 /api/me 의 consentCompleted=false → A-01. 두 번 불러도 200 (이력은 한 줄)
-                    철회 뒤(다시 동의하기 전) 건강 기록을 저장·수정하는 API와 챗봇 질문은 403 USER_40301 (지우기·조회는 됨)
+                    철회 뒤(다시 동의하기 전) 건강 기록을 저장·수정하는 API와 챗봇 질문은 403 USER_40302 (지우기·조회는 됨)
                     """)
     @PostMapping("/sensitive/withdraw")
     public ResponseEntity<BaseResponse<ConsentResponse>> withdrawSensitive(@AuthenticationPrincipal AuthPrincipal principal) {

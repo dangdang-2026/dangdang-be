@@ -16,7 +16,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Instant;
+import java.time.Clock;
 
 @Slf4j
 @Service
@@ -27,6 +27,7 @@ public class SignupService {
     private final NotificationPreferenceRepository notificationPreferenceRepository;
     private final EmailVerificationStore verificationStore;
     private final PasswordEncoder passwordEncoder;
+    private final Clock clock;
 
     // 가입 화면에서 이메일을 다 쓰면 바로 확인 (AUTH-02 실시간 중복 확인 · J-06, J-07)
     @Transactional(readOnly = true)
@@ -48,7 +49,7 @@ public class SignupService {
                         email,
                         request.displayName().trim(),
                         passwordEncoder.encode(request.password()),
-                        Instant.now());
+                        clock.instant());   // 인증 마친 시각 = 가입 시각 (테스트에서 시각을 고정할 수 있게)
         try {
             userRepository.saveAndFlush(user); // 같은 이메일이 동시에 오면 여기서 DB UNIQUE 가 막음
         } catch (DataIntegrityViolationException e) {

@@ -59,7 +59,7 @@ public class ChatService {
     public ChatAskResponse ask(Long userId, String content) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
-        // 0) 질문·답이 건강 이야기라 건강정보(SENSITIVE) 동의가 있어야 남긴다 — 없으면 403 USER_40301 (위험 신호 안내도)
+        // 0) 질문·답이 건강 이야기라 건강정보(SENSITIVE) 동의가 있어야 남긴다 — 없으면 403 USER_40302 (위험 신호 안내도)
         //    동의 전·철회 뒤에는 A-01로 가서 챗봇 화면에 못 오므로, 여기서 막혀 안내를 못 받는 사람은 없다
         //    AI 횟수를 쓰기 전에 먼저 보고, 저장할 때 잠그고 한 번 더 본다 (그사이 철회했을 수 있어서)
         if (!consentService.isGranted(userId, ConsentType.SENSITIVE)) {

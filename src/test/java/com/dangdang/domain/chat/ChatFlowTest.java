@@ -102,10 +102,10 @@ class ChatFlowTest extends ReminderTestBase {
 
         ask(jisu, "피가 비쳐요")
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.errorCode").value("USER_40301"));
+                .andExpect(jsonPath("$.errorCode").value("USER_40302"));
         ask(jisu, "공복 혈당은 언제 재요?")
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.errorCode").value("USER_40301"));
+                .andExpect(jsonPath("$.errorCode").value("USER_40302"));
         verify(chatClient, never()).ask(any(), any(), anyBoolean(), any());
         assertThat(messageCount()).isZero();
         assertThat(redis.opsForValue().get("ai:usage:CHAT:" + jisuId + ":2026-11-09")).isNull();
@@ -119,7 +119,7 @@ class ChatFlowTest extends ReminderTestBase {
 
         ask(jisu, "이번 주 공복 혈당 보여줘")
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.errorCode").value("USER_40301"));
+                .andExpect(jsonPath("$.errorCode").value("USER_40302"));
         verify(chatClient, never()).ask(any(), any(), anyBoolean(), any());
     }
 
@@ -133,7 +133,7 @@ class ChatFlowTest extends ReminderTestBase {
 
         ask(jisu, "공복 혈당은 언제 재요?")
                 .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.errorCode").value("USER_40301"));
+                .andExpect(jsonPath("$.errorCode").value("USER_40302"));
         assertThat(messageCount()).isZero();   // 질문은 철회가 지웠고, 답은 저장 안 함
     }
 

@@ -40,7 +40,7 @@ public class ChatController {
                     RECORDS(Q-03 기록 카드 records) · QUESTION_DRAFT(Q-04 questionDraft) · INFO(Q-06 출처 sources) · UNKNOWN(병원에 물어보세요)
                     RISK(Q-07 위험 신호 · actions 전화 버튼) · DOSE(약 용량 → 병원) · CONSENT_NEEDED(기록 사용 동의 필요) · FAILED(Q-08 다시 묻기)
                     RISK·DOSE는 AI를 거치지 않아서 국외 이전 동의·하루 상한과 상관없이 온다
-                    건강정보 동의(SENSITIVE)가 없으면 403 USER_40301 (아무것도 저장 안 함, 위험 신호·약 용량도). 국외 이전 동의(OVERSEAS_TRANSFER)가 없으면 403 AI_40301 (위험 신호·약 용량은 이 동의 없이도 옴). 내 기록 답은 AI_CHAT_RECORDS 동의가 더 있어야 한다. 하루 30번 넘으면 429 AI_42901 (FAILED는 횟수에 안 셈)
+                    건강정보 동의(SENSITIVE)가 없으면 403 USER_40302 (아무것도 저장 안 함, 위험 신호·약 용량도). 국외 이전 동의(OVERSEAS_TRANSFER)가 없으면 403 AI_40301 (위험 신호·약 용량은 이 동의 없이도 옴). 내 기록 답은 AI_CHAT_RECORDS 동의가 더 있어야 한다. 하루 30번 넘으면 429 AI_42901 (FAILED는 횟수에 안 셈)
                     """)
     @PostMapping
     public ResponseEntity<BaseResponse<ChatAskResponse>> ask(

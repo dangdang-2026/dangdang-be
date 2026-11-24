@@ -27,9 +27,9 @@ public class WithdrawalController {
 
     @Operation(summary = "[ 사용자 | 토큰 O | 회원 탈퇴 (M-08) ]",
             description = """
-                    **Parameters** password(이메일 가입자 필수) · keepPosts(기본 false = 내 글·댓글 지움)
+                    **Parameters** password(이메일 가입자 필수) · kakaoCode·redirectUri(카카오 가입자 필수 — 탈퇴 직전 카카오 로그인으로 받은 코드) · keepPosts(기본 false = 내 글·댓글 지움)
                     **Returns** data 없음 · 쿠키 지움. 기록·알림·대화·설정은 바로 지워지고 되돌릴 수 없다
-                    비밀번호가 틀리거나 없으면 400 USER_40003
+                    비밀번호가 틀리거나 없으면 400 USER_40003 · 카카오 코드 없음 400 USER_40004 · 다른 카카오 계정 403 USER_40301 · 틀린 코드 400 AUTH_40006 · 허용 안 된 주소 400 AUTH_40007
                     """)
     @PostMapping("/api/me/withdrawal")
     public ResponseEntity<BaseResponse<Void>> withdraw(
