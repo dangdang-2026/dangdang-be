@@ -41,7 +41,7 @@ public class SensitiveConsentWithdrawalService {
     // meal_items는 meals를, visit_questions·visit_notes는 visits를 지우면 DB가 같이 지운다 (ON DELETE CASCADE)
     // care_sites는 기준·식사 안내·진료·리포트가 가리키니 맨 끝
     private static final List<Step> STEPS = List.of(
-            // 알림함: 건강 알림(NotificationType.health)만. 지금은 5종 모두 건강 알림이고, 건강이 아닌 종류가 생기면 남긴다
+            // 알림함: 건강 알림(NotificationType.health)만 지운다. 광고성 정보 동의·거부 결과(MARKETING, health=false)는 남긴다
             new Step("notifications", "DELETE FROM notifications WHERE user_id = ?"
                     + " AND type IN (" + healthNotificationTypes() + ")"),
             new Step("reminders", "DELETE FROM reminders WHERE user_id = ?"),
