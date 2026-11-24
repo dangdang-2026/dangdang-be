@@ -44,6 +44,7 @@ public class PasswordResetService {
                     AuthRetryInfo.waitSeconds(wait));
         }
         if (resetStore.increaseSendCount(email) > PasswordResetStore.MAX_SENDS_PER_DAY) {
+            resetStore.clearResendWait(email);   // 오늘은 끝 → 「다시 받기」 타이머가 뜨지 않게
             throw new CustomException(AuthErrorCode.RESET_SEND_LIMIT); // 없는 이메일도 똑같이 셈
         }
         User user = userRepository.findByEmail(email).orElse(null);
@@ -53,13 +54,8 @@ public class PasswordResetService {
         }
         String token = newToken();
         resetStore.save(user.getId(), token);
-        try {
-            emailSender.sendPasswordResetLink(email, frontProperties.baseUrl() + "/reset-password?token=" + token);
-        } catch (CustomException e) {   // MAIL_SEND_FAILED
-            resetStore.clearResendWait(email);
-            resetStore.giveBackSend(email);
-            throw e;
-        }
+        // 메일은 따로(@Async) 보내고 실패해도 응답은 같다 (계정이 있는지 드러나지 않게) → 실패해도 오늘 횟수는 셈
+        emailSender.sendPasswordResetLink(email, frontProperties.baseUrl() + "/reset-password?token=" + token);
         log.info("[Auth] 재설정 링크 발송 - 사용자: {}", user.getId());
     }
 

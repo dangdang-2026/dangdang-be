@@ -148,7 +148,7 @@ public class AuthController {
                     **Parameters** email
                     **Returns** 가입 여부와 관계없이 항상 200 (계정이 있는지 알려 주지 않음). 링크는 30분, 한 번만.
                     같은 이메일로 하루 5번 넘으면 AUTH_42903
-                    60초 안에 다시 보내면 AUTH_42904 + data.retryAfterSeconds (없는 이메일도 같음, 하루 횟수엔 안 셈). 메일 발송 실패 AUTH_50202(오늘 횟수에 안 셈)
+                    60초 안에 다시 보내면 AUTH_42904 + data.retryAfterSeconds (없는 이메일도 같음, 하루 횟수엔 안 셈). 메일은 따로 보내서 실패해도 200 (계정이 있는지 드러나지 않게)
                     """)
     @PostMapping("/password/reset/request")
     public ResponseEntity<BaseResponse<Void>> sendResetLink(

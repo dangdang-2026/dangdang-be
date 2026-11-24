@@ -39,11 +39,6 @@ public class PasswordResetStore {
         return count == null ? 0 : count;
     }
 
-    // 메일을 못 보냈으면 오늘 횟수를 하나 돌려준다
-    public void giveBackSend(String email) {
-        redis.opsForValue().decrement(sendKey(email));
-    }
-
     // 다시 받기 대기를 시작한다. 이미 대기 중이면 남은 초, 새로 시작했으면 0 (EmailVerificationStore와 같음)
     public long startResendWait(String email) {
         if (Boolean.TRUE.equals(redis.opsForValue().setIfAbsent(WAIT + email, "1", RESEND_WAIT))) {
