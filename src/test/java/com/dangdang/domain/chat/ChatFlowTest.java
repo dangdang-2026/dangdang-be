@@ -79,12 +79,13 @@ class ChatFlowTest extends ReminderTestBase {
     // ── 문지기 ──
 
     @Test
-    void 국외_이전_동의가_없어도_일반_질문은_답한다() throws Exception {   // 11/20 결정: 일반 질문은 동의 없이
-        given(chatClient.ask(anyString(), anyString(), anyBoolean(), any())).willReturn(reply("UNKNOWN", null));
-
-        ask(jisu, "공복 혈당은 언제 재요?").andExpect(status().isCreated());
-        verify(chatClient).ask(anyString(), anyString(), eq(false), any());   // 기록 사용 동의가 없으니 기록은 안 씀
-        assertThat(messageCount()).isEqualTo(2);
+    void 국외_이전_동의가_없으면_일반_질문도_403이고_AI를_부르지_않는다() throws Exception {   // Q-01 「필수」 (11/24)
+        ask(jisu, "공복 혈당은 언제 재요?")
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("AI_40301"));
+        verify(chatClient, never()).ask(any(), any(), anyBoolean(), any());
+        assertThat(messageCount()).isZero();
+        assertThat(redis.opsForValue().get("ai:usage:CHAT:" + jisuId + ":2026-11-09")).isNull();
     }
 
     @Test
@@ -121,8 +122,8 @@ class ChatFlowTest extends ReminderTestBase {
     }
 
     @Test
-    void 국외_이전_동의가_없으면_기록_사용_동의가_있어도_기록은_보내지_않는다() throws Exception {   // PR #120 리뷰
-        consent(jisu, "AI_CHAT_RECORDS", true);
+    void 일반_질문만_고르면_국외_이전만_동의하고_기록은_안_쓴다() throws Exception {   // Q-02b
+        consent(jisu, "OVERSEAS_TRANSFER", true);
         given(chatClient.ask(anyString(), anyString(), anyBoolean(), any())).willReturn(reply("UNKNOWN", null));
 
         ask(jisu, "어제 혈당 어땠어?").andExpect(status().isCreated());
