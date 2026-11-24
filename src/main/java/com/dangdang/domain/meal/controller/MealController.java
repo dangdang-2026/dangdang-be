@@ -129,9 +129,11 @@ public class MealController {
                     """
                     **Parameters** mealId, 본문 없음
                     **Returns** 식사 (measureSkippedAt 채워짐). 이 식사의 아직 안 끝난 측정 알림(예약·보냄·열어 봄)은 DISMISSED → 재알림 안 감.
-                    건너뛴 측정도 통계·진료 리포트의 「놓친 측정」에 센다. 그 뒤 혈당을 적으면 알림은 DONE으로 붙는다.
+                    건너뛴 측정도 통계·진료 리포트의 「놓친 측정」에 센다 — 측정 알림이 있는 식사만 들어감
+                    (간식·병원 기준 없음·식사를 늦게 적어 알림 시각이 이미 지난 식사는 알림이 없어서 빠짐). 그 뒤 혈당을 적으면 알림은 DONE으로 붙는다.
                     시작 시각을 고치거나 지웠다 되돌려도 알림을 다시 걸지 않는다. 두 번 눌러도 200(처음 시각 그대로).
-                    없거나 삭제됐거나 남의 기록이면 404 MEAL_40401. 건강정보 동의가 없으면 403 USER_40302
+                    지우지 않은 식후 혈당이 이미 붙은 끼니면 409 MEAL_40905. 없거나 삭제됐거나 남의 기록이면 404 MEAL_40401.
+                    건강정보 동의가 없으면 403 USER_40302
                     """)
     @PostMapping("/{mealId}/measure-skip")
     public ResponseEntity<BaseResponse<MealResponse>> skipMeasure(

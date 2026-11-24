@@ -27,6 +27,8 @@ public enum MealErrorCode implements BaseErrorCode {
     // 되돌리기 (D-08)
     NOT_DELETED("MEAL_40903", "지우지 않은 식사예요.", HttpStatus.CONFLICT),
     UNDO_EXPIRED("MEAL_40904", "지운 지 5분이 지나서 되돌릴 수 없어요.", HttpStatus.CONFLICT),
+    // 이번 끼니 건너뛰기 (H-05)
+    ALREADY_MEASURED("MEAL_40905", "이미 식후 혈당을 잰 끼니예요.", HttpStatus.CONFLICT),
 
     // 없음·삭제됨·남의 식사 모두 같은 404 (남의 기록이 "있다"는 것도 알려주지 않으려고)
     MEAL_NOT_FOUND("MEAL_40401", "식사 기록을 찾을 수 없어요.", HttpStatus.NOT_FOUND),

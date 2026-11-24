@@ -76,6 +76,9 @@ public interface ReadingRepository extends JpaRepository<Reading, Long> {
     @EntityGraph(attributePaths = "criteriaVersion")
     List<Reading> findAllByUserIdAndMealIdInAndDeletedAtIsNullOrderByMeasuredAtAscIdAsc(Long userId, Collection<Long> mealIds);
 
+    // 이 식사에 지우지 않은 이 종류(식후) 혈당이 있는지 — 이미 잰 끼니는 건너뛰기를 막으려고 (H-05)
+    boolean existsByUserIdAndMealIdAndReadingTypeAndDeletedAtIsNull(Long userId, Long mealId, ReadingType readingType);
+
     // 이 식사에 붙은 살아 있는 식후 혈당 중 이 시각보다 앞에 잰 것이 있는지 (식사 시작을 늦출 때 확인)
     boolean existsByUserIdAndMealIdAndReadingTypeAndDeletedAtIsNullAndMeasuredAtBefore(
             Long userId, Long mealId, ReadingType readingType, Instant startedAt);

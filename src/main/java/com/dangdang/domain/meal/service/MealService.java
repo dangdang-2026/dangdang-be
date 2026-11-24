@@ -91,7 +91,8 @@ public class MealService {
         if (req.isEmpty()) {
             throw new CustomException(MealErrorCode.NOTHING_TO_UPDATE);
         }
-        Meal meal = findMine(userId, mealId);
+        // 줄을 잠가서 읽음 — 건너뛰기·지우기와 동시에 오면 앞 요청이 끝난 뒤의 상태(건너뜀·지움)를 보고 알림을 다시 걸지 않게
+        Meal meal = findMineForUpdate(userId, mealId);
         boolean timingChanged = (req.mealSlot() != null && req.mealSlot() != meal.getMealSlot())
                 || (req.startedAt() != null && !req.startedAt().equals(meal.getStartedAt()));
         if (req.startedAt() != null && readingRepository
@@ -114,7 +115,8 @@ public class MealService {
     // 삭제 (soft delete). 이미 지운 식사를 또 지우면 findMine에서 404
     @Transactional
     public void delete(Long userId, Long mealId) {
-        findMine(userId, mealId).delete(clock.instant());   // 변경 감지로 트랜잭션 끝날 때 반영됨
+        // 줄을 잠가서 읽음 — 동시에 온 수정이 지운 식사에 알림을 새로 걸지 않게 (수정은 지운 뒤에 404)
+        findMineForUpdate(userId, mealId).delete(clock.instant());   // 변경 감지로 트랜잭션 끝날 때 반영됨
         reminderService.cancelForMeal(mealId);               // 지운 식사의 식후 알림이 울리지 않게 함
     }
 
@@ -149,12 +151,20 @@ public class MealService {
     public MealResponse skipMeasure(Long userId, Long mealId) {
         sensitiveConsentGuard.require(userId);   // 식사 줄에 쓰는 것이라 동의가 없으면 403
         // 지운 식사·남의 식사는 404. 줄을 잠가서 동시에 두 번 눌러도 뒤 요청이 앞 요청의 시각을 보고 그대로 둠
-        Meal meal = mealRepository.findMineForUpdate(mealId, userId)
-                .orElseThrow(() -> new CustomException(MealErrorCode.MEAL_NOT_FOUND));
+        Meal meal = findMineForUpdate(userId, mealId);
+        if (readingRepository.existsByUserIdAndMealIdAndReadingTypeAndDeletedAtIsNull(userId, mealId, ReadingType.POST_MEAL)) {
+            throw new CustomException(MealErrorCode.ALREADY_MEASURED);   // 이미 식후 혈당을 잰 끼니는 건너뛸 게 없음
+        }
         meal.skipMeasure(clock.instant());
         reminderService.dismissForMeal(mealId);
         mealRepository.flush();                  // 응답에 새 updatedAt을 담으려고 (update와 같은 이유)
         return MealResponse.from(meal, mealItemService.itemsOf(mealId));
+    }
+
+    // findMine과 같은데 이 식사 줄을 트랜잭션 끝까지 잠금 (수정·지우기·건너뛰기가 서로 기다리게)
+    private Meal findMineForUpdate(Long userId, Long mealId) {
+        return mealRepository.findMineForUpdate(mealId, userId)
+                .orElseThrow(() -> new CustomException(MealErrorCode.MEAL_NOT_FOUND));
     }
 
     // 내 것 + 삭제 안 된 것만. 없음·삭제됨·남의 것은 전부 404
