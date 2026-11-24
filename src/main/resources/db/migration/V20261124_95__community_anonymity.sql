@@ -12,6 +12,17 @@ ALTER TABLE profile_blocks ADD CONSTRAINT uk_profile_blocks UNIQUE (profile_id, 
 -- 익명 글의 글쓴이가 단 댓글은 번호 대신 「글쓴이」라 NULL
 ALTER TABLE comments ADD COLUMN anonymous_no INT;
 
+-- 예전 댓글: 익명 글의 글쓴이가 자기 글에 이름으로 단 댓글은 익명으로 바꾼다 (U-18, 닉네임으로 익명 글쓴이가 드러나지 않게)
+-- 글쓴이 댓글이라 번호 없이 「글쓴이」 라벨만 붙는다
+UPDATE comments c
+SET is_anonymous = true
+FROM posts p
+WHERE p.id = c.post_id
+  AND p.is_anonymous
+  AND p.profile_id IS NOT NULL
+  AND c.profile_id = p.profile_id
+  AND NOT c.is_anonymous;
+
 -- 이미 있는 익명 댓글: 글마다 처음 익명 댓글을 단 순서대로 1, 2, …
 UPDATE comments c
 SET anonymous_no = f.no

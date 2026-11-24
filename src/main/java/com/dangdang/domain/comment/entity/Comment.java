@@ -88,9 +88,9 @@ public class Comment {
         return parent != null;
     }
 
-    // U-02b 「글쓴이」 라벨. 이름 글에 글쓴이가 익명으로 단 댓글은 빼고 다른 익명 댓글처럼 번호를 단다
-    // (「글쓴이」를 붙이면 익명 댓글이 그 이름 글쓴이라는 게 드러난다)
+    // U-02b 「글쓴이」 라벨. 글과 댓글의 익명 여부가 같을 때만 붙인다 (이름 글은 이름 댓글만, 익명 글은 익명 댓글만)
+    // 이름 글에 익명으로 단 댓글에 붙이면 그 익명 댓글이, 익명 글에 이름으로 단 댓글에 붙이면 익명 글쓴이가 누군지 드러난다
     public boolean isByPostAuthor() {
-        return profile != null && post.isOwnedBy(profile.getId()) && (post.isAnonymous() || !anonymous);
+        return profile != null && post.isOwnedBy(profile.getId()) && anonymous == post.isAnonymous();
     }
 }

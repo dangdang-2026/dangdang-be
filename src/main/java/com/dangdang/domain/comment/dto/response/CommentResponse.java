@@ -19,7 +19,7 @@ public record CommentResponse(
         boolean isMine,
         long reactionCount,
         boolean reacted,
-        @Schema(description = "글쓴이가 단 댓글 (U-02b 「글쓴이」 라벨). 이름 글에 글쓴이가 익명으로 단 댓글은 false")
+        @Schema(description = "글쓴이가 단 댓글 (U-02b 「글쓴이」 라벨). 글과 댓글의 익명 여부가 같을 때만 true (이름 글은 이름 댓글, 익명 글은 익명 댓글)")
         boolean isPostAuthor,
         @Schema(description = "같은 글 안 익명 번호 (「익명 1」). 이름 댓글·「글쓴이」 댓글·탈퇴한 사람이면 null. "
                 + "같은 사람은 이 글에서 늘 같은 번호, 지워도 다른 사람 번호가 밀리지 않는다", example = "1")
