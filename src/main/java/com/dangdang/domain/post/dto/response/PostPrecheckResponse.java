@@ -3,7 +3,7 @@ package com.dangdang.domain.post.dto.response;
 import com.dangdang.domain.post.infra.PostCheckClient;
 import java.util.List;
 
-// issues가 비어 있으면 바로 올리고, 있으면 kind로 시트를 고른다 (DOSE → U-15, URGENT_MEDICAL·MIND → U-30)
+// issues가 비어 있으면 바로 올리고, 있으면 kind로 시트를 고른다 (DOSE → U-15, URGENT_MEDICAL·MIND → U-30, LOW_GLUCOSE → U-30c)
 public record PostPrecheckResponse(List<Issue> issues, boolean checked) {
 
     public record Issue(String kind, String quote) {}
