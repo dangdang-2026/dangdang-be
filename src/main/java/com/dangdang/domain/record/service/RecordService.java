@@ -110,6 +110,7 @@ public class RecordService {
         Set<LocalDate> recordedDates = new HashSet<>();
         readingRepository.findMeasuredAtsInRange(userId, start, end).forEach(at -> recordedDates.add(KoreanTime.dateOf(at)));
         mealRepository.findStartedAtsInRange(userId, start, end).forEach(at -> recordedDates.add(KoreanTime.dateOf(at)));
+        insulinLogRepository.findTakenAtsInRange(userId, start, end).forEach(at -> recordedDates.add(KoreanTime.dateOf(at)));
 
         // 그 달에 진료 일정이 있는 날짜들 (기록 상태와 따로 봄: 미래 날짜도 진료일이면 표시)
         Set<LocalDate> visitDates = new HashSet<>();
@@ -138,11 +139,12 @@ public class RecordService {
         return CalendarDayStatus.EMPTY;
     }
 
-    // 혈당·식사 중 가장 먼저 남긴 기록의 한국 날짜. 둘 다 없으면 null
+    // 혈당·식사·인슐린 중 가장 먼저 남긴 기록의 한국 날짜. 셋 다 없으면 null
     private LocalDate firstRecordDate(Long userId) {
         Instant firstReading = readingRepository.findFirstMeasuredAt(userId);
         Instant firstMeal = mealRepository.findFirstStartedAt(userId);
-        Instant first = Stream.of(firstReading, firstMeal)
+        Instant firstInsulin = insulinLogRepository.findFirstTakenAt(userId);
+        Instant first = Stream.of(firstReading, firstMeal, firstInsulin)
                 .filter(at -> at != null)
                 .min(Comparator.naturalOrder())
                 .orElse(null);

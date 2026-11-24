@@ -49,6 +49,24 @@ public interface InsulinLogRepository extends JpaRepository<InsulinLog, Long> {
     Slice<InsulinLog> findPage(@Param("userId") Long userId, @Param("from") Instant from, @Param("to") Instant to,
                                Pageable pageable);
 
+    // 기간 안 맞은 시각만 (달력에서 기록 있는 날 찾기용)
+    @Query("""
+            select l.takenAt from InsulinLog l
+            where l.user.id = :userId
+              and l.deletedAt is null
+              and l.takenAt >= :from
+              and l.takenAt < :to
+            """)
+    List<Instant> findTakenAtsInRange(@Param("userId") Long userId, @Param("from") Instant from, @Param("to") Instant to);
+
+    // 가장 처음 맞은 시각 (기록이 하나도 없으면 null). 달력 첫 기록일용
+    @Query("""
+            select min(l.takenAt) from InsulinLog l
+            where l.user.id = :userId
+              and l.deletedAt is null
+            """)
+    Instant findFirstTakenAt(@Param("userId") Long userId);
+
     // 지난 기록 불러오기 — 식사 때: 같은 종류 + 같은 끼니 중 맞은 시각이 가장 늦은 1건 (같으면 id 큰 것)
     Optional<InsulinLog> findFirstByUserIdAndInsulinTypeAndMealSlotAndDeletedAtIsNullOrderByTakenAtDescIdDesc(
             Long userId, InsulinType insulinType, MealSlot mealSlot);

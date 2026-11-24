@@ -509,6 +509,24 @@ class RecordFlowTest {
     }
 
     @Test
+    void 인슐린만_적은_날도_RECORDED이고_첫_기록일이_된다() throws Exception {
+        signedUpDaysAgo("jisu@x.com", 40);
+        LocalDate day = today().minusDays(10);
+        LocalDate deletedDay = today().minusDays(12);
+        createInsulin(access, "BEDTIME", "10", kst(day, 22, 0));   // 인슐린만 적은 날
+        long deleted = createInsulin(access, "MEAL", "6", kst(deletedDay, 8, 0));
+        mvc.perform(delete("/api/insulin-logs/" + deleted).cookie(access)).andExpect(status().isOk());   // 지운 기록은 안 셈
+        createInsulin(other, "MEAL", "6", kst(today().minusDays(20), 8, 0));                             // 남의 기록도 안 셈
+
+        mvc.perform(get("/api/records/calendar").cookie(access).param("month", YearMonth.from(day).toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.days[" + (day.getDayOfMonth() - 1) + "].status").value("RECORDED"))
+                .andExpect(jsonPath("$.data.firstRecordDate").value(day.toString()));
+        mvc.perform(get("/api/records/calendar").cookie(access).param("month", YearMonth.from(deletedDay).toString()))
+                .andExpect(jsonPath("$.data.days[" + (deletedDay.getDayOfMonth() - 1) + "].status").value("EMPTY"));
+    }
+
+    @Test
     void 남의_기록은_내_달력에_RECORDED로_안_잡힌다() throws Exception {
         signedUpDaysAgo("jisu@x.com", 40);
         LocalDate day = today().minusDays(10);

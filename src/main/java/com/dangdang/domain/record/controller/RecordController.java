@@ -51,7 +51,7 @@ public class RecordController {
                     """
                     **Parameters** month(한국 기준 달 yyyy-MM, 필수)
                     **Returns** 그 달 모든 날짜의 status(RECORDED·EMPTY·TODAY·FUTURE·BEFORE_SIGNUP)와 visit(그날 진료 일정이 있으면 true, 날짜 미정·지운 일정은 안 셈),
-                    firstRecordDate(처음 기록한 날, 없으면 null), hasPrevMonth·hasNextMonth. month 형식이 틀리면 GLOBAL_40001
+                    firstRecordDate(혈당·식사·인슐린 중 처음 기록한 날, 없으면 null), hasPrevMonth·hasNextMonth. 인슐린만 적은 날도 RECORDED. month 형식이 틀리면 GLOBAL_40001
                     """)
     @GetMapping("/calendar")
     public ResponseEntity<BaseResponse<CalendarResponse>> calendar(
