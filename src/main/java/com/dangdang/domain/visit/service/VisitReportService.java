@@ -67,7 +67,7 @@ public class VisitReportService {
     // 한 리포트 기간 최대 길이 (임신 기간 전체 280일 + 여유, 혈당 통계 기간 직접 고르기와 같음)
     static final int MAX_DAYS = 300;
     // 이 값 미만이면 「70 미만」으로 셈
-    private static final int LOW_VALUE = 70;
+    private static final int LOW_VALUE = ReadingEvaluator.LOW_VALUE;
     // 임신 기간 (예정일에서 거꾸로 세는 기준)
     private static final int PREGNANCY_DAYS = 280;
 

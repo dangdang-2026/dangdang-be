@@ -19,8 +19,10 @@ public interface ReadingRepository extends JpaRepository<Reading, Long> {
 
     // 목록 한 페이지: 내 것 + 삭제 안 됨 + from 이후 + 커서(cursorAt, cursorId)보다 과거. 최신순
     // 첫 페이지는 cursorAt = 기간 끝(to 다음 날 0시), cursorId = 0 으로 부름 (null 안 씀. 0이라 기간 끝 시각과 딱 같은 기록은 빠짐)
+    // 병원 기준도 같이 가져옴 (응답의 목표 판정 targetValue·aboveTarget용)
     @Query("""
             select r from Reading r
+            join fetch r.criteriaVersion
             where r.user.id = :userId
               and r.deletedAt is null
               and r.measuredAt >= :from
