@@ -1,6 +1,8 @@
 package com.dangdang.domain.user.service;
 
 import com.dangdang.domain.auth.infra.RefreshTokenStore;
+import com.dangdang.domain.auth.infra.kakao.KakaoCodeReader;
+import com.dangdang.domain.auth.infra.kakao.KakaoUser;
 import com.dangdang.domain.user.dto.request.WithdrawalRequest;
 import com.dangdang.domain.user.entity.User;
 import com.dangdang.domain.user.enums.AuthProvider;
@@ -12,9 +14,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.sql.Timestamp;
 import java.time.Clock;
@@ -31,16 +33,23 @@ public class WithdrawalService {
     private final RefreshTokenStore refreshTokenStore;
     private final JdbcTemplate jdbc;
     private final Clock clock;
+    private final KakaoCodeReader kakaoCodeReader;
+    private final TransactionTemplate tx;
 
-    @Transactional
+    // 본인 확인(비밀번호·카카오 호출)은 트랜잭션 밖에서 먼저 — 카카오가 십몇 초 걸려도 DB 연결을 잡지 않는다
     public void withdraw(Long userId, WithdrawalRequest req) {
-        User user = userRepository.findById(userId)
+        confirmOwner(findUser(userId), req);   // 이메일은 비밀번호, 카카오는 카카오로 다시 (M-08)
+        tx.executeWithoutResult(status -> delete(userId, Boolean.TRUE.equals(req.keepPosts())));
+    }
+
+    private User findUser(Long userId) {
+        return userRepository.findById(userId)
                 .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
-        if (user.getAuthProvider() == AuthProvider.EMAIL
-                && (req.password() == null || !passwordEncoder.matches(req.password(), user.getPasswordHash()))) {
-            throw new CustomException(UserErrorCode.CURRENT_PASSWORD_MISMATCH);
-        }
-        boolean keepPosts = Boolean.TRUE.equals(req.keepPosts());
+    }
+
+    // tx 안에서만 부른다
+    private void delete(Long userId, boolean keepPosts) {
+        User user = findUser(userId);   // 확인하는 사이 지워졌으면 USER_NOT_FOUND
         Timestamp now = Timestamp.from(clock.instant());   // 시각은 앱 Clock 하나로 (CommentService.delete와 같게)
         if (!keepPosts) {
             // 프로필은 번호만 SQL로 읽는다 — 엔티티로 읽어 두면 회원을 지울 때 Hibernate가
@@ -66,5 +75,23 @@ public class WithdrawalService {
             }
         });
         log.info("[탈퇴] 완료 - 사용자: {}, 글 남김: {}", userId, keepPosts);
+    }
+
+    // 되돌릴 수 없는 작업이라 본인인지 한 번 더 (M-08). 트랜잭션을 열기 전에 부른다
+    private void confirmOwner(User user, WithdrawalRequest req) {
+        if (user.getAuthProvider() == AuthProvider.EMAIL) {   // 카카오를 연결한 이메일 계정도 여기 (비밀번호)
+            if (req.password() == null || !passwordEncoder.matches(req.password(), user.getPasswordHash())) {
+                throw new CustomException(UserErrorCode.CURRENT_PASSWORD_MISMATCH);
+            }
+            return;
+        }
+        if (req.kakaoCode() == null || req.kakaoCode().isBlank()
+                || req.redirectUri() == null || req.redirectUri().isBlank()) {
+            throw new CustomException(UserErrorCode.KAKAO_REAUTH_REQUIRED);
+        }
+        KakaoUser kakao = kakaoCodeReader.read(req.kakaoCode(), req.redirectUri());   // 주소 AUTH_40007 · 틀린 코드 AUTH_40006
+        if (!kakao.kakaoId().equals(user.getProviderSubject())) {
+            throw new CustomException(UserErrorCode.KAKAO_REAUTH_MISMATCH);
+        }
     }
 }

@@ -19,7 +19,14 @@ public record MeResponse(
         @Schema(description = "출산 예정일 (안 적었으면 null)", example = "2026-12-20") LocalDate dueDate,
         @Schema(description = "임신 상태 PREGNANT·HOSPITALIZED·POSTPARTUM (임신 정보가 없으면 null)", example = "PREGNANT")
         PregnancyState pregnancyState,
-        @Schema(description = "오늘 임신 주수 (예정일이 없으면 null)") PregnancyWeek pregnancyWeek) {
+        @Schema(description = "오늘 임신 주수 (예정일이 없으면 null)") PregnancyWeek pregnancyWeek,
+        @Schema(description = "로그인 방식 (M-02 「로그인 방식」)") LoginMethods loginMethods) {
+
+    // 이메일: 비밀번호가 있으면(이메일로 가입) · 카카오: 카카오로 가입했거나 연결했으면
+    public record LoginMethods(
+            @Schema(description = "이메일·비밀번호로 로그인할 수 있는지 → 「비밀번호 바꾸기」", example = "true") boolean email,
+            @Schema(description = "카카오로 로그인할 수 있는지 → false면 「연결하기」", example = "false") boolean kakao) {
+    }
 
     // 「임신 26주 3일」 — 예정일 기준 280일(40주)에서 거꾸로 센다 (기능명세서 MY-01)
     public record PregnancyWeek(
@@ -45,6 +52,7 @@ public record MeResponse(
                 String.valueOf(user.getRowVersion()),
                 dueDate,
                 pregnancy == null ? null : pregnancy.getState(),
-                PregnancyWeek.of(dueDate, today));
+                PregnancyWeek.of(dueDate, today),
+                new LoginMethods(user.hasPassword(), user.hasKakao()));
     }
 }

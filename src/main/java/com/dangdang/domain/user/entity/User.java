@@ -37,7 +37,9 @@ public class User extends BaseTimeEntity {
     @Column(nullable = false, length = 10)
     private AuthProvider authProvider;
 
-    private String providerSubject; // 카카오 회원번호
+    private String providerSubject; // 카카오 회원번호 (카카오로 가입했거나, 이메일 계정이 카카오를 연결했으면)
+
+    private Instant kakaoLinkedAt;  // 이메일 계정이 카카오를 연결한 때 (L-10 · M-02). 카카오 가입 계정은 null
 
     private String passwordHash; // 이메일 가입만
 
@@ -73,6 +75,20 @@ public class User extends BaseTimeEntity {
         user.providerSubject = kakaoId;
         user.role = Role.USER;
         return user;
+    }
+
+    // 이메일 계정에 카카오 연결 (가입 방식 authProvider는 EMAIL 그대로 → 비밀번호 바꾸기·탈퇴 비밀번호 확인 그대로)
+    public void linkKakao(String kakaoId, Instant now) {
+        this.providerSubject = kakaoId;
+        this.kakaoLinkedAt = now;
+    }
+
+    public boolean hasPassword() {
+        return passwordHash != null;
+    }
+
+    public boolean hasKakao() {
+        return providerSubject != null;
     }
 
     // 비밀번호 재설정 (AUTH-06). 해시만 받는다

@@ -16,6 +16,7 @@ import com.dangdang.domain.auth.dto.response.SignupResponse;
 import com.dangdang.domain.auth.dto.request.EmailAvailabilityRequest;
 import com.dangdang.domain.auth.dto.response.EmailAvailabilityResponse;
 import com.dangdang.domain.auth.dto.request.KakaoLoginRequest;
+import com.dangdang.domain.auth.dto.request.KakaoSignupRequest;
 import com.dangdang.domain.auth.dto.response.KakaoLoginResponse;
 import com.dangdang.domain.auth.dto.request.PasswordResetConfirmRequest;
 import com.dangdang.domain.auth.dto.request.PasswordResetMailRequest;
@@ -128,17 +129,39 @@ public class AuthController {
             description =
                     """
                     **Parameters** code(카카오가 준 인가 코드), redirectUri(코드를 받을 때 쓴 주소)
-                    **Returns (쿠키)** ACCESS_TOKEN, REFRESH_TOKEN + newUser(처음 가입이면 true).
-                    코드가 틀렸거나 이미 썼으면 AUTH_40006, 허용 안 된 주소면 AUTH_40007,
-                    같은 이메일의 이메일 계정이 있으면 AUTH_40902, 카카오 장애면 AUTH_50201
+                    **Returns** result
+                    - LOGGED_IN: 쿠키 ACCESS_TOKEN·REFRESH_TOKEN (카카오로 가입했거나 카카오를 연결한 계정)
+                    - NEEDS_SIGNUP: 계정을 아직 안 만듦 + kakaoToken(10분) → K-08
+                    - EMAIL_ACCOUNT_EXISTS: 같은 이메일 계정 있음 + kakaoToken · email · maskedEmail → K-07
+                    코드가 틀렸거나 이미 썼으면 AUTH_40006, 허용 안 된 주소면 AUTH_40007, 카카오 장애면 AUTH_50201
                     """)
     @PostMapping("/kakao")
     public ResponseEntity<BaseResponse<KakaoLoginResponse>> kakaoLogin(
             @Valid @RequestBody KakaoLoginRequest request) {
         KakaoLoginService.Result result = kakaoLoginService.login(request.code(), request.redirectUri());
-        return ResponseEntity.ok()
-                .headers(tokenCookies(result.tokens()))
-                .body(BaseResponse.success(200, "카카오 로그인에 성공했습니다.", new KakaoLoginResponse(result.newUser())));
+        ResponseEntity.BodyBuilder ok = ResponseEntity.ok();
+        if (result.tokens() != null) {
+            ok.headers(tokenCookies(result.tokens()));
+        }
+        return ok.body(BaseResponse.success(200, "카카오 확인에 성공했습니다.", KakaoLoginResponse.from(result)));
+    }
+
+    @Operation(
+            summary = "[ 사용자 | 토큰 X | 카카오로 가입 (K-08) ]",
+            description =
+                    """
+                    **Parameters** kakaoToken(카카오 로그인 응답, 한 번만)
+                    **Returns (쿠키)** 201 + ACCESS_TOKEN·REFRESH_TOKEN → 동의 화면 A-01로.
+                    토큰이 없거나 10분 지났거나 이미 썼으면 AUTH_40011, 카카오에 인증된 이메일이 없으면 AUTH_40012,
+                    같은 이메일 계정이 있으면 AUTH_40902, 이 카카오가 이미 다른 계정에 붙었으면 AUTH_40903.
+                    가입에 성공할 때만 토큰을 쓴다 — 400·409로 막히면 같은 토큰으로 이메일 로그인 뒤 /api/me/kakao 연결 가능
+                    """)
+    @PostMapping("/kakao/signup")
+    public ResponseEntity<BaseResponse<Void>> kakaoSignup(@Valid @RequestBody KakaoSignupRequest request) {
+        TokenResponse tokens = kakaoLoginService.signup(request.kakaoToken());
+        return ResponseEntity.status(201)
+                .headers(tokenCookies(tokens))
+                .body(BaseResponse.success(201, "카카오로 가입했습니다.", null));
     }
 
     @Operation(
