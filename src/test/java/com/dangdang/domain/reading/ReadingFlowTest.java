@@ -462,6 +462,25 @@ class ReadingFlowTest {
     }
 
     @Test
+    void 식사_시작을_혈당보다_뒤로_옮겨_둬도_값만_고치면_200() throws Exception {
+        long mealId = createMeal(access);   // 2시간 전 시작
+        String body = mvc.perform(post("/api/readings").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"value\":150,\"measuredAt\":\"" + Instant.now().minus(Duration.ofHours(1))
+                                + "\",\"readingType\":\"POST_MEAL\",\"mealId\":" + mealId + "}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        long id = ((Number) JsonPath.read(body, "$.data.readingId")).longValue();
+        mvc.perform(patch("/api/meals/" + mealId).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"startedAt\":\"" + Instant.now().minus(Duration.ofMinutes(30)) + "\"}"))
+                .andExpect(status().isOk());   // 식사 시작이 혈당(1시간 전)보다 뒤가 됨
+
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"value\":160}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.value").value(160));
+    }
+
+    @Test
     void 식사_시작과_같은_시각은_식후로_적을_수_있다() throws Exception {
         Instant startedAt = Instant.now().minus(Duration.ofHours(1)).truncatedTo(ChronoUnit.SECONDS);
         String meal = mvc.perform(post("/api/meals").cookie(access).contentType(MediaType.APPLICATION_JSON)

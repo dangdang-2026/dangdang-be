@@ -117,7 +117,11 @@ public class ReadingService {
 
         reading.update(req.value(), req.meterLimit(), req.measuredAt(), criteria, req.readingType(), req.slot(),
                 req.mealId(), clock.instant());
-        checkMeasuredAfterMeal(userId, reading);   // 던지면 위 변경은 트랜잭션째 되돌아감 (G-10)
+        // 잰 시각·식사·잰 때를 바꿀 때만 확인함 (G-10). 던지면 위 변경은 트랜잭션째 되돌아감
+        // 값만 고칠 땐 안 봄 — 저장 뒤 식사 시작을 늦춰 둔 기록이면 값 하나 고치려다 400이 나서
+        if (req.changesMealTiming()) {
+            checkMeasuredAfterMeal(userId, reading);
+        }
         if (req.changesReminderLink()) {   // 식사·시점·잰 때·시각이 바뀌면 예전 알림은 풀고 지금 맞는 알림을 끝 처리
             reminderService.relinkAfterEdit(userId, reading.getId(), reading.getMealId(), reading.getSlot(),
                     reading.getMeasuredAt());

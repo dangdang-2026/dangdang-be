@@ -32,6 +32,11 @@ public record ReadingUpdateRequest(
                 && meterLimit == null;
     }
 
+    // 식후 혈당이 식사 시작 뒤인지 다시 봐야 하는 칸(잰 시각·식사·잰 때)을 보냈는지
+    public boolean changesMealTiming() {
+        return measuredAt != null || mealId != null || readingType != null;
+    }
+
     // 어느 알림에 붙을지가 바뀔 수 있는 칸(식사·잰 때·시점·잰 시각)을 보냈는지. 값만 고치면 알림은 그대로
     public boolean changesReminderLink() {
         return mealId != null || readingType != null || slot != null || measuredAt != null;
