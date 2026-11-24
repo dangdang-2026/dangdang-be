@@ -22,6 +22,7 @@ import com.dangdang.global.common.KoreanTime;
 import com.dangdang.global.exception.CustomException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Limit;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -124,20 +125,30 @@ public class ReadingService {
             if (meal == null) meal = liveMealOf(userId, reading.getMealId());   // 식사는 그대로 두고 시각·잰 때만 바꾼 경우
             checkMeasuredAfterMeal(reading, meal);
         }
-        if (req.changesReminderLink()) {   // 식사·시점·잰 때·시각이 바뀌면 예전 알림은 풀고 지금 맞는 알림을 끝 처리
-            reminderService.relinkAfterEdit(userId, reading.getId(), reading.getMealId(), reading.getSlot(),
-                    reading.getMeasuredAt());
+        try {
+            if (req.changesReminderLink()) {   // 식사·시점·잰 때·시각이 바뀌면 예전 알림은 풀고 지금 맞는 알림을 끝 처리
+                reminderService.relinkAfterEdit(userId, reading.getId(), reading.getMealId(), reading.getSlot(),
+                        reading.getMeasuredAt());
+            }
+            // save 안 불러도 트랜잭션 끝날 때 바뀐 칸이 DB에 반영됨(변경 감지).
+            // 다만 updatedAt은 DB에 쓸 때 채워져서, 응답에 새 값을 담으려고 여기서 먼저 반영함
+            // 여기서 먼저 써야 동시 수정 충돌(row_version)도 409로 바꿔 줄 수 있음
+            readingRepository.flush();
+        } catch (ObjectOptimisticLockingFailureException e) {
+            throw new CustomException(ReadingErrorCode.VERSION_CONFLICT);   // 읽은 뒤 다른 요청이 먼저 고치거나 지움
         }
-        // save 안 불러도 트랜잭션 끝날 때 바뀐 칸이 DB에 반영됨(변경 감지).
-        // 다만 updatedAt은 DB에 쓸 때 채워져서, 응답에 새 값을 담으려고 여기서 먼저 반영함
-        readingRepository.flush();
         return ReadingResponse.of(reading, expectedTimeResolver.expectedAtOf(userId, reading, meal));
     }
 
     // 삭제 (soft delete). 이미 지운 기록을 또 지우면 findMine에서 404
     @Transactional
     public void delete(Long userId, Long readingId) {
-        findMine(userId, readingId).delete(clock.instant());   // 변경 감지로 트랜잭션 끝날 때 반영됨
+        findMine(userId, readingId).delete(clock.instant());
+        try {
+            readingRepository.flush();   // 동시 수정 충돌을 409로 바꾸려고 트랜잭션 끝나기 전에 씀
+        } catch (ObjectOptimisticLockingFailureException e) {
+            throw new CustomException(ReadingErrorCode.VERSION_CONFLICT);
+        }
     }
 
     // 내 것 + 삭제 안 된 것만. 없음·삭제됨·남의 것은 전부 404 (상세·수정·삭제가 같이 씀)

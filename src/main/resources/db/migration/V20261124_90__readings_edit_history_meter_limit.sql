@@ -7,6 +7,7 @@ ALTER TABLE readings
     ADD COLUMN original_value SMALLINT CHECK (original_value BETWEEN 20 AND 600),  -- 처음 저장한 값. 값을 안 고쳤으면 NULL
     ADD COLUMN edited_at TIMESTAMPTZ,                                              -- 사용자가 마지막으로 고친 시각. 안 고쳤으면 NULL
     ADD COLUMN meter_limit VARCHAR(2),                                             -- HI / LO. 숫자로 적었으면 NULL
+    ADD COLUMN row_version BIGINT NOT NULL DEFAULT 0,                              -- 동시에 고치면 나중 것을 409로 (JPA @Version)
     ADD CONSTRAINT ck_readings_meter_limit CHECK (
         meter_limit IS NULL
         OR (meter_limit = 'HI' AND value = 600)

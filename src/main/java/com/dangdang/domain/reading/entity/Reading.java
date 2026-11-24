@@ -73,6 +73,11 @@ public class Reading extends BaseTimeEntity {
 
     private Instant deletedAt;               // null = 살아 있음, 값 있음 = 삭제됨
 
+    // 고칠 때마다 1씩 오름. 두 곳에서 같은 기록을 동시에 고치면 나중에 쓰는 쪽이 실패함 (처음 값·고친 시각이 덮이지 않게)
+    @Version
+    @Column(nullable = false)
+    private Long rowVersion;
+
     // 새 기록 만들기. now = 저장하는 순간 (늦게 적음 계산용)
     public static Reading of(User user, CriteriaVersion criteriaVersion, ReadingType readingType,
                              MeasureSlot slot, Instant measuredAt, Integer value, MeterLimit meterLimit,
