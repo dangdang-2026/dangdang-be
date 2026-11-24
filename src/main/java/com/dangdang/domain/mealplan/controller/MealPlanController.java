@@ -22,7 +22,10 @@ public class MealPlanController {
     private final MealPlanService mealPlanService;
 
     @Operation(summary = "[ 사용자 | 토큰 O | 내 식사 안내 보기 ]",
-            description = "**Returns** 안내 (없으면 data: null → 식사 시트의 「내 식사 안내 보기」 줄을 숨김)")
+            description = """
+                    **Returns** 안내 (없으면 data: null → 식사 시트의 「내 식사 안내 보기」 줄을 숨김).
+                    받은 병원을 지웠으면 careSiteId는 null, careSiteName은 그대로 남음 (C-20)
+                    """)
     @GetMapping
     public ResponseEntity<BaseResponse<MealPlanResponse>> get(@AuthenticationPrincipal AuthPrincipal principal) {
         return ResponseEntity.ok(BaseResponse.success(200, "내 식사 안내 조회에 성공했습니다.",

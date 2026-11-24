@@ -4,6 +4,7 @@ import com.dangdang.domain.visit.entity.Visit;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -55,4 +56,18 @@ public interface VisitRepository extends JpaRepository<Visit, Long> {
               and v.visitAt is not null
             """)
     List<Instant> findAllVisitAts(@Param("userId") Long userId);
+
+    // C-20 병원 지우기 — 그 병원의 아직 안 온 일정(visit_at >= now)과 날짜 미정 일정을 지운다 (soft delete)
+    // 지난 일정은 메모·리포트 때문에 남긴다. 조건을 UPDATE 안에 두어서, 그사이 다른 병원·지난 날짜로 바뀐 일정은 안 지운다
+    // 지운 줄 수를 돌려준다
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            update Visit v set v.deletedAt = :now
+            where v.user.id = :userId
+              and v.careSiteId = :careSiteId
+              and v.deletedAt is null
+              and (v.visitAt is null or v.visitAt >= :now)
+            """)
+    int deleteUpcomingAtCareSite(@Param("userId") Long userId, @Param("careSiteId") Long careSiteId,
+                                 @Param("now") Instant now);
 }

@@ -1,5 +1,6 @@
 package com.dangdang.domain.pregnancy.entity;
 
+import com.dangdang.domain.pregnancy.enums.CareMode;
 import com.dangdang.domain.pregnancy.enums.PregnancyState;
 import com.dangdang.domain.user.entity.User;
 import jakarta.persistence.*;
@@ -9,6 +10,7 @@ import lombok.NoArgsConstructor;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Objects;
 
 @Getter
 @Entity
@@ -26,7 +28,18 @@ public class Pregnancy {
 
     private LocalDate dueDate;               // 출산 예정일
 
+    private LocalDate diagnosisDate;         // 임신성 당뇨 진단일 (M-02, 안 적었으면 null)
+
     private LocalDate deliveryDate;          // 출산일 — 적으면 산후 모드 (PP-01)
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 10)
+    private CareMode careMode;               // 관리 모드 (M-03). 처음엔 식사·운동
+
+    @Column(length = 100)
+    private String contactMemo;              // 연락 기준 메모 (M-03 · G-04). 없으면 null
+
+    private Instant contactMemoUpdatedAt;    // 연락 기준 메모를 마지막으로 적은 시각 (G-05). 메모가 없으면 null
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 15)
@@ -47,6 +60,7 @@ public class Pregnancy {
         Pregnancy p = new Pregnancy();
         p.user = user;
         p.dueDate = dueDate;
+        p.careMode = CareMode.DIET;
         p.state = PregnancyState.PREGNANT;
         p.createdAt = now;
         p.updatedAt = now;
@@ -55,6 +69,28 @@ public class Pregnancy {
 
     public void changeDueDate(LocalDate dueDate, Instant now) {
         this.dueDate = dueDate;
+        this.updatedAt = now;
+    }
+
+    // 진단일 (M-02 「바꾸기」). 날짜 검사는 서비스에서 끝냈다
+    public void changeDiagnosisDate(LocalDate diagnosisDate, Instant now) {
+        this.diagnosisDate = diagnosisDate;
+        this.updatedAt = now;
+    }
+
+    // 관리 모드 (M-03)
+    public void changeCareMode(CareMode careMode, Instant now) {
+        this.careMode = careMode;
+        this.updatedAt = now;
+    }
+
+    // 연락 기준 메모 (M-03). null이면 지운다
+    // 적은 시각(G-05 「10월 1일에 적은 메모」)은 글이 바뀔 때만 바꾼다 — 같은 글을 다시 저장해도 날짜는 그대로
+    public void changeContactMemo(String contactMemo, Instant now) {
+        if (!Objects.equals(this.contactMemo, contactMemo)) {
+            this.contactMemo = contactMemo;
+            this.contactMemoUpdatedAt = contactMemo == null ? null : now;
+        }
         this.updatedAt = now;
     }
 

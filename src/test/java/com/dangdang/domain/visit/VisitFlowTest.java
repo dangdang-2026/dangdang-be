@@ -43,6 +43,8 @@ class VisitFlowTest {
 
     static final String DEC_3 = "2026-12-03T10:30:00+09:00";
     static final String DEC_17 = "2026-12-17T14:00:00+09:00";
+    static final String PAST_VISIT = "2025-06-03T10:30:00+09:00";         // 이 테스트는 진짜 시계라 넉넉히 지난 날
+    static final String PAST_VISIT_FIXED = "2025-06-10T14:00:00+09:00";
 
     Cookie access;   // 지수(주인공)
     Cookie other;    // 남의 일정 확인용 다른 사용자
@@ -210,14 +212,20 @@ class VisitFlowTest {
 
     @Test
     void 병원이_지워졌어도_같은_병원_id를_다시_보내면_수정된다() throws Exception {
-        long id = createAndGetId(access, "{\"careSiteId\":" + careSiteId + ",\"visitAt\":\"" + DEC_3 + "\"}");
+        // 병원을 지우면 다가오는 일정은 같이 지워지고 지난 일정만 남는다 (C-20) → 남은 지난 일정으로 확인
+        long id = createAndGetId(access, "{\"careSiteId\":" + careSiteId + ",\"visitAt\":\"" + PAST_VISIT + "\"}");
         mvc.perform(delete("/api/care-sites/" + careSiteId).cookie(access)).andExpect(status().isOk());
 
         // 화면이 원래 값을 그대로 같이 보내는 경우
-        update(access, id, "{\"careSiteId\":" + careSiteId + ",\"visitAt\":\"" + DEC_17 + "\"}")
+        update(access, id, "{\"careSiteId\":" + careSiteId + ",\"visitAt\":\"" + PAST_VISIT_FIXED + "\"}")
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.careSiteId").value(careSiteId))
-                .andExpect(jsonPath("$.data.visitAt").value(Instant.parse("2026-12-17T05:00:00Z").toString()));
+                .andExpect(jsonPath("$.data.visitAt").value(Instant.parse("2025-06-10T05:00:00Z").toString()));
+
+        // 지운 병원의 지난 일정을 다가오는 날짜로 옮기는 건 안 됨 (지운 병원의 다가오는 일정은 남지 않게, C-20)
+        update(access, id, "{\"visitAt\":\"2099-01-01T10:00:00+09:00\"}")
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.errorCode").value("CARE_SITE_40401"));
 
         // 지운 병원으로 새로 바꾸는 건 안 됨
         long another = createAndGetId(access, "{}");

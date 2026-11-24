@@ -1,11 +1,13 @@
 package com.dangdang.domain.user.dto.response;
 
 import com.dangdang.domain.pregnancy.entity.Pregnancy;
+import com.dangdang.domain.pregnancy.enums.CareMode;
 import com.dangdang.domain.pregnancy.enums.PregnancyState;
 import com.dangdang.domain.user.entity.User;
 import com.dangdang.domain.user.enums.AuthProvider;
 import io.swagger.v3.oas.annotations.media.Schema;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 
@@ -20,7 +22,14 @@ public record MeResponse(
         @Schema(description = "임신 상태 PREGNANT·HOSPITALIZED·PAUSED(다른 상황 · 주수 숨김)·POSTPARTUM (임신 정보가 없으면 null)", example = "PREGNANT")
         PregnancyState pregnancyState,
         @Schema(description = "오늘 임신 주수 (예정일이 없거나 다른 상황(PAUSED)이면 null)") PregnancyWeek pregnancyWeek,
-        @Schema(description = "로그인 방식 (M-02 「로그인 방식」)") LoginMethods loginMethods) {
+        @Schema(description = "로그인 방식 (M-02 「로그인 방식」)") LoginMethods loginMethods,
+        @Schema(description = "임신성 당뇨 진단일 (안 적었으면 null)", example = "2026-09-24") LocalDate diagnosisDate,
+        @Schema(description = "관리 모드 DIET·INSULIN·ORAL (임신 정보가 없으면 DIET)", example = "DIET") CareMode careMode,
+        @Schema(description = "연락 기준 메모 (없으면 null)", example = "같은 시점에 계속 높게 나오면 외래로 전화하기")
+        String contactMemo,
+        @Schema(description = "연락 기준 메모를 마지막으로 적은 시각 (메모가 없으면 null). G-05 「10월 1일에 적은 메모」",
+                example = "2026-10-01T03:12:00Z")
+        Instant contactMemoUpdatedAt) {
 
     // 이메일: 비밀번호가 있으면(이메일로 가입) · 카카오: 카카오로 가입했거나 연결했으면
     public record LoginMethods(
@@ -55,6 +64,10 @@ public record MeResponse(
                 dueDate,
                 pregnancy == null ? null : pregnancy.getState(),
                 paused ? null : PregnancyWeek.of(dueDate, today),
-                new LoginMethods(user.hasPassword(), user.hasKakao()));
+                new LoginMethods(user.hasPassword(), user.hasKakao()),
+                pregnancy == null ? null : pregnancy.getDiagnosisDate(),
+                pregnancy == null ? CareMode.DIET : pregnancy.getCareMode(),   // 홈 인슐린 버튼이 null을 따로 다루지 않게
+                pregnancy == null ? null : pregnancy.getContactMemo(),
+                pregnancy == null ? null : pregnancy.getContactMemoUpdatedAt());
     }
 }
