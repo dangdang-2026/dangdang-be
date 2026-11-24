@@ -1,0 +1,133 @@
+package com.dangdang.domain.caresite.service;
+
+import com.dangdang.domain.caresite.infra.HospitalListClient;
+import com.dangdang.domain.caresite.infra.HospitalSearchResult;
+import com.dangdang.domain.caresite.repository.HospitalRepository;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+
+import java.time.Clock;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+// 심평원 병원 전체 목록 -> hospitals 표
+// - 1,000줄씩 받아서 쪽마다 바로 저장 (중간에 멈춰도 받은 데까지는 남음)
+// - 한 쪽이 실패하면 3번까지 다시 해 봄 (심평원이 504를 자주 줌)
+// - 끝까지 받았을 때만, 이번에 안 나온 병원(문 닫은 곳)을 지움
+// 전국 79,867곳(11/22) = 80쪽, 한 쪽 55초쯤 -> 한 바퀴 1시간 남짓. 하루 호출 한도(10,000) 안
+@Slf4j
+@Service
+@RequiredArgsConstructor
+public class HospitalSyncService {
+
+    static final int PAGE_SIZE = 1_000;
+    private static final int MAX_PAGES = 300;          // 30만 줄. 혹시 끝이 안 나도 여기서 멈춤
+    private static final int TRIES = 3;
+    private static final double PRUNE_RATIO = 0.95;    // 95% 넘게 받았을 때만 옛 줄을 지움
+
+    private final HospitalListClient client;
+    private final HospitalRepository repository;
+    private final Clock clock;
+
+    private final AtomicBoolean running = new AtomicBoolean(false);
+
+    // total = 심평원 전체 수, saved = 넣은 줄, removed = 지운 줄, completed = 끝까지 받았는지
+    public record Result(int total, int saved, int removed, boolean completed) {
+    }
+
+    // 다른 스레드에서 시작하고 바로 돌아옴 (앱 시작·운영자 버튼). 이미 도는 중이면 false
+    public boolean startInBackground() {
+        if (!running.compareAndSet(false, true)) {
+            return false;
+        }
+        Thread.ofVirtual().name("hospital-sync").start(() -> {
+            try {
+                runOnce();
+            } catch (RuntimeException e) {
+                log.error("[HospitalSync] 예상 못 한 오류로 멈춤", e);
+            } finally {
+                running.set(false);
+            }
+        });
+        return true;
+    }
+
+    // 지금 스레드에서 끝까지 (매주 스케줄러·테스트). 이미 도는 중이면 건너뜀
+    public Result syncAll() {
+        if (!running.compareAndSet(false, true)) {
+            log.warn("[HospitalSync] 이미 도는 중이라 건너뜀");
+            return new Result(-1, 0, 0, false);
+        }
+        try {
+            return runOnce();
+        } finally {
+            running.set(false);
+        }
+    }
+
+    public boolean isRunning() {
+        return running.get();
+    }
+
+    private Result runOnce() {
+        Instant startedAt = clock.instant().truncatedTo(ChronoUnit.MICROS);   // DB(마이크로초)와 자릿수 맞춤
+        log.info("[HospitalSync] 시작");
+        int total = -1;
+        int received = 0;
+        int saved = 0;
+        for (int page = 1; page <= MAX_PAGES; page++) {
+            HospitalSearchResult result = fetchWithRetry(page);
+            if (result == null) {
+                log.error("[HospitalSync] {}쪽에서 멈춤. 받은 {}줄은 저장됨, 옛 병원은 안 지움", page, saved);
+                return new Result(total, saved, 0, false);
+            }
+            if (total < 0) {
+                total = result.totalCount();
+            }
+            if (result.hospitals().isEmpty()) {
+                break;
+            }
+            received += result.hospitals().size();
+            saved += repository.upsert(result.hospitals(), startedAt);
+            if (page % 10 == 0) {
+                log.info("[HospitalSync] {}쪽까지 {}/{}줄", page, received, total);
+            }
+            if (received >= total) {
+                break;
+            }
+        }
+        int removed = 0;
+        if (total > 0 && saved >= total * PRUNE_RATIO) {
+            removed = repository.deleteSyncedBefore(startedAt);
+        } else {
+            log.warn("[HospitalSync] 받은 줄({})이 전체({})의 95%가 안 돼서 옛 병원은 안 지움", saved, total);
+        }
+        log.info("[HospitalSync] 끝 전체={} 저장={} 지움={}", total, saved, removed);
+        return new Result(total, saved, removed, true);
+    }
+
+    // 실패하면 1초, 2초 쉬고 다시. 3번 다 실패하면 null
+    private HospitalSearchResult fetchWithRetry(int page) {
+        for (int attempt = 1; attempt <= TRIES; attempt++) {
+            try {
+                return client.fetchPage(page, PAGE_SIZE);
+            } catch (RuntimeException e) {
+                log.warn("[HospitalSync] {}쪽 {}번째 실패 - {}", page, attempt, e.getMessage());
+                if (attempt < TRIES) {
+                    sleep(attempt * 1_000L);
+                }
+            }
+        }
+        return null;
+    }
+
+    private static void sleep(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+}
