@@ -31,6 +31,7 @@ public class VisitNoteOrganizeService {
     private final VisitService visitService;
     private final VisitNoteRepository visitNoteRepository;
     private final VisitNoteOrganizeClient visitNoteOrganizeClient;
+    private final VisitMemoMasker visitMemoMasker;
     private final AiGuard aiGuard;
     private final TransactionTemplate transactionTemplate;
     private final SensitiveConsentGuard sensitiveConsentGuard;
@@ -42,7 +43,10 @@ public class VisitNoteOrganizeService {
         VisitNote note = visitNoteRepository.findByIdAndVisitIdAndDeletedAtIsNull(noteId, visitId)
                 .orElseThrow(() -> new CustomException(VisitErrorCode.NOTE_NOT_FOUND));
         String memo = note.getContent().strip();
-        if (memo.length() > MAX_MEMO_FOR_AI) {
+        // AI 서버(해외)로 보낼 글 — 내 이름·병원 이름·전화번호를 자리표시로 (C-11). DB의 메모는 그대로
+        // 원문(memo)은 4)의 「그사이 메모가 바뀌었나」 비교에만 쓴다
+        String forAi = visitMemoMasker.mask(userId, memo);
+        if (forAi.length() > MAX_MEMO_FOR_AI) {   // 자리표시가 이름보다 길 수 있어서 보낼 글로 잰다
             throw new CustomException(VisitErrorCode.NOTE_TOO_LONG_FOR_AI);
         }
         // 진료일: "2주 뒤 금요일"을 날짜로 바꿀 때 기준. 날짜 미정 일정이면 오늘 (메모는 보통 진료 당일·다음 날 씀)
@@ -56,8 +60,9 @@ public class VisitNoteOrganizeService {
         // 응답 정리: 빈 칸은 null, 확신 정도가 없거나 범위 밖이거나 근거가 메모에 없으면 「확인 필요」
         VisitNoteExtract extract;
         try {
-            VisitNoteExtract raw = visitNoteOrganizeClient.organize(call.requestId(), memo, visitDate);
-            extract = raw == null ? null : raw.normalized(memo, visitDate);
+            VisitNoteExtract raw = visitNoteOrganizeClient.organize(call.requestId(), forAi, visitDate);
+            // 근거 문장은 AI가 받은 글(가린 글)에서 옮긴 것 → 가린 글과 비교해야 「메모에 있음」으로 맞는다
+            extract = raw == null ? null : raw.normalized(forAi, visitDate);
         } catch (RuntimeException e) {
             aiGuard.fail(call, e.getClass().getSimpleName());
             throw new CustomException(VisitErrorCode.ORGANIZE_FAILED);

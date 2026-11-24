@@ -81,14 +81,15 @@ public class VisitNoteController {
                     """
                     **Parameters** visitId, noteId (본문 없음)
                     **Returns** {noteId, aiExtract{measureSlots, fastingTarget, postMealTarget, postMealMinutes, nextVisitDate, insulinSkipped, promptVersion}}.
-                    칸마다 {value, evidence(메모의 근거 문장 그대로), status(FOUND 체크된 채로 / CHECK_NEEDED 「확인 필요」+체크 해제)}, 메모에 없는 칸은 null(화면에 안 보임).
+                    칸마다 {value, evidence(AI로 보낸 글의 근거 문장 그대로 — [이름]·[병원]·[전화번호]가 보일 수 있음), status(FOUND 체크된 채로 / CHECK_NEEDED 「확인 필요」+체크 해제)}, 메모에 없는 칸은 null(화면에 안 보임).
                     measureSlots.value는 FASTING·BREAKFAST_AFTER·LUNCH_AFTER·DINNER_AFTER·BEDTIME, nextVisitDate.value는 yyyy-MM-dd.
                     postMealMinutes·postMealTarget은 짝(「식후 기준」 카드 하나): 하나만 찾았거나 하나라도 CHECK_NEEDED면 찾은 칸 모두 CHECK_NEEDED.
-                    메모는 통째로 AI 서버에 보내고, 인슐린·약 문장은 AI 서버가 걸러 내서 처방·용량은 뽑지 않음. 걸러 낸 문장이 있으면 insulinSkipped=true → 「약은 직접 적어 주세요」.
+                    AI 서버로 보내기 전에 내 부를 이름·커뮤니티 닉네임·등록한 병원 이름(지운 병원 포함)·전화번호를 [이름]·[병원]·[전화번호]로 바꿔 보냄 (저장된 메모는 그대로, 두 글자 이상만, 남의 이름·줄여 쓴 병원 이름은 못 가림).
+                    인슐린·약 문장은 AI 서버가 걸러 내서 처방·용량은 뽑지 않음. 걸러 낸 문장이 있으면 insulinSkipped=true → 「약은 직접 적어 주세요」.
                     결과는 메모에 저장되고 다시 정리하면 바뀜.
                     체크한 기준은 POST /api/criteria-versions, 다음 진료일은 POST /api/visits로 보냄 (이 API는 적용하지 않음).
                     진료 날짜가 미정인 일정이면 오늘을 진료일로 보고 정리함.
-                    국외 이전 동의가 없으면 AI_40301, 오늘 10번을 넘으면 AI_42901, 메모가 3000자를 넘으면 VISIT_40002,
+                    국외 이전 동의가 없으면 AI_40301, 오늘 10번을 넘으면 AI_42901, 가린 메모가 3000자를 넘으면 VISIT_40002,
                     정리하는 동안 메모가 바뀌면 VISIT_40901, AI 실패·시간 초과면 VISIT_50201(횟수는 안 셈, 다시 해 보기),
                     없거나 삭제됐거나 남의 일정이면 VISIT_40401, 없는 메모이거나 다른 일정의 메모면 VISIT_40403
                     """)

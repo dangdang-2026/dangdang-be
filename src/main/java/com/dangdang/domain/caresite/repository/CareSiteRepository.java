@@ -15,6 +15,9 @@ public interface CareSiteRepository extends JpaRepository<CareSite, Long> {
     // 내 병원 전부: 대표 병원 먼저 → 정렬 순서 → 먼저 등록한 순
     List<CareSite> findAllByUserIdAndDeletedAtIsNullOrderByPrimaryDescSortOrderAscIdAsc(Long userId);
 
+    // 내 병원 전부 (지운 것 포함) — 진료 메모를 AI로 보내기 전 병원 이름 가리기용. 예전 메모에 지운 병원 이름이 남아 있을 수 있어서
+    List<CareSite> findAllByUserId(Long userId);
+
     // 지금 대표 병원 (없을 수 있음)
     Optional<CareSite> findByUserIdAndPrimaryTrueAndDeletedAtIsNull(Long userId);
 }
