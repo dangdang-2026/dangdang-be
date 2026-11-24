@@ -32,7 +32,7 @@ public class PregnancyProfileController {
                     """
                     **Parameters** diagnosisDate(yyyy-MM-dd, 필수)
                     **Returns** diagnosisDate, careMode, contactMemo, contactMemoUpdatedAt. 진행 중인 임신이 없으면 새로 만든다.
-                    형식이 틀리면 GLOBAL_40001, 오늘(한국) 뒤 날짜 PREGNANCY_40003, 출산 예정일보다 뒤 PREGNANCY_40004,
+                    형식이 틀리거나 2000년보다 앞이면 GLOBAL_40001, 오늘(한국) 뒤 날짜 PREGNANCY_40003, 출산 예정일보다 뒤 PREGNANCY_40004,
                     건강정보 동의 없음 USER_40302, 졸업한 뒤 PREGNANCY_40902
                     """)
     @PatchMapping("/diagnosis-date")

@@ -2,6 +2,7 @@ package com.dangdang.domain.user.service;
 
 import com.dangdang.domain.pregnancy.entity.Pregnancy;
 import com.dangdang.domain.pregnancy.enums.PregnancyState;
+import com.dangdang.domain.pregnancy.exception.PregnancyErrorCode;
 import com.dangdang.domain.pregnancy.repository.PregnancyRepository;
 import com.dangdang.domain.user.dto.request.DueDateUpdateRequest;
 import com.dangdang.domain.user.dto.response.DueDateResponse;
@@ -15,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Optional;
 
 @Service
@@ -36,6 +38,10 @@ public class DueDateService {
 
         Optional<Pregnancy> active = pregnancyRepository.findByUserIdAndStateNot(userId, PregnancyState.ENDED);
         if (active.isPresent()) {
+            LocalDate diagnosisDate = active.get().getDiagnosisDate();
+            if (diagnosisDate != null && request.dueDate().isBefore(diagnosisDate)) {
+                throw new CustomException(PregnancyErrorCode.DIAGNOSIS_AFTER_DUE_DATE);   // 진단일 저장 때와 같은 규칙 (같은 날은 됨)
+            }
             active.get().changeDueDate(request.dueDate(), now);   // 있으면 그 줄을 고친다
         } else {
             pregnancyRepository.save(Pregnancy.start(user, request.dueDate(), now));   // 없으면 새 줄

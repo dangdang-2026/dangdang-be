@@ -379,4 +379,39 @@ class PregnancyProfileFlowTest extends ReminderTestBase {
                 .andExpect(jsonPath("$.data.contactMemo").value(nullValue()))
                 .andExpect(jsonPath("$.data.contactMemoUpdatedAt").value(nullValue()));
     }
+
+    // ---------- 날짜 한계 · 예정일과의 관계 · 한 줄 검사 ----------
+
+    @Test
+    void 진단일은_2000년부터_된다() throws Exception {
+        patchJson("/api/me/diagnosis-date", "{\"diagnosisDate\":\"1999-12-31\"}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("GLOBAL_40001"));
+        assertThat(pregnancyCount(jisuId)).isZero();
+
+        patchJson("/api/me/diagnosis-date", "{\"diagnosisDate\":\"2000-01-01\"}").andExpect(status().isOk());
+    }
+
+    @Test
+    void 예정일을_진단일보다_앞으로_바꾸면_400_같은_날은_된다() throws Exception {
+        patchJson("/api/me/diagnosis-date", "{\"diagnosisDate\":\"2026-09-24\"}").andExpect(status().isOk());
+
+        patchJson("/api/me/due-date", "{\"dueDate\":\"2026-09-23\"}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("PREGNANCY_40004"));
+        assertThat(column("due_date", jisuId)).isNull();
+
+        patchJson("/api/me/due-date", "{\"dueDate\":\"2026-09-24\"}").andExpect(status().isOk());
+        assertThat(column("due_date", jisuId)).isEqualTo("2026-09-24");
+    }
+
+    @Test
+    void 메모_가운데_줄_구분_글자가_있으면_400() throws Exception {
+        for (String sep : List.of("\\u2028", "\\u2029", "\\u0085", "\\r", "\\t")) {
+            patchJson("/api/me/contact-memo", "{\"contactMemo\":\"높으면" + sep + "전화\"}")
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errorCode").value("GLOBAL_40001"));
+        }
+        assertThat(pregnancyCount(jisuId)).isZero();
+    }
 }

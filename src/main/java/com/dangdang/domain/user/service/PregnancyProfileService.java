@@ -10,7 +10,9 @@ import com.dangdang.domain.user.entity.User;
 import com.dangdang.domain.user.exception.UserErrorCode;
 import com.dangdang.domain.user.repository.UserRepository;
 import com.dangdang.global.common.KoreanTime;
+import com.dangdang.global.common.QueryParams;
 import com.dangdang.global.exception.CustomException;
+import com.dangdang.global.exception.GlobalErrorCode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -27,6 +29,9 @@ import java.time.LocalDate;
 @RequiredArgsConstructor
 public class PregnancyProfileService {
 
+    // 진단일로 받을 수 있는 가장 이른 날 (다른 날짜 입력 QueryParams·진료 날짜와 같은 기준)
+    private static final LocalDate MIN_DIAGNOSIS_DATE = LocalDate.of(QueryParams.MIN_YEAR, 1, 1);
+
     private final UserRepository userRepository;
     private final PregnancyRepository pregnancyRepository;
     private final Clock clock;
@@ -34,6 +39,10 @@ public class PregnancyProfileService {
 
     @Transactional
     public PregnancyProfileResponse changeDiagnosisDate(Long userId, LocalDate diagnosisDate) {
+        if (diagnosisDate.isBefore(MIN_DIAGNOSIS_DATE)) {
+            throw new CustomException(GlobalErrorCode.INVALID_INPUT,
+                    "진단일은 " + QueryParams.MIN_YEAR + "년부터 고를 수 있어요.");
+        }
         User user = lockUser(userId);
         Instant now = clock.instant();
         if (diagnosisDate.isAfter(KoreanTime.dateOf(now))) {
@@ -53,7 +62,7 @@ public class PregnancyProfileService {
         Instant now = clock.instant();
         Pregnancy p = activeOrStart(user, now);
         p.changeCareMode(careMode, now);
-        log.info("[임신 정보] 관리 모드 변경 - 사용자: {}, 모드: {}", userId, careMode);
+        log.info("[임신 정보] 관리 모드 변경 - 사용자: {}", userId);   // 모드 값(투약 여부)은 건강정보라 안 남김
         return PregnancyProfileResponse.from(p);
     }
 
