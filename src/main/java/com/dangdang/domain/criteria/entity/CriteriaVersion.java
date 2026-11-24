@@ -69,4 +69,11 @@ public class CriteriaVersion {
     public static CriteriaVersion empty(User user, LocalDate today, Instant now) {
         return of(user, null, null, null, null, null, today, now);
     }
+
+    // 「빈 기준」인지 (목표·식후 시간·잴 때·메모가 다 비었음). 혈당을 기준 없는 날짜에 저장할 때 empty()로 생긴 줄
+    // 사용자가 칸을 다 비워 등록한 기준도 같은 모양이라 같이 빈 기준으로 봄 (판정에 쓸 값이 없는 것은 같음)
+    public boolean isEmpty() {
+        return postMealMinutes == null && (measureSlots == null || measureSlots.isEmpty())
+                && fastingTarget == null && postMealTarget == null && sourceNote == null;
+    }
 }

@@ -25,7 +25,7 @@ import java.util.List;
 @Transactional(readOnly = true)
 public class CriteriaService {
 
-    // 다음 기준이 없을 때 다시 붙이는 끝 (끝 없음 — 미래 시각으로 적은 기록도 그날 기준을 찾으면 이 기준이라)
+    // 다음 기준이 없을 때 다시 붙이는 끝 (다음 기준이 생기기 전까지 끝 없음)
     private static final Instant NO_NEXT_CRITERIA = Instant.parse("9999-01-01T00:00:00Z");
 
     private final CriteriaVersionRepository criteriaVersionRepository;
@@ -60,16 +60,34 @@ public class CriteriaService {
         return CriteriaVersionResponse.from(saved);
     }
 
-    // 적용일 0시 ~ 다음 기준 시작 전(없으면 끝까지)에 잰 기록을 새 기준으로
+    // 적용일 0시 ~ 다음 진짜 기준 시작 전(없으면 끝까지)에 잰 기록(지운 것 포함)을 새 기준으로
     // 오늘·미래부터 적용이면 부르지 않음: 오늘 진료 전에 잰 기록은 그때 기준 그대로 (C-10 「지난 기록은 그때 기준으로」)
     // 같은 적용일 기준이 이미 있으면 새 것이 이김 (지금 기준 찾기의 「적용일 늦은 순 → id 큰 순」과 같은 규칙)
+    // 빈 기준(기준 없는 날짜에 혈당을 저장해서 생긴 줄)은 「다음 기준」으로 치지 않고, 다시 붙인 뒤 이 기간 안의 것은 지움
+    // → 안 지우면 적용일이 더 늦은 빈 기준이 지금 기준·새 혈당 판정에서 새 기준을 이김
+    // 다시 붙인 뒤에도 혈당이 가리키는 빈 기준(오늘 기준을 적기 전 오늘 잰 혈당 등)은 남김
     private void relinkReadings(Long userId, CriteriaVersion saved) {
+        List<CriteriaVersion> later = criteriaVersionRepository
+                .findAllByUserIdAndEffectiveFromGreaterThanEqualOrderByEffectiveFromAscIdAsc(userId, saved.getEffectiveFrom())
+                .stream()
+                .filter(c -> !c.getId().equals(saved.getId()))
+                .toList();
+        LocalDate nextFrom = later.stream()
+                .filter(c -> !c.isEmpty() && c.getEffectiveFrom().isAfter(saved.getEffectiveFrom()))
+                .map(CriteriaVersion::getEffectiveFrom)
+                .findFirst()
+                .orElse(null);
+        List<Long> coveredEmpty = later.stream()
+                .filter(c -> c.isEmpty() && (nextFrom == null || c.getEffectiveFrom().isBefore(nextFrom)))
+                .map(CriteriaVersion::getId)
+                .toList();
+
         Instant from = KoreanTime.startOfDay(saved.getEffectiveFrom());
-        Instant to = criteriaVersionRepository
-                .findFirstByUserIdAndEffectiveFromGreaterThanOrderByEffectiveFromAscIdAsc(userId, saved.getEffectiveFrom())
-                .map(next -> KoreanTime.startOfDay(next.getEffectiveFrom()))
-                .orElse(NO_NEXT_CRITERIA);
+        Instant to = nextFrom == null ? NO_NEXT_CRITERIA : KoreanTime.startOfDay(nextFrom);
         readingRepository.relinkCriteria(userId, saved, from, to);
+        if (!coveredEmpty.isEmpty()) {
+            criteriaVersionRepository.deleteUnused(userId, coveredEmpty);
+        }
     }
 
     // 이력 — 최신 먼저
