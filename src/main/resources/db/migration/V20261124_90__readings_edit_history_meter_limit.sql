@@ -12,5 +12,5 @@ ALTER TABLE readings
         OR (meter_limit = 'HI' AND value = 600)
         OR (meter_limit = 'LO' AND value = 20));
 
--- 지금까지 고친 기록은 처음 값을 알 수 없으니 고친 시각만 채움 (지운 기록은 빼고 — 지울 때도 updated_at이 올라서)
-UPDATE readings SET edited_at = updated_at WHERE updated_at > created_at AND deleted_at IS NULL;
+-- 지금까지 있던 기록은 edited_at을 비워 둔 채 시작함 (updated_at > created_at으로 채우지 않음)
+-- updated_at은 식사만 붙여도 올라가서, 그걸로 채우면 "식사만 붙인 건 고친 게 아님" 규칙과 어긋남
