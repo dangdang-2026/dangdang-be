@@ -34,7 +34,7 @@ public class PostpartumTestService {
                 .filter(p -> p.getState() == PregnancyState.POSTPARTUM)
                 .orElseThrow(() -> new CustomException(PostpartumErrorCode.NOT_POSTPARTUM));
         PostpartumTest saved = postpartumTestRepository.save(PostpartumTest.of(pregnancy.getUser(), req.name().strip(),
-                req.testDate(), req.remindDayBefore() == null || req.remindDayBefore(),
+                req.testDate(), req.placeName(), req.remindDayBefore() == null || req.remindDayBefore(),
                 req.remindSameDay() == null || req.remindSameDay(), clock.instant()));
         return PostpartumTestResponse.from(saved);
     }
@@ -49,8 +49,8 @@ public class PostpartumTestService {
     public PostpartumTestResponse update(Long userId, Long testId, PostpartumTestUpdateRequest req) {
         sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403
         PostpartumTest test = mine(userId, testId);
-        test.change(req.name() == null ? null : req.name().strip(), req.testDate(), req.remindDayBefore(),
-                req.remindSameDay(), clock.instant());
+        test.change(req.name() == null ? null : req.name().strip(), req.testDate(), req.placeName(),
+                req.remindDayBefore(), req.remindSameDay(), clock.instant());
         return PostpartumTestResponse.from(test);
     }
 
