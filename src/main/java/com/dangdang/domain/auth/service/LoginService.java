@@ -39,21 +39,27 @@ public class LoginService {
         if (lockedFor > 0) { // ① 잠겨 있으면 비밀번호 비교도 안 한다
             throw locked(lockedFor);
         }
+        // ② 비교하기 전에 먼저 센다 → 동시에 많이 보내도 비교는 5번까지만 (리뷰: 세고 나서 비교)
+        long attempt = loginAttemptStore.countAttempt(email);
+        if (attempt > LoginAttemptStore.MAX_FAILS) {   // 동시에 몰려 5번을 넘긴 나머지 요청
+            loginAttemptStore.lock(email);
+            throw locked(LoginAttemptStore.LOCK_TTL.toSeconds());
+        }
         User user = userRepository.findByEmail(email).orElse(null);
-        // ② 없는 이메일·카카오 계정·틀린 비밀번호를 같은 문구·같은 횟수로 → 가입 여부를 알려 주지 않는다 (L-07)
+        // ③ 없는 이메일·카카오 계정·틀린 비밀번호를 같은 문구·같은 횟수로 → 가입 여부를 알려 주지 않는다 (L-07)
         if (!passwordMatches(user, request.password())) {
-            long fails = loginAttemptStore.increaseFails(email);
-            log.info("[Auth] 로그인 실패 - 이메일: {}, 실패: {}회", email, fails);
-            if (fails >= LoginAttemptStore.MAX_FAILS) {
+            log.info("[Auth] 로그인 실패 - 이메일: {}, 실패: {}회", email, attempt);
+            if (attempt >= LoginAttemptStore.MAX_FAILS) {
+                loginAttemptStore.lock(email);
                 throw locked(LoginAttemptStore.LOCK_TTL.toSeconds());
             }
-            int left = (int) (LoginAttemptStore.MAX_FAILS - fails);
+            int left = (int) (LoginAttemptStore.MAX_FAILS - attempt);
             throw new CustomException(
                     AuthErrorCode.LOGIN_FAILED,
                     AuthErrorCode.LOGIN_FAILED.getMessage() + " " + left + "번 더 틀리면 5분 동안 잠겨요.",   // L-05 최종 문구
                     AuthRetryInfo.attemptsLeft(left));
         }
-        loginAttemptStore.clear(email); // ③ 성공하면 실패 횟수 0
+        loginAttemptStore.clear(email); // ④ 성공하면 센 횟수 0
         log.info("[Auth] 로그인 - 사용자: {}", user.getId());
         return tokenService.issue(AuthPrincipal.from(user));
     }

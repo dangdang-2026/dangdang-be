@@ -18,6 +18,11 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -141,5 +146,22 @@ class LoginFlowTest {
         MvcResult r = login("jisu@x.com", "가".repeat(25));   // 한글 25자 = 75바이트
         assertThat(r.getResponse().getStatus()).isEqualTo(400);
         assertThat(r.getResponse().getContentAsString()).contains("AUTH_40004");
+    }
+
+    @Test   // 리뷰: 로그인이 동시에 몰려도 비밀번호 비교는 5번까지만 → 「n번 더」 실패 답은 4번까지, 맞는 비밀번호도 잠김
+    void 동시에_많이_틀려도_비밀번호는_5번까지만_비교한다() throws Exception {
+        ExecutorService pool = Executors.newFixedThreadPool(20);
+        List<Future<String>> results = new ArrayList<>();
+        for (int i = 0; i < 20; i++) {
+            results.add(pool.submit(() -> login("jisu@x.com", "wrong1234").getResponse().getContentAsString()));
+        }
+        int failed = 0;
+        for (Future<String> f : results) {
+            if (f.get().contains("AUTH_40004")) failed++;
+        }
+        pool.shutdown();
+
+        assertThat(failed).isLessThanOrEqualTo(4);
+        assertThat(login("jisu@x.com", "abcd1234").getResponse().getStatus()).isEqualTo(429);
     }
 }
