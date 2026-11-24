@@ -152,8 +152,9 @@ public class AuthController {
                     """
                     **Parameters** kakaoToken(카카오 로그인 응답, 한 번만)
                     **Returns (쿠키)** 201 + ACCESS_TOKEN·REFRESH_TOKEN → 동의 화면 A-01로.
-                    토큰이 없거나 10분 지났거나 이미 썼으면 AUTH_40011, 같은 이메일 계정이 있으면 AUTH_40902,
-                    이 카카오가 이미 다른 계정에 붙었으면 AUTH_40903
+                    토큰이 없거나 10분 지났거나 이미 썼으면 AUTH_40011, 카카오에 인증된 이메일이 없으면 AUTH_40012,
+                    같은 이메일 계정이 있으면 AUTH_40902, 이 카카오가 이미 다른 계정에 붙었으면 AUTH_40903.
+                    가입에 성공할 때만 토큰을 쓴다 — 400·409로 막히면 같은 토큰으로 이메일 로그인 뒤 /api/me/kakao 연결 가능
                     """)
     @PostMapping("/kakao/signup")
     public ResponseEntity<BaseResponse<Void>> kakaoSignup(@Valid @RequestBody KakaoSignupRequest request) {

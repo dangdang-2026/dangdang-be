@@ -25,6 +25,13 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -95,6 +102,28 @@ class KakaoLoginFlowTest {
         return mvc.perform(post("/api/me/kakao").cookie(who).contentType(MediaType.APPLICATION_JSON).content(json));
     }
 
+    // 리뷰: 여러 요청을 한꺼번에 출발시키고(CountDownLatch) 「상태 에러코드」만 모은다 (성공은 상태만) — 순서는 안 본다
+    private List<String> together(List<Callable<ResultActions>> calls) throws Exception {
+        ExecutorService pool = Executors.newFixedThreadPool(calls.size());
+        CountDownLatch start = new CountDownLatch(1);
+        List<Future<String>> futures = new ArrayList<>();
+        for (Callable<ResultActions> call : calls) {
+            futures.add(pool.submit(() -> {
+                start.await();
+                var res = call.call().andReturn().getResponse();
+                return res.getStatus() < 300 ? String.valueOf(res.getStatus())
+                        : res.getStatus() + " " + JsonPath.read(res.getContentAsString(), "$.errorCode");
+            }));
+        }
+        start.countDown();
+        List<String> statuses = new ArrayList<>();
+        for (Future<String> f : futures) {
+            statuses.add(f.get());
+        }
+        pool.shutdown();
+        return statuses;
+    }
+
     @Test
     void 두_번째부터는_같은_회원으로_로그인만() throws Exception {
         signupWith("minji");
@@ -113,6 +142,45 @@ class KakaoLoginFlowTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errorCode").value("AUTH_40012"));
         assertThat(userRepository.count()).isZero();
+    }
+
+    @Test   // 리뷰: 가입이 400으로 막혀도 토큰은 남는다 → K-08 「이메일로 로그인 → 연결」이 AUTH_40011로 막히지 않게
+    void 이메일이_없어_가입이_막혀도_같은_토큰으로_이메일_계정에_연결된다() throws Exception {
+        userRepository.save(User.ofEmail("hana@x.com", "하나", passwordEncoder.encode("abcd1234"), Instant.now()));
+        String token = tokenOf(kakao("no-email", REDIRECT));
+        signup(token).andExpect(status().isBadRequest()).andExpect(jsonPath("$.errorCode").value("AUTH_40012"));
+
+        link(emailLogin("hana@x.com"), "{\"kakaoToken\":\"" + token + "\"}").andExpect(status().isOk());
+        kakao("no-email", REDIRECT).andExpect(jsonPath("$.data.result").value("LOGGED_IN"));
+        assertThat(userRepository.count()).isEqualTo(1);
+    }
+
+    @Test
+    void 같은_이메일_계정이_있어_가입이_409여도_같은_토큰으로_연결된다() throws Exception {
+        userRepository.save(User.ofEmail("jisu@x.com", "지수", passwordEncoder.encode("abcd1234"), Instant.now()));
+        String token = tokenOf(kakao("jisu", REDIRECT));
+        signup(token).andExpect(status().isConflict()).andExpect(jsonPath("$.errorCode").value("AUTH_40902"));
+
+        link(emailLogin("jisu@x.com"), "{\"kakaoToken\":\"" + token + "\"}").andExpect(status().isOk());
+        signup(token).andExpect(status().isBadRequest()).andExpect(jsonPath("$.errorCode").value("AUTH_40011"));   // 연결에 썼으니 끝
+    }
+
+    @Test   // 리뷰: 저장 때 이메일 UNIQUE(ux_users_email)에 걸리면 카카오 중복(40903)이 아니라 이메일 계정 있음(40902)
+    void 가입_저장이_이메일_UNIQUE에_걸리면_409_AUTH_40902() throws Exception {
+        // 대소문자만 다른 예전 데이터 → existsByEmail(정확히 같은 글자)은 지나가고 lower(email) 인덱스에서 막힌다 (동시 가입과 같은 길)
+        jdbc.update("INSERT INTO users (email, display_name, auth_provider, password_hash) VALUES ('Minji@X.com', '민지', 'EMAIL', 'x')");
+        String token = tokenOf(kakao("minji", REDIRECT).andExpect(jsonPath("$.data.result").value("NEEDS_SIGNUP")));
+        signup(token).andExpect(status().isConflict()).andExpect(jsonPath("$.errorCode").value("AUTH_40902"));
+        assertThat(userRepository.count()).isEqualTo(1);
+    }
+
+    @Test   // 리뷰: 같은 토큰으로 가입을 동시에 눌러도 계정은 하나 — 하나는 201, 나머지는 AUTH_40011
+    void 같은_토큰으로_동시에_가입해도_한_번만() throws Exception {
+        String token = tokenOf(kakao("minji", REDIRECT));
+        List<String> statuses = together(List.of(() -> signup(token), () -> signup(token)));
+
+        assertThat(statuses).containsExactlyInAnyOrder("201", "400 AUTH_40011");
+        assertThat(userRepository.count()).isEqualTo(1);
     }
 
     @Test
@@ -199,6 +267,20 @@ class KakaoLoginFlowTest {
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.errorCode").value("AUTH_40903"));
     }
 
+    @Test   // 리뷰: 두 이메일 계정이 같은 카카오를 동시에 연결 → 하나만 200, 나머지는 AUTH_40903 (UNIQUE + flush)
+    void 두_계정이_같은_카카오를_동시에_연결하면_하나만() throws Exception {
+        userRepository.save(User.ofEmail("hana@x.com", "하나", passwordEncoder.encode("abcd1234"), Instant.now()));
+        userRepository.save(User.ofEmail("dul@x.com", "둘", passwordEncoder.encode("abcd1234"), Instant.now()));
+        Cookie hana = emailLogin("hana@x.com");
+        Cookie dul = emailLogin("dul@x.com");
+        String byCode = "{\"code\":\"minji\",\"redirectUri\":\"" + REDIRECT + "\"}";
+
+        List<String> statuses = together(List.of(() -> link(hana, byCode), () -> link(dul, byCode)));
+
+        assertThat(statuses).containsExactlyInAnyOrder("200", "409 AUTH_40903");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM users WHERE provider_subject = '1001'", Long.class)).isEqualTo(1);
+    }
+
     @Test
     void 토큰과_코드를_같이_보내면_400() throws Exception {
         userRepository.save(User.ofEmail("hana@x.com", "하나", passwordEncoder.encode("abcd1234"), Instant.now()));
@@ -228,6 +310,17 @@ class KakaoLoginFlowTest {
         userRepository.save(User.ofEmail("minji@x.com", "민지", passwordEncoder.encode("abcd1234"), Instant.now()));
         User old = userRepository.save(User.ofKakao("1001", "민지", null));
         kakao("minji", REDIRECT).andExpect(jsonPath("$.data.result").value("LOGGED_IN"));
+        assertThat(userRepository.findById(old.getId()).orElseThrow().getEmail()).isNull();
+    }
+
+    @Test   // 리뷰: 대소문자만 다른 이메일 계정(정규화 전 데이터)이면 예전엔 existsByEmail을 지나 커밋 때 ux_users_email → 500
+    void 대소문자만_다른_이메일_계정이_있어도_채우지_않고_로그인은_200() throws Exception {
+        jdbc.update("INSERT INTO users (email, display_name, auth_provider, password_hash) VALUES ('Minji@X.com', '민지', 'EMAIL', 'x')");
+        User old = userRepository.save(User.ofKakao("1001", "민지", null));
+        kakao("minji", REDIRECT)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.result").value("LOGGED_IN"))
+                .andExpect(cookie().exists("ACCESS_TOKEN"));
         assertThat(userRepository.findById(old.getId()).orElseThrow().getEmail()).isNull();
     }
 

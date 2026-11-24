@@ -83,14 +83,6 @@ public class User extends BaseTimeEntity {
         this.kakaoLinkedAt = now;
     }
 
-    // 이메일 필수 전(11/24)에 카카오로 가입해 이메일이 빈 계정 → 카카오가 인증한 이메일로 채운다
-    // 이메일 계정(카카오를 연결한 계정 포함)은 자기 이메일이 있으니 건드리지 않는다
-    public void fillKakaoEmail(String verifiedEmail) {
-        if (this.authProvider == AuthProvider.KAKAO && this.email == null) {
-            this.email = normalize(verifiedEmail);
-        }
-    }
-
     public boolean hasPassword() {
         return passwordHash != null;
     }

@@ -11,7 +11,7 @@ import java.util.Base64;
 import java.util.Optional;
 
 // 카카오로 확인은 됐지만 아직 계정을 안 만든 사람 (K-07 · K-08). Redis kakao:pending:{토큰}, 10분, 한 번만
-// 토큰을 가진 사람 = 방금 카카오 동의를 마친 사람. 가입(signup)이나 연결(link) 중 한 번 쓰면 지운다
+// 토큰을 가진 사람 = 방금 카카오 동의를 마친 사람. 가입(signup)이나 연결(link)에 성공할 때 한 번 쓰면 지운다
 @Component
 @RequiredArgsConstructor
 public class KakaoPendingStore {
@@ -32,9 +32,17 @@ public class KakaoPendingStore {
         return token;
     }
 
-    // 꺼내면서 지운다 (Redis GETDEL) → 두 번 눌러도 한 번만 쓰인다
+    // 보기만 한다 (지우지 않음) — 검사에서 막혀도 토큰이 남아 K-08 「이메일로 로그인 → 연결」을 이어서 할 수 있게
+    public Optional<KakaoUser> peek(String token) {
+        return parse(redis.opsForValue().get(PREFIX + token));
+    }
+
+    // 꺼내면서 지운다 (Redis GETDEL) → 두 번 눌러도 한 번만 쓰인다. 검사를 다 통과하고 저장하기 직전에만 부른다
     public Optional<KakaoUser> take(String token) {
-        String value = redis.opsForValue().getAndDelete(PREFIX + token);
+        return parse(redis.opsForValue().getAndDelete(PREFIX + token));
+    }
+
+    private static Optional<KakaoUser> parse(String value) {
         if (value == null) {
             return Optional.empty();
         }
