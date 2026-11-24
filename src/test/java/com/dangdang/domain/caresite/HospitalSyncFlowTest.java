@@ -128,4 +128,22 @@ class HospitalSyncFlowTest {
         assertThat(calls).containsExactly(1, 2, 2, 2);   // 2쪽은 3번까지 다시 해 봄
         assertThat(jdbc.queryForObject("SELECT count(*) FROM hospitals", Long.class)).isEqualTo(3);   // GONE + 2
     }
+    @Test
+    void 요양병원_정신병원_치과_한방은_저장하지_않고_예전에_있던_줄도_지운다() {
+        oldHospital("NURSING-OLD");
+        pages.put(1, new HospitalSearchResult(List.of(
+                new Hospital("A", "당당산부인과의원", "의원", "서울", null),
+                new Hospital("B", "당당종합병원", "종합병원", "서울", null),
+                new Hospital("C", "당당요양병원", "요양병원", "서울", null),
+                new Hospital("D", "당당정신병원", "정신병원", "서울", null),
+                new Hospital("E", "당당치과의원", "치과의원", "서울", null),
+                new Hospital("F", "당당한의원", "한의원", "서울", null)), 6));
+
+        HospitalSyncService.Result result = hospitalSyncService.syncAll();
+
+        assertThat(result.saved()).isEqualTo(2);
+        assertThat(result.removed()).isEqualTo(1);   // 다 받았으니(6/6) 옛 줄은 지움
+        assertThat(jdbc.queryForList("SELECT hira_code FROM hospitals ORDER BY hira_code", String.class))
+                .containsExactly("A", "B");
+    }
 }

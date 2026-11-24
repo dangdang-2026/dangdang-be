@@ -10,12 +10,15 @@ import org.springframework.stereotype.Service;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 // 심평원 병원 전체 목록 -> hospitals 표
 // - 1,000줄씩 받아서 쪽마다 바로 저장 (중간에 멈춰도 받은 데까지는 남음)
 // - 한 쪽이 실패하면 3번까지 다시 해 봄 (심평원이 504를 자주 줌)
-// - 끝까지 받았을 때만, 이번에 안 나온 병원(문 닫은 곳)을 지움
+// - 임신성 당뇨를 볼 수 있는 종류(종합·병원·의원·보건소)만 저장. 요양병원·정신병원·치과·한방은 버림
+// - 끝까지 받았을 때만, 이번에 안 나온 병원(문 닫은 곳·버리는 종류)을 지움
 // 전국 79,867곳(11/22) = 80쪽, 한 쪽 55초쯤 -> 한 바퀴 1시간 남짓. 하루 호출 한도(10,000) 안
 @Slf4j
 @Service
@@ -26,6 +29,9 @@ public class HospitalSyncService {
     private static final int MAX_PAGES = 300;          // 30만 줄. 혹시 끝이 안 나도 여기서 멈춤
     private static final int TRIES = 3;
     private static final double PRUNE_RATIO = 0.95;    // 95% 넘게 받았을 때만 옛 줄을 지움
+
+    // 저장하는 병원 종류 (심평원 clCdNm). 산모가 「다니는 병원」으로 등록할 만한 곳만
+    static final Set<String> KEPT_CATEGORIES = Set.of("상급종합", "종합병원", "병원", "의원", "보건소", "보건의료원");
 
     private final HospitalListClient client;
     private final HospitalRepository repository;
@@ -90,7 +96,10 @@ public class HospitalSyncService {
                 break;
             }
             received += result.hospitals().size();
-            saved += repository.upsert(result.hospitals(), startedAt);
+            List<HospitalSearchResult.Hospital> kept = result.hospitals().stream()
+                    .filter(h -> KEPT_CATEGORIES.contains(h.category()))
+                    .toList();
+            saved += repository.upsert(kept, startedAt);
             if (page % 10 == 0) {
                 log.info("[HospitalSync] {}쪽까지 {}/{}줄", page, received, total);
             }
@@ -99,12 +108,12 @@ public class HospitalSyncService {
             }
         }
         int removed = 0;
-        if (total > 0 && saved >= total * PRUNE_RATIO) {
+        if (total > 0 && received >= total * PRUNE_RATIO) {   // 버리는 종류가 있어서 저장 수가 아니라 받은 수로 봄
             removed = repository.deleteSyncedBefore(startedAt);
         } else {
-            log.warn("[HospitalSync] 받은 줄({})이 전체({})의 95%가 안 돼서 옛 병원은 안 지움", saved, total);
+            log.warn("[HospitalSync] 받은 줄({})이 전체({})의 95%가 안 돼서 옛 병원은 안 지움", received, total);
         }
-        log.info("[HospitalSync] 끝 전체={} 저장={} 지움={}", total, saved, removed);
+        log.info("[HospitalSync] 끝 전체={} 받음={} 저장={} 지움={}", total, received, saved, removed);
         return new Result(total, saved, removed, true);
     }
 
