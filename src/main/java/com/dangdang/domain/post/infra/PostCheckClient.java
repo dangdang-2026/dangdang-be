@@ -10,5 +10,5 @@ public interface PostCheckClient {
 
     record Result(List<Issue> issues, boolean llmChecked) {}
 
-    record Issue(String kind, String quote) {}   // kind: DOSE · URGENT_MEDICAL · MIND · LOW_GLUCOSE
+    record Issue(String kind, String quote) {}   // kind: DOSE · URGENT_MEDICAL · MIND
 }

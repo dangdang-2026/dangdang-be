@@ -28,7 +28,7 @@ public class PostPrecheckController {
                     **Parameters** title(선택, 100자), content(필수, 5000자)
                     **Returns** issues[{kind, quote}], checked. kind: DOSE(약·용량 → U-15) · URGENT_MEDICAL(위급 → U-30) · MIND(마음 위기 → U-30)
                     issues가 비어 있으면 바로 POST /api/posts. AI 서버가 실패하면 issues=[], checked=false (글쓰기는 막지 않음)
-                    커뮤니티 AI 확인 동의(COMMUNITY_AI_CHECK)가 없으면 GPT 없이 규칙만 (llmChecked=false)
+                    커뮤니티 AI 확인 동의(COMMUNITY_AI_CHECK)가 없으면 GPT 없이 규칙만으로 검사 (응답 모양은 같음)
                     """)
     @PostMapping
     public ResponseEntity<BaseResponse<PostPrecheckResponse>> precheck(
