@@ -26,19 +26,26 @@ public class EmailVerificationStore {
 
     private final StringRedisTemplate redis;
 
-    // 오늘 보낸 횟수를 1 올리고, 올린 뒤 값을 돌려준다
-    public long increaseSendCount(String email) {
-        String key = sendKey(email);
-        Long count = redis.opsForValue().increment(key);
+    // 오늘 보낸 횟수 키. 올릴 때 받은 키를 그대로 돌려줄 때도 쓴다 (자정을 넘겨도 같은 날 키로 되돌리게)
+    public String todaySendKey(String email) {
+        return SENDS + email + ":" + LocalDate.now(ZoneId.of("Asia/Seoul"));
+    }
+
+    // 그 키의 보낸 횟수를 1 올리고, 올린 뒤 값을 돌려준다
+    public long increaseSendCount(String sendKey) {
+        Long count = redis.opsForValue().increment(sendKey);
         if (count != null && count == 1) {
-            redis.expire(key, Duration.ofDays(1));
+            redis.expire(sendKey, Duration.ofDays(1));
         }
         return count == null ? 0 : count;
     }
 
-    // 메일을 못 보냈으면 오늘 횟수를 하나 돌려준다 (V-12 — 사용자 잘못이 아님)
-    public void giveBackSend(String email) {
-        redis.opsForValue().decrement(sendKey(email));
+    // 메일을 못 보냈으면 그 키의 횟수를 하나 돌려준다 (V-12 — 사용자 잘못이 아님). 0 밑으로는 안 내려감
+    public void giveBackSend(String sendKey) {
+        Long count = redis.opsForValue().decrement(sendKey);
+        if (count != null && count < 0) {
+            redis.delete(sendKey);   // 그 사이 키가 만료됐으면 -1로 만료 없이 남지 않게
+        }
     }
 
     // 다시 받기 대기를 시작한다. 이미 대기 중이면 남은 초, 새로 시작했으면 0
@@ -64,14 +71,17 @@ public class EmailVerificationStore {
         return redis.opsForValue().get(CODE + email);
     }
 
-    // 틀린 횟수 +1. 5번이 되면 번호를 지워서 다시 받게 한다
-    public long increaseTries(String email) {
+    // 이번 확인을 비교하기 전에 먼저 센다 (+1 뒤 값). 동시에 많이 와도 비교는 5번까지만 (리뷰: 세고 나서 비교)
+    // 맞히면 markVerified가 지운다
+    public long countTry(String email) {
         Long tries = redis.opsForValue().increment(TRIES + email);
         redis.expire(TRIES + email, CODE_TTL);
-        if (tries != null && tries >= MAX_TRIES) {
-            redis.delete(CODE + email);
-        }
         return tries == null ? 0 : tries;
+    }
+
+    // 5번 틀리면 번호를 지워서 다시 받게 한다. 틀린 횟수는 남겨 둬서 V-07(5번 틀림)과 V-06(시간 지남)을 구분
+    public void dropCode(String email) {
+        redis.delete(CODE + email);
     }
 
     // 지금까지 틀린 횟수 (없으면 0). 5번 틀려 번호가 지워진 뒤에도 10분 동안 남아 있다 → V-07 구분용
@@ -92,9 +102,5 @@ public class EmailVerificationStore {
 
     public void clearVerified(String email) {
         redis.delete(VERIFIED + email);
-    }
-
-    private static String sendKey(String email) {
-        return SENDS + email + ":" + LocalDate.now(ZoneId.of("Asia/Seoul"));
     }
 }

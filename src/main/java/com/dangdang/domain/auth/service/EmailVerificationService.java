@@ -34,19 +34,21 @@ public class EmailVerificationService {
             throw new CustomException(AuthErrorCode.RESEND_TOO_SOON, AuthErrorCode.RESEND_TOO_SOON.getMessage(),
                     AuthRetryInfo.waitSeconds(wait));                         // V-08
         }
-        long sentToday = store.increaseSendCount(email);
+        String sendKey = store.todaySendKey(email);
+        long sentToday = store.increaseSendCount(sendKey);
         if (sentToday > EmailVerificationStore.MAX_SENDS_PER_DAY) {
+            store.clearResendWait(email);   // 오늘은 끝 → 「0:50 후 다시 받기」 타이머가 뜨지 않게
             throw new CustomException(AuthErrorCode.EMAIL_SEND_LIMIT);   // V-11
         }
         String code = String.format("%06d", RANDOM.nextInt(1_000_000)); // 앞자리 0 유지
-        store.saveCode(email, code);
         try {
             emailSender.sendVerificationCode(email, code);
         } catch (CustomException e) {   // MAIL_SEND_FAILED → V-12
-            store.clearResendWait(email);   // 바로 다시 누를 수 있게
-            store.giveBackSend(email);      // 못 보낸 건 오늘 횟수에서 뺌
+            store.clearResendWait(email);     // 바로 다시 누를 수 있게
+            store.giveBackSend(sendKey);      // 못 보낸 건 오늘 횟수에서 뺌 (올린 날짜 키 그대로)
             throw e;
         }
+        store.saveCode(email, code);   // 보낸 뒤에 저장 → 못 보냈으면 전에 받은 번호가 그대로 살아 있음
         log.info("[Auth] 인증번호 발송 - 이메일: {}", email);
         return EmailCodeSendResponse.of(sentToday);
     }
@@ -63,9 +65,15 @@ public class EmailVerificationService {
             }
             throw new CustomException(AuthErrorCode.EMAIL_CODE_EXPIRED);              // V-06
         }
+        long attempt = store.countTry(email);   // 비교하기 전에 먼저 센다
+        if (attempt > EmailVerificationStore.MAX_TRIES) {   // 동시에 몰려 5번을 넘긴 나머지 요청
+            store.dropCode(email);
+            throw new CustomException(AuthErrorCode.EMAIL_CODE_TOO_MANY_TRIES);
+        }
         if (!saved.equals(code)) {
-            int left = (int) (EmailVerificationStore.MAX_TRIES - store.increaseTries(email));
+            int left = (int) (EmailVerificationStore.MAX_TRIES - attempt);
             if (left <= 0) {
+                store.dropCode(email);
                 throw new CustomException(AuthErrorCode.EMAIL_CODE_TOO_MANY_TRIES);   // 5번째 → V-07
             }
             throw new CustomException(

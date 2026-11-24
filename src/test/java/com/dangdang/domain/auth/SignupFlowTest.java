@@ -5,6 +5,7 @@ import com.dangdang.domain.auth.dto.response.AuthRetryInfo;
 import com.dangdang.domain.auth.dto.response.EmailCodeSendResponse;
 import com.dangdang.domain.auth.exception.AuthErrorCode;
 import com.dangdang.domain.auth.infra.EmailSender;
+import com.dangdang.domain.auth.infra.EmailVerificationStore;
 import com.dangdang.domain.auth.service.EmailVerificationService;
 import com.dangdang.domain.auth.service.SignupService;
 import com.dangdang.domain.user.repository.UserRepository;
@@ -22,6 +23,12 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.HashMap;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -32,6 +39,7 @@ class SignupFlowTest {
 
     // 메일 대신 인증번호를 붙잡아 두는 테스트용 발송기
     static final Map<String, String> SENT = new HashMap<>();
+    static final Set<String> FAIL_ONCE = ConcurrentHashMap.newKeySet();   // 한 번만 메일 실패 흉내
 
     @TestConfiguration
     static class FakeMail {
@@ -42,7 +50,7 @@ class SignupFlowTest {
             return new EmailSender() {
                 @Override
                 public void sendVerificationCode(String email, String code) {
-                    if (email.startsWith("fail@")) {
+                    if (email.startsWith("fail@") || FAIL_ONCE.remove(email)) {
                         throw new CustomException(AuthErrorCode.MAIL_SEND_FAILED);   // V-12 흉내
                     }
                     SENT.put(email, code);
@@ -59,12 +67,14 @@ class SignupFlowTest {
     @Autowired UserRepository userRepository;
     @Autowired StringRedisTemplate redis;
     @Autowired JdbcTemplate jdbc;
+    @Autowired EmailVerificationStore store;
 
     @AfterEach
     void clean() { // Redis 는 @Transactional 로 되돌릴 수 없어서 직접 지운다
         jdbc.update("DELETE FROM users");
         redis.getConnectionFactory().getConnection().serverCommands().flushDb();
         SENT.clear();
+        FAIL_ONCE.clear();
     }
 
     private AuthErrorCode codeOf(Throwable e) {
@@ -173,5 +183,65 @@ class SignupFlowTest {
         assertThat(redis.opsForValue().get("email:sends:fail@x.com:" + LocalDate.now(ZoneId.of("Asia/Seoul"))))
                 .isEqualTo("0");
         assertThat(redis.hasKey("email:wait:fail@x.com")).isFalse();   // 합치며 추가: 60초 대기도 풀림 (73)
+    }
+
+    @Test   // 리뷰: 오늘 횟수를 다 쓴 뒤엔 60초 타이머(42904)가 아니라 계속 「오늘 다 씀」(42901)
+    void 오늘_횟수를_다_쓰면_바로_다시_눌러도_오늘_다_씀() {
+        for (int i = 0; i < 5; i++) {
+            verificationService.sendCode("a@x.com");
+            redis.delete("email:wait:a@x.com");
+        }
+        assertThatThrownBy(() -> verificationService.sendCode("a@x.com"))
+                .satisfies(e -> assertThat(codeOf(e)).isEqualTo(AuthErrorCode.EMAIL_SEND_LIMIT));
+        assertThatThrownBy(() -> verificationService.sendCode("a@x.com"))
+                .satisfies(e -> assertThat(codeOf(e)).isEqualTo(AuthErrorCode.EMAIL_SEND_LIMIT));
+    }
+
+    @Test   // 리뷰: 다시 받기 메일이 실패하면 전에 받은 번호가 그대로 살아 있어야 함
+    void 다시_받기_메일이_실패해도_전에_받은_번호로_인증된다() {
+        verificationService.sendCode("a@x.com");
+        String first = SENT.get("a@x.com");
+        redis.delete("email:wait:a@x.com");
+        FAIL_ONCE.add("a@x.com");
+        assertThatThrownBy(() -> verificationService.sendCode("a@x.com"))
+                .satisfies(e -> assertThat(codeOf(e)).isEqualTo(AuthErrorCode.MAIL_SEND_FAILED));
+
+        verificationService.verify("a@x.com", first);   // 예외 없음
+        assertThat(redis.hasKey("email:verified:a@x.com")).isTrue();
+    }
+
+    @Test   // 리뷰: 돌려줄 키가 이미 없으면(만료·자정) -1로 남지 않음
+    void 돌려줄_횟수_키가_없으면_음수로_남지_않는다() {
+        store.giveBackSend("email:sends:none@x.com:2026-01-01");
+        assertThat(redis.hasKey("email:sends:none@x.com:2026-01-01")).isFalse();
+    }
+
+    @Test   // 리뷰: 확인 요청이 동시에 몰려도 비교는 5번까지만 → 틀린 번호 답은 4번까지
+    void 동시에_많이_확인해도_5번_넘게_맞혀_볼_수_없다() throws Exception {
+        verificationService.sendCode("a@x.com");
+        String code = SENT.get("a@x.com");
+        String wrong = code.equals("000000") ? "111111" : "000000";
+
+        ExecutorService pool = Executors.newFixedThreadPool(20);
+        List<Future<AuthErrorCode>> results = new java.util.ArrayList<>();
+        for (int i = 0; i < 20; i++) {
+            results.add(pool.submit(() -> {
+                try {
+                    verificationService.verify("a@x.com", wrong);
+                    return null;
+                } catch (CustomException e) {
+                    return codeOf(e);
+                }
+            }));
+        }
+        int mismatch = 0;
+        for (Future<AuthErrorCode> f : results) {
+            if (f.get() == AuthErrorCode.EMAIL_CODE_MISMATCH) mismatch++;
+        }
+        pool.shutdown();
+
+        assertThat(mismatch).isLessThanOrEqualTo(4);
+        assertThatThrownBy(() -> verificationService.verify("a@x.com", code))   // 맞는 번호여도 이제 다시 받아야 함
+                .satisfies(e -> assertThat(codeOf(e)).isEqualTo(AuthErrorCode.EMAIL_CODE_TOO_MANY_TRIES));
     }
 }
