@@ -105,7 +105,12 @@ class ConsentFlowTest {
         // 같은 규칙이라 항목 상태도 꺼진 것으로 보인다
         mvc.perform(get("/api/me/consents").cookie(access))
                 .andExpect(jsonPath("$.data.items[?(@.type=='SENSITIVE')].granted").value(false))
-                .andExpect(jsonPath("$.data.items[?(@.type=='SENSITIVE')].version").value("v0"));
+                .andExpect(jsonPath("$.data.items[?(@.type=='SENSITIVE')].version").value("v0"))
+                // 거절과 구분: 예전 버전 동의는 다시 물어야 함, 거절(MARKETING)·안 고름(AI_PHOTO)·지금 버전 동의는 아님
+                .andExpect(jsonPath("$.data.items[?(@.type=='SENSITIVE')].needsReconsent").value(true))
+                .andExpect(jsonPath("$.data.items[?(@.type=='MARKETING')].needsReconsent").value(false))
+                .andExpect(jsonPath("$.data.items[?(@.type=='AI_PHOTO')].needsReconsent").value(false))
+                .andExpect(jsonPath("$.data.items[?(@.type=='TERMS')].needsReconsent").value(false));
     }
 
     @Test
