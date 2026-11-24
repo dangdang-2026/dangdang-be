@@ -48,6 +48,21 @@ public interface ReminderRepository extends JpaRepository<Reminder, Long> {
     long countMissed(Long userId, Collection<MeasureSlot> slots, Collection<ReminderStatus> statuses,
                      Instant from, Instant to);
 
+    // countMissed와 같은 조건의 놓친 측정 알림을 개수 대신 줄로 (진료 리포트 빈칸 — 잴 때·날짜까지 알아야 해서). 모든 잴 때
+    // 알림 시각 순 → id 순
+    @Query("""
+            SELECT r.slot AS slot, r.scheduledAt AS scheduledAt FROM Reminder r
+            WHERE r.user.id = :userId
+              AND r.slot IS NOT NULL
+              AND r.status IN :statuses
+              AND r.scheduledAt >= :from
+              AND r.scheduledAt < :to
+              AND (r.mealId IS NULL
+                   OR EXISTS (SELECT 1 FROM Meal m WHERE m.id = r.mealId AND m.deletedAt IS NULL))
+            ORDER BY r.scheduledAt, r.id
+            """)
+    List<MissedReminder> findMissed(Long userId, Collection<ReminderStatus> statuses, Instant from, Instant to);
+
     // 공복과 자기 전 알림을 이 시각으로 이미 만들었는지 (30초마다 돌아도 하루 한 번만)
     boolean existsByUserIdAndSlotAndScheduledAt(Long userId, MeasureSlot slot, Instant scheduledAt);
 

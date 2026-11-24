@@ -1,5 +1,6 @@
 package com.dangdang.domain.reading.repository;
 
+import com.dangdang.domain.criteria.entity.CriteriaVersion;
 import com.dangdang.domain.reading.entity.Reading;
 import com.dangdang.domain.reading.enums.ReadingType;
 import org.springframework.data.domain.Limit;
@@ -138,4 +139,16 @@ public interface ReadingRepository extends JpaRepository<Reading, Long> {
               and r.measuredAt < :to
             """)
     int softDeleteInRange(Long userId, Instant from, Instant to, Instant now);
+
+    // 지난 날짜부터 적용하는 기준 (C-09): 이 기간에 잰 내 기록(지운 것 포함 — 되돌리면 새 기준으로 보이게)을 이 기준에 다시 붙임. 바뀐 줄 수
+    // row_version을 올림 — 그사이 같은 기록을 고치던 요청이 옛 버전으로 옛 기준을 다시 덮지 않고 409(READING_40903)가 되게
+    // updated_at·edited_at은 안 건드림 → 사용자가 고친 게 아니라 「수정됨」이 안 뜸
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update Reading r set r.criteriaVersion = :criteria, r.rowVersion = r.rowVersion + 1
+            where r.user.id = :userId
+              and r.measuredAt >= :from
+              and r.measuredAt < :to
+            """)
+    int relinkCriteria(Long userId, CriteriaVersion criteria, Instant from, Instant to);
 }
