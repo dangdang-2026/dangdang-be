@@ -31,7 +31,7 @@ public class VisitReportController {
                     """
                     **Parameters** careSiteId(선택, 그 병원 리포트만), page(기본 0, 0~10000), size(기본 20, 1~100)
                     **Returns** items[]{id, kind, from, to, visitId, careSiteId, careSiteName, visitDate,
-                    summary{measured, inTargetRate, outOfTarget, compared}, createdAt}·page·size·hasNext.
+                    summary{measured, inTargetRate, outOfTarget, compared}(카드 「목표 밖 n번 · 측정 n번」), createdAt}·page·size·hasNext.
                     최근 저장 순. summary는 조회할 때 다시 계산 (기준이 없던 기간이면 compared=false, inTargetRate=null).
                     진료용은 기간·병원을 지금 진료 일정으로 계산 (careSiteId 필터도 지금 일정의 병원 기준).
                     진료 날짜를 미정으로 바꾼 진료용은 from·to·visitDate·summary가 null.
@@ -62,9 +62,10 @@ public class VisitReportController {
                     kind·from·to·visitId·visitDate, careSite{careSiteId, name}(없거나 지운 병원이면 null), displayName,
                     pregnancyWeeks{from, to}(리포트 기간과 겹치는 임신의 예정일로 셈, 없으면 null, 그날이 임신 전·출산 뒤면 그 칸만 null),
                     criteria[](기간 안 날마다 적용된 기준 + 기록들이 실제로 판정에 쓴 기준, 오래된 순),
-                    summary{measured 측정, missed 빈칸(알림 뒤 안 잰 측정 · 건너뛴 끼니 포함), enteredLate 나중 입력, below70, outOfTarget, inTargetRate, compared},
-                    slots[]{slot, measured, outOfTarget}(하루 순서, 잴 때 없는 기록은 slot null로 맨 뒤),
-                    readings[]{readingId, measuredAt, readingType, slot, value, aboveTarget, enteredLate}(원값 표),
+                    summary{measured 측정, missed 빈칸(알림 뒤 30분 넘게 안 잰 측정 · 건너뛴 끼니 포함, 지운 식사의 알림은 뺌), enteredLate 나중 입력(잰 뒤 30분 넘어 적음), below70(70 미만, LO 포함), above200(200 이상, HI 포함), outOfTarget, inTargetRate, compared},
+                    slots[]{slot, measured, outOfTarget, missed 빈칸}(하루 순서, 기록이나 빈칸이 있는 잴 때만, 잴 때 없는 기록은 slot null·missed 0으로 맨 뒤),
+                    readings[]{readingId, measuredAt, readingType, slot, value, meterLimit(HI·LO로 적었으면 그 글자, value는 600·20 / 숫자면 null), aboveTarget, enteredLate, expectedAt(식후 혈당의 재야 할 시각, 모르면 null), timing(EARLY·ON_TIME·LATE ±15분, expectedAt이 null이면 null)}(원값 표, 잰 시각 순),
+                    missedCells[]{date, slot}(원값 표 「–」 = 빈칸, 한국 날짜, 알림 시각 순. summary.missed = slots[].missed 합 = 이 개수),
                     questionCount(물어볼 것 수). 목표 밖은 기록마다 그때 기준으로 셈.
                     없거나 삭제됐거나 남의 일정이면 VISIT_40401, 진료 날짜가 미정이면 VISIT_40003
                     """)
