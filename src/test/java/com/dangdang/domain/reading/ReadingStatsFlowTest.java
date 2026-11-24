@@ -233,16 +233,17 @@ class ReadingStatsFlowTest {
     }
 
     @Test
-    void 놓친_측정은_보냈는데_안_잰_알림만_센다() throws Exception {
+    void 놓친_측정은_보냈거나_건너뛰었는데_안_잰_알림만_센다() throws Exception {
         reminder(jisuId, "LUNCH_AFTER", daysAgo(2), 13, "SENT");     // 놓침
         reminder(jisuId, "DINNER_AFTER", daysAgo(2), 19, "OPENED");  // 열어만 봄 → 놓침
+        reminder(jisuId, "DINNER_AFTER", daysAgo(1), 19, "DISMISSED"); // 「이번 끼니는 건너뛸게요」 → 놓침 (H-05)
         reminder(jisuId, "BREAKFAST_AFTER", daysAgo(1), 9, "DONE");  // 잼 → 안 셈
         reminder(jisuId, "LUNCH_AFTER", daysAgo(1), 13, "SKIPPED");  // 안 보냄 → 안 셈
         reminder(jisuId, "FASTING", daysAgo(1), 7, "SENT");          // 공복 알림 → 식후 통계엔 안 셈
         reminder(jisuId, "LUNCH_AFTER", daysAgo(10), 13, "SENT");    // 지난주 → 이번 주엔 안 셈
 
         mvc.perform(get("/api/readings/stats").cookie(access).param("period", "1W"))
-                .andExpect(jsonPath("$.data.current.missed").value(2));
+                .andExpect(jsonPath("$.data.current.missed").value(3));
         mvc.perform(get("/api/readings/stats").cookie(access).param("slot", "FASTING").param("period", "1W"))
                 .andExpect(jsonPath("$.data.current.missed").value(1));
     }

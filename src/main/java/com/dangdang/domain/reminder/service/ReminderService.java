@@ -4,6 +4,7 @@ import com.dangdang.domain.criteria.dto.response.CriteriaVersionResponse;
 import com.dangdang.domain.criteria.enums.MeasureSlot;
 import com.dangdang.domain.criteria.service.CriteriaService;
 import com.dangdang.domain.meal.enums.MealSlot;
+import com.dangdang.domain.meal.repository.MealRepository;
 import com.dangdang.domain.notification.repository.NotificationRepository;
 import com.dangdang.domain.reminder.dto.response.ReminderOpenResponse;
 import com.dangdang.domain.reminder.dto.response.ReminderSnoozeResponse;
@@ -35,6 +36,7 @@ public class ReminderService {
     private final NotificationRepository notificationRepository;
     private final CriteriaService criteriaService;
     private final UserRepository userRepository;
+    private final MealRepository mealRepository;
     private final Clock clock;
     private final Optional<LocalDemoDelay> demoDelay;   //local 프로필에서만 값이 있다
 
@@ -65,7 +67,7 @@ public class ReminderService {
     }
 
     // 식사 시각·끼니가 바뀌었을 때: 아직 안 보낸 알림을 취소하고 새로 예약함
-    // 이미 보냈거나 열어 봤거나 혈당까지 저장한 알림이 있으면 건드리지 않음 (알림이 두 번 가는 걸 막으려고)
+    // 이미 보냈거나 열어 봤거나 건너뛰었거나 혈당까지 저장한 알림이 있으면 건드리지 않음 (알림이 두 번 가는 걸 막으려고)
     @Transactional
     public Reminder rescheduleAfterMeal(Long userId, Long mealId, MealSlot mealSlot, Instant startedAt) {
         List<Reminder> reminders = reminderRepository.findByMealId(mealId);
@@ -88,6 +90,12 @@ public class ReminderService {
                 .forEach(Reminder::cancel);   // 변경 감지로 트랜잭션 끝날 때 반영됨
     }
 
+    // H-05 이번 끼니 건너뛰기: 예약·보냄·열어 봄 → DISMISSED (재알림·보내기 대상에서 빠짐)
+    @Transactional
+    public void dismissForMeal(Long mealId) {
+        reminderRepository.dismissForMeal(mealId);
+    }
+
     // 이 식사의 식후 혈당을 저장했을 때: 아직 안 끝난 알림(예약됨·보냄·열어 봄)을 DONE으로 바꾸고 혈당 id를 붙임
     // 이미 쟀는데 "재세요" 알림이 가는 걸 막음. reading_id는 알림 하나에만 붙을 수 있어서(유니크) 첫 번째에만 붙이고 나머지는 취소함
     @Transactional
@@ -96,7 +104,8 @@ public class ReminderService {
             return;             // 이 혈당은 이미 다른 알림을 끝낸 적 있음 (수정으로 식사를 바꾼 경우 등)
         }
         List<Reminder> pending = reminderRepository.findByMealIdAndStatusInOrderByIdAsc(
-                mealId, List.of(ReminderStatus.SCHEDULED, ReminderStatus.SENT, ReminderStatus.OPENED));
+                mealId, List.of(ReminderStatus.SCHEDULED, ReminderStatus.SENT, ReminderStatus.OPENED,
+                        ReminderStatus.DISMISSED));   // 「이번 끼니는 건너뛸게요」 뒤 그래도 쟀으면 DONE으로 붙임 (H-05)
         for (int i = 0; i < pending.size(); i++) {
             if (i == 0) pending.get(i).complete(readingId);
             else pending.get(i).cancel();
@@ -134,7 +143,12 @@ public class ReminderService {
             if (matches(linked.get(), mealId, slot, measuredAt)) {
                 return;
             }
-            linked.get().release(clock.instant());
+            Reminder released = linked.get();
+            released.release(clock.instant());
+            // 건너뛴 식사의 알림이면 SENT·SCHEDULED로 돌리지 않고 DISMISSED로 (다시 울리지 않고 놓친 측정으로 셈, H-05)
+            if (released.getMealId() != null && mealRepository.existsByIdAndMeasureSkippedAtIsNotNull(released.getMealId())) {
+                released.dismiss();
+            }
             reminderRepository.flush();   // reading_id가 unique라, 새 알림에 붙이기 전에 푼 것을 먼저 DB에 씀
         }
         if (mealId != null) {
@@ -159,8 +173,8 @@ public class ReminderService {
         Reminder reminder = findMine(userId, reminderId);
         switch (reminder.getStatus()) {
             case SENT -> reminder.markOpened(clock.instant());
-            case OPENED, DONE -> {
-                // 이미 열었거나 끝난 알림은 그대로 200
+            case OPENED, DONE, DISMISSED -> {
+                // 이미 열었거나 끝났거나 이번 끼니를 건너뛴 알림은 그대로 200
             }
             default -> throw new CustomException(ReminderErrorCode.CANNOT_OPEN);
         }

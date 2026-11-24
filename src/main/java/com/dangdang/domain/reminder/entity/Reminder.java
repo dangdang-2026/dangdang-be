@@ -91,6 +91,11 @@ public class Reminder {
         }
     }
 
+    // 「이번 끼니는 건너뛸게요」 한 식사의 알림 — 연결을 푼 뒤에도 다시 울리거나 SENT로 돌아가지 않게 (H-05)
+    public void dismiss() {
+        this.status = ReminderStatus.DISMISSED;
+    }
+
     // 보냈다 — 예약 상태일 때만 바뀐다 (보내는 사이 사용자가 먼저 저장했으면 그 상태를 지킨다)
     public void markSent(Instant now) {
         if (this.status == ReminderStatus.SCHEDULED) {
