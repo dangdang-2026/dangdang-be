@@ -110,3 +110,4 @@ kakao:
     - https://dang-dang.vercel.app/auth/kakao/callback
 hira:
   service-key: ${HIRA_SERVICE_KEY:}             # 공공데이터포털 심평원 병원정보서비스 일반 인증키 (병원 검색용)
+  sync-enabled: ${HIRA_SYNC_ENABLED:false}      # 병원 목록 DB 적재(처음 한 번 + 매주 일 04:30). 서버만 true
