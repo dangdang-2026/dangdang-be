@@ -32,7 +32,7 @@ public interface ReminderRepository extends JpaRepository<Reminder, Long> {
     // 이 혈당들이 끝낸 알림 (오늘 화면에서 "알림 예정 시각 대비 언제 쟀는지" 계산용)
     List<Reminder> findByReadingIdIn(Collection<Long> readingIds);
 
-    // 기간 안 이 시점들 알림 중 이 상태인 것 (혈당 통계의 "놓친 측정" — 보냈거나 열었는데 혈당이 안 붙은 알림)
+    // 기간 안 이 시점들 알림 중 이 상태인 것 (혈당 통계의 "놓친 측정" — 보냈거나 열었거나 건너뛰었는데 혈당이 안 붙은 알림)
     long countByUserIdAndSlotInAndStatusInAndScheduledAtGreaterThanEqualAndScheduledAtLessThan(
             Long userId, Collection<MeasureSlot> slots, Collection<ReminderStatus> statuses, Instant from, Instant to);
 
@@ -116,4 +116,27 @@ public interface ReminderRepository extends JpaRepository<Reminder, Long> {
     @Query("UPDATE Reminder r SET r.claimedUntil = NULL WHERE r.id = :id")
     int release(Long id);
 
+    // H-05 이번 끼니 건너뛰기 — 이 식사의 아직 안 끝난 알림(예약·보냄·열어 봄)을 DISMISSED로
+    // 한 문장 UPDATE라 스케줄러가 같은 알림을 잡는 중이어도 상태는 둘 중 하나로만 정해진다
+    // (보내기·재알림은 SCHEDULED·SENT 조건으로 잡고, markSent는 SCHEDULED일 때만 바꾸니 DISMISSED를 덮지 않음)
+    // clearAutomatically를 안 붙인다 — 같은 트랜잭션에서 고친 Meal이 영속성 컨텍스트에서 떨어져 저장이 안 될 수 있어서
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            UPDATE Reminder r SET r.status = com.dangdang.domain.reminder.enums.ReminderStatus.DISMISSED
+            WHERE r.mealId = :mealId
+              AND r.status IN (com.dangdang.domain.reminder.enums.ReminderStatus.SCHEDULED,
+                               com.dangdang.domain.reminder.enums.ReminderStatus.SENT,
+                               com.dangdang.domain.reminder.enums.ReminderStatus.OPENED)
+            """)
+    int dismissForMeal(Long mealId);
+
+    // 기간 지우기로 지운 식사들의 아직 안 보낸 식후 알림을 한꺼번에 취소 (cancelForMeal의 여러 개 버전)
+    // 보내는 중이면 claimDue가 SCHEDULED 조건으로 잡으니, 여기서 CANCELED가 먼저 되면 안 보냄
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            UPDATE Reminder r SET r.status = com.dangdang.domain.reminder.enums.ReminderStatus.CANCELED
+            WHERE r.mealId IN :mealIds
+              AND r.status = com.dangdang.domain.reminder.enums.ReminderStatus.SCHEDULED
+            """)
+    int cancelScheduledForMeals(Collection<Long> mealIds);
 }
