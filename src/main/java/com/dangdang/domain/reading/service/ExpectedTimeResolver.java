@@ -71,9 +71,10 @@ public class ExpectedTimeResolver {
         return result;
     }
 
-    // 하나만 (혈당 저장·수정·상세 응답용)
-    public Instant expectedAtOf(Long userId, Reading reading) {
-        return expectedAtByReading(userId, List.of(reading), List.of()).get(reading.getId());
+    // 하나만 (혈당 저장·수정·상세 응답용). knownMeal = 부르는 쪽이 이미 읽어 둔 그 혈당의 식사 (없으면 null)
+    public Instant expectedAtOf(Long userId, Reading reading, Meal knownMeal) {
+        List<Meal> known = knownMeal == null ? List.of() : List.of(knownMeal);
+        return expectedAtByReading(userId, List.of(reading), known).get(reading.getId());
     }
 
     // 식후 혈당이 붙은 식사 중 살아 있는 것만 (지운 식사에 붙은 혈당은 재야 할 시각을 모르는 것으로 봄)

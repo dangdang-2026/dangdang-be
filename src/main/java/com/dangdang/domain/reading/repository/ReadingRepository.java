@@ -3,6 +3,7 @@ package com.dangdang.domain.reading.repository;
 import com.dangdang.domain.reading.entity.Reading;
 import com.dangdang.domain.reading.enums.ReadingType;
 import org.springframework.data.domain.Limit;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
@@ -70,6 +71,8 @@ public interface ReadingRepository extends JpaRepository<Reading, Long> {
 
     // 여러 식사에 연결된(meal_id) 내 혈당을 한 번에 (같은 음식 지난 기록용). 잰 시각 순
     // 시간이 가깝다고 붙이지 않고 meal_id로 연결된 것만 씀
+    // 병원 기준도 같이 가져옴 (응답의 목표 판정 칸 — 혈당마다 기준을 또 조회하지 않게)
+    @EntityGraph(attributePaths = "criteriaVersion")
     List<Reading> findAllByUserIdAndMealIdInAndDeletedAtIsNullOrderByMeasuredAtAscIdAsc(Long userId, Collection<Long> mealIds);
 
     // 기간 안 기록 개수·목표와 비교한 수·목표 밖 수 (from 이상 to 미만). 기록을 다 읽지 않고 DB에서 셈
