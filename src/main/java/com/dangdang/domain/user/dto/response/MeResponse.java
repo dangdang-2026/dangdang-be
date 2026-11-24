@@ -19,7 +19,7 @@ public record MeResponse(
         @Schema(description = "출산 예정일 (안 적었으면 null)", example = "2026-12-20") LocalDate dueDate,
         @Schema(description = "임신 상태 PREGNANT·HOSPITALIZED·PAUSED(다른 상황 · 주수 숨김)·POSTPARTUM (임신 정보가 없으면 null)", example = "PREGNANT")
         PregnancyState pregnancyState,
-        @Schema(description = "오늘 임신 주수 (예정일이 없으면 null)") PregnancyWeek pregnancyWeek,
+        @Schema(description = "오늘 임신 주수 (예정일이 없거나 다른 상황(PAUSED)이면 null)") PregnancyWeek pregnancyWeek,
         @Schema(description = "로그인 방식 (M-02 「로그인 방식」)") LoginMethods loginMethods) {
 
     // 이메일: 비밀번호가 있으면(이메일로 가입) · 카카오: 카카오로 가입했거나 연결했으면
@@ -47,12 +47,14 @@ public record MeResponse(
 
     public static MeResponse from(User user, boolean consentCompleted, Pregnancy pregnancy, LocalDate today) {
         LocalDate dueDate = pregnancy == null ? null : pregnancy.getDueDate();
+        // 다른 상황(PAUSED)이면 주수를 서버에서도 주지 않는다 — 상황을 짐작할 수 없게 (E-03b 「임신 주수 숨김」)
+        boolean paused = pregnancy != null && pregnancy.getState() == PregnancyState.PAUSED;
         return new MeResponse(
                 user.getId(), user.getEmail(), user.getDisplayName(), user.getAuthProvider(), consentCompleted,
                 String.valueOf(user.getRowVersion()),
                 dueDate,
                 pregnancy == null ? null : pregnancy.getState(),
-                PregnancyWeek.of(dueDate, today),
+                paused ? null : PregnancyWeek.of(dueDate, today),
                 new LoginMethods(user.hasPassword(), user.hasKakao()));
     }
 }
