@@ -9,6 +9,7 @@ import com.dangdang.domain.caresite.infra.HospitalSearchResult;
 import com.dangdang.domain.caresite.entity.CareSite;
 import com.dangdang.domain.caresite.exception.CareSiteErrorCode;
 import com.dangdang.domain.caresite.repository.CareSiteRepository;
+import com.dangdang.domain.caresite.repository.HospitalRepository;
 import com.dangdang.domain.user.entity.User;
 import com.dangdang.domain.user.exception.UserErrorCode;
 import com.dangdang.domain.user.repository.UserRepository;
@@ -29,6 +30,7 @@ public class CareSiteService {
     private final CareSiteRepository careSiteRepository;
     private final UserRepository userRepository;
     private final HospitalSearchClient hospitalSearchClient;
+    private final HospitalRepository hospitalRepository;
     private final Clock clock;
 
     private static final int MIN_KEYWORD = 2;        // 한 글자면 결과가 너무 많음
@@ -97,7 +99,8 @@ public class CareSiteService {
         findMine(userId, careSiteId).delete(clock.instant());   // 변경 감지로 트랜잭션 끝날 때 반영됨
     }
 
-    // 병원 검색 (심평원). DB는 안 건드림. page는 0부터, size는 1~50으로 맞춤
+    // 병원 검색. page는 0부터, size는 1~50으로 맞춤
+    // 끝까지 받은 병원 목록(hospitals)이 있으면 DB에서 찾고, 아직 없으면(첫 적재 전·도중·중간에 멈춤) 예전처럼 심평원에 물어봄
     public HospitalSearchResponse search(String keyword, int page, int size) {
         String trimmed = keyword == null ? "" : keyword.strip();
         if (trimmed.length() < MIN_KEYWORD || trimmed.length() > MAX_KEYWORD) {
@@ -105,7 +108,9 @@ public class CareSiteService {
         }
         int pageNo = Math.max(page, 0);
         int pageSize = Math.clamp(size, 1, MAX_SEARCH_SIZE);
-        HospitalSearchResult result = hospitalSearchClient.search(trimmed, pageNo + 1, pageSize);   // 심평원은 1부터
+        HospitalSearchResult result = hospitalRepository.hasCompletedSync()
+                ? hospitalRepository.search(HospitalRepository.toSearchName(trimmed), (long) pageNo * pageSize, pageSize)
+                : hospitalSearchClient.search(trimmed, pageNo + 1, pageSize);   // 심평원은 1부터
         return HospitalSearchResponse.of(result, pageNo, pageSize);
     }
 

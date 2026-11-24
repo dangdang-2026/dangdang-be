@@ -1,5 +1,6 @@
 package com.dangdang.domain.auth.service;
 
+import com.dangdang.domain.auth.dto.response.AuthRetryInfo;
 import com.dangdang.domain.auth.exception.AuthErrorCode;
 import com.dangdang.domain.auth.infra.EmailSender;
 import com.dangdang.domain.auth.infra.LoginAttemptStore;
@@ -37,7 +38,13 @@ public class PasswordResetService {
     @Transactional(readOnly = true)
     public void sendLink(String rawEmail) {
         String email = User.normalize(rawEmail);
+        long wait = resetStore.startResendWait(email);   // 없는 이메일도 똑같이 기다림 (R-04)
+        if (wait > 0) {
+            throw new CustomException(AuthErrorCode.RESEND_TOO_SOON, AuthErrorCode.RESEND_TOO_SOON.getMessage(),
+                    AuthRetryInfo.waitSeconds(wait));
+        }
         if (resetStore.increaseSendCount(email) > PasswordResetStore.MAX_SENDS_PER_DAY) {
+            resetStore.clearResendWait(email);   // 오늘은 끝 → 「다시 받기」 타이머가 뜨지 않게
             throw new CustomException(AuthErrorCode.RESET_SEND_LIMIT); // 없는 이메일도 똑같이 셈
         }
         User user = userRepository.findByEmail(email).orElse(null);
@@ -47,6 +54,7 @@ public class PasswordResetService {
         }
         String token = newToken();
         resetStore.save(user.getId(), token);
+        // 메일은 따로(@Async) 보내고 실패해도 응답은 같다 (계정이 있는지 드러나지 않게) → 실패해도 오늘 횟수는 셈
         emailSender.sendPasswordResetLink(email, frontProperties.baseUrl() + "/reset-password?token=" + token);
         log.info("[Auth] 재설정 링크 발송 - 사용자: {}", user.getId());
     }

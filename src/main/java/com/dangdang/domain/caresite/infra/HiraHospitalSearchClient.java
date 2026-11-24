@@ -17,48 +17,71 @@ import java.util.List;
 import java.util.Map;
 
 // 심평원 병원정보서비스 > 병원기본목록(getHospBasisList) 호출
+//   search    : 이름으로 찾기 (DB가 비어 있을 때만 씀)
+//   fetchPage : 전체 목록 한 쪽 (DB 적재용)
 @Slf4j
 @Component
-public class HiraHospitalSearchClient implements HospitalSearchClient {
+public class HiraHospitalSearchClient implements HospitalSearchClient, HospitalListClient {
 
     private static final String URL = "https://apis.data.go.kr/B551182/hospInfoServicev2/getHospBasisList";
 
     private final HiraProperties properties;
     private final ObjectMapper objectMapper;
-    private final RestClient restClient;
+    private final RestClient searchClient;   // 사용자가 기다리는 검색: 10초
+    private final RestClient bulkClient;     // 적재: 1,000줄 한 쪽에 55초쯤 걸림(11/22 실측) -> 2분
 
     public HiraHospitalSearchClient(HiraProperties properties, ObjectMapper objectMapper) {
         this.properties = properties;
         this.objectMapper = objectMapper;
+        this.searchClient = restClient(10_000);
+        this.bulkClient = restClient(120_000);
+    }
+
+    private static RestClient restClient(int readTimeoutMillis) {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(3_000);   // 연결 3초
-        factory.setReadTimeout(10_000);     // 응답 10초. 심평원이 느릴 때가 많지만 더 기다리게 하진 않고 직접 입력으로 안내함
-        this.restClient = RestClient.builder().requestFactory(factory).build();
+        factory.setConnectTimeout(3_000);              // 연결 3초
+        factory.setReadTimeout(readTimeoutMillis);
+        return RestClient.builder().requestFactory(factory).build();
     }
 
     @Override
     public HospitalSearchResult search(String keyword, int page, int size) {
+        // 값은 {변수}로 넣어야 키 속 +, /, = 와 한글이 제대로 인코딩됨
+        return call(searchClient,
+                URL + "?ServiceKey={key}&yadmNm={name}&pageNo={page}&numOfRows={size}&_type=json",
+                Map.of("key", key(), "name", keyword, "page", page, "size", size),
+                "병원 검색");
+    }
+
+    @Override
+    public HospitalSearchResult fetchPage(int page, int size) {
+        return call(bulkClient,
+                URL + "?ServiceKey={key}&pageNo={page}&numOfRows={size}&_type=json",
+                Map.of("key", key(), "page", page, "size", size),
+                "전체 목록 " + page + "쪽");
+    }
+
+    private String key() {
         if (!properties.hasServiceKey()) {
             log.error("[HIRA] HIRA_SERVICE_KEY가 비어 있음");
             throw new CustomException(CareSiteErrorCode.HOSPITAL_SEARCH_UNAVAILABLE);
         }
+        return properties.serviceKey();
+    }
+
+    private HospitalSearchResult call(RestClient client, String uri, Map<String, ?> vars, String what) {
         try {
-            // 값은 {변수}로 넣어야 키 속 +, /, = 와 한글이 제대로 인코딩됨
-            String body = restClient.get()
-                    .uri(URL + "?ServiceKey={key}&yadmNm={name}&pageNo={page}&numOfRows={size}&_type=json",
-                            Map.of("key", properties.serviceKey(), "name", keyword,
-                                    "page", page, "size", size))
-                    .retrieve()
-                    .body(String.class);
+            String body = client.get().uri(uri, vars).retrieve().body(String.class);
             return parse(body);
-        } catch (RestClientException | JacksonException e) {   // 키 오류(403)·시간 초과·이상한 응답 전부
-            log.error("[HIRA] 병원 검색 실패 - {}", e.getMessage());
+        } catch (RestClientException | JacksonException e) {   // 키 오류(403)·시간 초과(504)·이상한 응답 전부
+            log.error("[HIRA] {} 실패 - {}", what, e.getMessage());
             throw new CustomException(CareSiteErrorCode.HOSPITAL_SEARCH_UNAVAILABLE);
         }
     }
 
     // 응답 읽기. items 모양이 결과 수에 따라 다름
     //   0개 -> "items": ""   /   1개 -> "item": { }   /   여러 개 -> "item": [ ]
+    // 심평원이 바쁘면 200이 아니라 504 + {"OpenAPI_ServiceResponse": ...}가 옴 -> 위에서 RestClientException으로 잡힘
     private HospitalSearchResult parse(String body) {
         JsonNode response = objectMapper.readTree(body).path("response");
         String resultCode = response.path("header").path("resultCode").asString("");
