@@ -19,6 +19,7 @@ import com.dangdang.domain.user.exception.UserErrorCode;
 import com.dangdang.domain.user.repository.UserRepository;
 import com.dangdang.domain.user.service.SensitiveConsentGuard;
 import com.dangdang.global.common.KoreanTime;
+import com.dangdang.global.common.UndoWindow;
 import com.dangdang.global.exception.CustomException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Limit;
@@ -149,6 +150,27 @@ public class ReadingService {
         } catch (ObjectOptimisticLockingFailureException e) {
             throw new CustomException(ReadingErrorCode.VERSION_CONFLICT);
         }
+    }
+
+    // 되돌리기 (D-08). 지울 때 알림·식사 연결은 안 건드렸으니 deleted_at만 비우면 끝 (editedAt도 그대로 → 「수정됨」 아님)
+    // 조건부 UPDATE 한 번이라 동시에 두 번 눌러도 하나만 성공, 나머지는 409
+    @Transactional
+    public ReadingResponse restore(Long userId, Long readingId) {
+        sensitiveConsentGuard.require(userId);   // 되살리기도 건강 기록 저장이라 동의가 없으면 403
+        if (readingRepository.restore(readingId, userId, UndoWindow.since(clock.instant())) == 0) {
+            throw restoreFailure(userId, readingId);
+        }
+        Reading reading = findMine(userId, readingId);   // 벌크 UPDATE가 영속성 컨텍스트를 비워서 DB에서 새로 읽음
+        return ReadingResponse.of(reading, expectedTimeResolver.expectedAtOf(userId, reading, null));
+    }
+
+    // 왜 못 되돌렸는지: 없음·남의 것 404 / 안 지움 409 / 5분 지남 409
+    private CustomException restoreFailure(Long userId, Long readingId) {
+        return readingRepository.findByIdAndUserId(readingId, userId)
+                .map(r -> r.getDeletedAt() == null
+                        ? new CustomException(ReadingErrorCode.NOT_DELETED)
+                        : new CustomException(ReadingErrorCode.UNDO_EXPIRED))
+                .orElseGet(() -> new CustomException(ReadingErrorCode.READING_NOT_FOUND));
     }
 
     // 내 것 + 삭제 안 된 것만. 없음·삭제됨·남의 것은 전부 404 (상세·수정·삭제가 같이 씀)

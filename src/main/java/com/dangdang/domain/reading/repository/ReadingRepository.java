@@ -5,6 +5,7 @@ import com.dangdang.domain.reading.enums.ReadingType;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 
 import java.time.Instant;
@@ -106,4 +107,32 @@ public interface ReadingRepository extends JpaRepository<Reading, Long> {
               and r.deletedAt is null
             """)
     Instant findFirstMeasuredAt(Long userId);
+
+    // 하나 찾기 (지운 것 포함) — 되돌리기가 실패했을 때 이유(없음·안 지움·5분 지남)를 고르려고만 씀
+    Optional<Reading> findByIdAndUserId(Long id, Long userId);
+
+    // 되돌리기 (D-08): 내 것 + 지운 지 since 이후인 것만 deleted_at을 비운다. 바뀐 줄 수(0 또는 1)
+    // 조건을 UPDATE 안에 넣어서 두 번(동시에) 눌러도 하나만 1 (뒤 요청은 앞 요청이 끝날 때까지 줄 잠금을 기다렸다가 조건을 다시 봄)
+    // 하나 지우기(엔티티 변경)처럼 row_version도 올림
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update Reading r set r.deletedAt = null, r.rowVersion = r.rowVersion + 1
+            where r.id = :id
+              and r.user.id = :userId
+              and r.deletedAt is not null
+              and r.deletedAt >= :since
+            """)
+    int restore(Long id, Long userId, Instant since);
+
+    // 기간 지우기 (M-07): 기간 안 살아 있는 내 혈당을 한 번에 지운 것으로. 지운 줄 수
+    // row_version도 올린다 — 그사이 같은 기록을 고치던 요청이 옛 버전으로 deleted_at을 되살리지 않고 409(READING_40903)가 되게
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update Reading r set r.deletedAt = :now, r.rowVersion = r.rowVersion + 1
+            where r.user.id = :userId
+              and r.deletedAt is null
+              and r.measuredAt >= :from
+              and r.measuredAt < :to
+            """)
+    int softDeleteInRange(Long userId, Instant from, Instant to, Instant now);
 }
