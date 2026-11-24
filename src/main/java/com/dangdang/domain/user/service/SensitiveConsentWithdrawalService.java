@@ -1,5 +1,6 @@
 package com.dangdang.domain.user.service;
 
+import com.dangdang.domain.notification.enums.NotificationType;
 import com.dangdang.domain.user.dto.response.ConsentResponse;
 import com.dangdang.domain.user.entity.ConsentEvent;
 import com.dangdang.domain.user.entity.User;
@@ -18,9 +19,11 @@ import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 // 건강정보(민감정보) 동의 철회 (M-07b). 계정은 두고 건강정보만 지체 없이 파기한다 (처리방침 「철회하면 지체 없이 파기」)
 // 탈퇴는 users 한 줄을 지워 DB CASCADE에 맡기지만, 여기서는 계정을 남기므로 표마다 직접 지운다
@@ -38,10 +41,9 @@ public class SensitiveConsentWithdrawalService {
     // meal_items는 meals를, visit_questions·visit_notes는 visits를 지우면 DB가 같이 지운다 (ON DELETE CASCADE)
     // care_sites는 기준·식사 안내·진료·리포트가 가리키니 맨 끝
     private static final List<Step> STEPS = List.of(
-            // 알림함: 건강 알림 5종만. MARKETING(광고 동의 결과)·COMMUNITY_HIDDEN(가림 알림)처럼 건강이 아닌 종류는 남긴다
-            // 새 종류를 만들면 여기 넣을지 정한다
+            // 알림함: 건강 알림(NotificationType.health)만. 지금은 5종 모두 건강 알림이고, 건강이 아닌 종류가 생기면 남긴다
             new Step("notifications", "DELETE FROM notifications WHERE user_id = ?"
-                    + " AND type IN ('MEASURE', 'VISIT_BEFORE', 'VISIT_TODAY', 'VISIT_NOTE', 'POSTPARTUM')"),
+                    + " AND type IN (" + healthNotificationTypes() + ")"),
             new Step("reminders", "DELETE FROM reminders WHERE user_id = ?"),
             new Step("readings", "DELETE FROM readings WHERE user_id = ?"),
             new Step("meals", "DELETE FROM meals WHERE user_id = ?"),
@@ -53,6 +55,9 @@ public class SensitiveConsentWithdrawalService {
             new Step("pregnancies", "DELETE FROM pregnancies WHERE user_id = ?"),
             new Step("chat_messages", "DELETE FROM chat_messages WHERE user_id = ?"),
             new Step("care_sites", "DELETE FROM care_sites WHERE user_id = ?"));
+
+    // 철회하면 user_id 줄을 지우는 표 — 새 표가 빠지지 않았는지 테스트가 이 목록과 DB를 맞춰 본다
+    public static final List<String> ERASED_TABLES = STEPS.stream().map(Step::table).toList();
 
     private final UserRepository userRepository;
     private final ConsentEventRepository consentEventRepository;
@@ -80,19 +85,28 @@ public class SensitiveConsentWithdrawalService {
                 Timestamp.from(now), userId);
 
         // ④ 동의 이력: 덮어쓰지 않고 철회도 한 줄로 쌓는다. 이미 철회한 상태면 또 쌓지 않음 (두 번 눌러도 이력은 한 줄)
+        List<ConsentEvent> events = new ArrayList<>();
         if (wasGranted) {
-            List<ConsentEvent> events = new ArrayList<>();
             events.add(ConsentEvent.of(user, ConsentType.SENSITIVE, ConsentType.SENSITIVE.getVersion(), false, now));
-            // 「AI가 내 기록을 보고 답해요」는 건강정보 동의가 있어야 의미가 있어서 같이 끈다 (다시 동의할 때 따로 켬)
-            if (isLatestGranted(userId, ConsentType.AI_CHAT_RECORDS)) {
-                events.add(ConsentEvent.of(user, ConsentType.AI_CHAT_RECORDS,
-                        ConsentType.AI_CHAT_RECORDS.getVersion(), false, now));
-            }
-            consentEventRepository.saveAll(events);
         }
+        // 「AI가 내 기록을 보고 답해요」는 건강정보 동의가 있어야 의미가 있어서 같이 끈다 (다시 동의할 때 따로 켬)
+        // 건강정보를 이미 철회한 뒤 이것만 다시 켰어도 끈다 — 그래서 wasGranted와 상관없이 켜져 있으면
+        if (isLatestGranted(userId, ConsentType.AI_CHAT_RECORDS)) {
+            events.add(ConsentEvent.of(user, ConsentType.AI_CHAT_RECORDS,
+                    ConsentType.AI_CHAT_RECORDS.getVersion(), false, now));
+        }
+        consentEventRepository.saveAll(events);
         // 숫자만 남긴다 (내용은 로그에 안 남김)
         log.info("[동의 철회] 건강정보 파기 - 사용자: {}, 지운 줄: {}", userId, erased);
         return consentService.getStatus(userId);   // completed=false → 프론트가 바로 A-01로
+    }
+
+    // 'MEASURE', 'VISIT_BEFORE', ... — 정해진 enum 이름이라 SQL에 바로 넣어도 된다
+    private static String healthNotificationTypes() {
+        return Arrays.stream(NotificationType.values())
+                .filter(NotificationType::isHealth)
+                .map(type -> "'" + type.name() + "'")
+                .collect(Collectors.joining(", "));
     }
 
     private boolean isLatestGranted(Long userId, ConsentType type) {
