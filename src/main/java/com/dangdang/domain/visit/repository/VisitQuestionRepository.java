@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -46,4 +47,13 @@ public interface VisitQuestionRepository extends JpaRepository<VisitQuestion, Lo
               and q.deletedAt is null
             """)
     void deleteAllOfVisit(@Param("visitId") Long visitId, @Param("now") Instant now);
+
+    // 여러 일정의 살아 있는 질문을 한 번에 지움 (병원을 지울 때 다가오는 일정과 같이)
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            update VisitQuestion q set q.deletedAt = :now
+            where q.visit.id in :visitIds
+              and q.deletedAt is null
+            """)
+    void deleteAllOfVisits(@Param("visitIds") Collection<Long> visitIds, @Param("now") Instant now);
 }

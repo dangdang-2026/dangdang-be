@@ -12,6 +12,10 @@ public interface CareSiteRepository extends JpaRepository<CareSite, Long> {
     // 하나 찾기: 이 id + 내 것 + 삭제 안 된 것만 (아니면 Optional.empty)
     Optional<CareSite> findByIdAndUserIdAndDeletedAtIsNull(Long id, Long userId);
 
+    // 지운 병원도 포함해서 내 병원 하나 (식사 안내 「받은 곳」 이름 — C-20 「그대로 남아요」)
+    // 일부러 deleted_at을 거르지 않는다. 남의 병원은 userId 조건으로 막힌다
+    Optional<CareSite> findByIdAndUserId(Long id, Long userId);
+
     // 내 병원 전부: 대표 병원 먼저 → 정렬 순서 → 먼저 등록한 순
     List<CareSite> findAllByUserIdAndDeletedAtIsNullOrderByPrimaryDescSortOrderAscIdAsc(Long userId);
 

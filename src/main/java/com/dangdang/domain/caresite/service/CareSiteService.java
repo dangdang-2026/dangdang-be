@@ -14,15 +14,22 @@ import com.dangdang.domain.user.entity.User;
 import com.dangdang.domain.user.exception.UserErrorCode;
 import com.dangdang.domain.user.repository.UserRepository;
 import com.dangdang.domain.user.service.SensitiveConsentGuard;
+import com.dangdang.domain.visit.repository.VisitNoteRepository;
+import com.dangdang.domain.visit.repository.VisitQuestionRepository;
+import com.dangdang.domain.visit.repository.VisitRepository;
 import com.dangdang.global.exception.CustomException;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -34,6 +41,9 @@ public class CareSiteService {
     private final HospitalRepository hospitalRepository;
     private final Clock clock;
     private final SensitiveConsentGuard sensitiveConsentGuard;
+    private final VisitRepository visitRepository;
+    private final VisitQuestionRepository visitQuestionRepository;
+    private final VisitNoteRepository visitNoteRepository;
 
     private static final int MIN_KEYWORD = 2;        // 한 글자면 결과가 너무 많음
     private static final int MAX_KEYWORD = 50;       // 병원 이름 칸 길이와 같음
@@ -97,10 +107,20 @@ public class CareSiteService {
     }
 
     // 삭제 (soft delete). 이미 지운 병원을 또 지우면 findMine에서 404
-    // 이 병원을 가리키던 병원 기준(criteria_versions)은 그대로 둠 (지난 기록이 그때 병원을 가리켜야 해서)
+    // 이 병원을 가리키던 병원 기준(criteria_versions)·지난 일정·리포트·식사 안내는 그대로 둠 (지난 기록이 그때 병원을 가리켜야 해서)
+    // 아직 안 온 일정·날짜 미정 일정은 질문·메모까지 같이 지운다 (C-20 「함께 지워져요: 다음 진료일 · 진료 알림」)
+    // 진료 알림(VISIT_BEFORE·VISIT_TODAY)은 서버가 아직 만들지 않아서 따로 취소할 예약이 없다
     @Transactional
     public void delete(Long userId, Long careSiteId) {
-        findMine(userId, careSiteId).delete(clock.instant());   // 변경 감지로 트랜잭션 끝날 때 반영됨
+        Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);   // DB(TIMESTAMPTZ)와 같은 정밀도 (일정 삭제와 같게)
+        findMine(userId, careSiteId).delete(now);   // 아래 일괄 수정이 먼저 DB에 써 준다 (flushAutomatically)
+        List<Long> visitIds = visitRepository.findUpcomingIdsAtCareSite(userId, careSiteId, now);
+        if (!visitIds.isEmpty()) {
+            visitQuestionRepository.deleteAllOfVisits(visitIds, now);
+            visitNoteRepository.deleteAllOfVisits(visitIds, now);
+            visitRepository.deleteAllByIds(visitIds, now);
+        }
+        log.info("[CareSite] 병원 삭제 - 사용자: {}, 같이 지운 다가오는 일정: {}개", userId, visitIds.size());
     }
 
     // 병원 검색. page는 0부터, size는 1~50으로 맞춤
