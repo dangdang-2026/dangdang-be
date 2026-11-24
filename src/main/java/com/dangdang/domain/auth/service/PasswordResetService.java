@@ -1,5 +1,6 @@
 package com.dangdang.domain.auth.service;
 
+import com.dangdang.domain.auth.dto.response.AuthRetryInfo;
 import com.dangdang.domain.auth.exception.AuthErrorCode;
 import com.dangdang.domain.auth.infra.EmailSender;
 import com.dangdang.domain.auth.infra.LoginAttemptStore;
@@ -37,6 +38,11 @@ public class PasswordResetService {
     @Transactional(readOnly = true)
     public void sendLink(String rawEmail) {
         String email = User.normalize(rawEmail);
+        long wait = resetStore.startResendWait(email);   // 없는 이메일도 똑같이 기다림 (R-04)
+        if (wait > 0) {
+            throw new CustomException(AuthErrorCode.RESEND_TOO_SOON, AuthErrorCode.RESEND_TOO_SOON.getMessage(),
+                    AuthRetryInfo.waitSeconds(wait));
+        }
         if (resetStore.increaseSendCount(email) > PasswordResetStore.MAX_SENDS_PER_DAY) {
             throw new CustomException(AuthErrorCode.RESET_SEND_LIMIT); // 없는 이메일도 똑같이 셈
         }
@@ -47,7 +53,13 @@ public class PasswordResetService {
         }
         String token = newToken();
         resetStore.save(user.getId(), token);
-        emailSender.sendPasswordResetLink(email, frontProperties.baseUrl() + "/reset-password?token=" + token);
+        try {
+            emailSender.sendPasswordResetLink(email, frontProperties.baseUrl() + "/reset-password?token=" + token);
+        } catch (CustomException e) {   // MAIL_SEND_FAILED
+            resetStore.clearResendWait(email);
+            resetStore.giveBackSend(email);
+            throw e;
+        }
         log.info("[Auth] 재설정 링크 발송 - 사용자: {}", user.getId());
     }
 

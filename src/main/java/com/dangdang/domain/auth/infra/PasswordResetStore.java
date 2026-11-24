@@ -11,6 +11,7 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.HexFormat;
+import java.util.concurrent.TimeUnit;
 
 
 //비밀번호 재설정 링크 (AUTH-06: 30분, 한 번만)
@@ -20,20 +21,40 @@ public class PasswordResetStore {
 
     public static final Duration LINK_TTL = Duration.ofMinutes(30);
     public static final int MAX_SENDS_PER_DAY = 5;
+    public static final Duration RESEND_WAIT = Duration.ofSeconds(60);
 
     private static final String TOKEN = "pwreset:token";       //해시 -> 회원번호
     private static final String USER= "pwreset:user";
     private static final String SENDS="pwreset:sends";
+    private static final String WAIT = "pwreset:wait:";
 
     private final StringRedisTemplate redis;
 
-    public long increaseSendCount(String email){
-        String key = SENDS + email + ":" + LocalDate.now(ZoneId.of("Asia/Seoul"));
+    public long increaseSendCount(String email) {
+        String key = sendKey(email);
         Long count = redis.opsForValue().increment(key);
         if (count != null && count == 1) {
             redis.expire(key, Duration.ofDays(1));
         }
         return count == null ? 0 : count;
+    }
+
+    // 메일을 못 보냈으면 오늘 횟수를 하나 돌려준다
+    public void giveBackSend(String email) {
+        redis.opsForValue().decrement(sendKey(email));
+    }
+
+    // 다시 받기 대기를 시작한다. 이미 대기 중이면 남은 초, 새로 시작했으면 0 (EmailVerificationStore와 같음)
+    public long startResendWait(String email) {
+        if (Boolean.TRUE.equals(redis.opsForValue().setIfAbsent(WAIT + email, "1", RESEND_WAIT))) {
+            return 0;
+        }
+        Long ttl = redis.getExpire(WAIT + email, TimeUnit.SECONDS);
+        return ttl == null || ttl <= 0 ? 1 : ttl;
+    }
+
+    public void clearResendWait(String email) {
+        redis.delete(WAIT + email);
     }
 
     //새 링크 만들면 예전 링크 파기
@@ -66,5 +87,9 @@ public class PasswordResetStore {
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException(e); // 자바에 항상 있어서 실제로는 안 남
         }
+    }
+
+    private static String sendKey(String email) {
+        return SENDS + email + ":" + LocalDate.now(ZoneId.of("Asia/Seoul"));   // 키 모양은 지금과 같게
     }
 }

@@ -1,6 +1,7 @@
 package com.dangdang.domain.auth.controller;
 
 import com.dangdang.domain.auth.dto.request.LoginRequest;
+import com.dangdang.domain.auth.dto.response.EmailCodeSendResponse;
 import com.dangdang.domain.auth.dto.response.TokenResponse;
 import com.dangdang.domain.auth.service.*;
 import com.dangdang.global.security.jwt.JwtCookieWriter;
@@ -64,13 +65,15 @@ public class AuthController {
             description =
                     """
                     **Parameters** email: 인증번호를 받을 이메일
-                    **Returns** 성공 시 data 없음. 이미 가입된 이메일이면 AUTH_40901, 하루 5번 넘으면 AUTH_42901
+                    **Returns** remainingSends(오늘 더 받을 수 있는 횟수), expiresInSeconds(600), resendAfterSeconds(60).
+                    이미 가입된 이메일 AUTH_40901, 60초 안에 다시 AUTH_42904 + data.retryAfterSeconds(하루 횟수엔 안 셈),
+                    하루 5번 넘으면 AUTH_42901, 메일 발송 실패 AUTH_50202(오늘 횟수에 안 셈)
                     """)
     @PostMapping("/email/code")
-    public ResponseEntity<BaseResponse<Void>> sendCode(
+    public ResponseEntity<BaseResponse<EmailCodeSendResponse>> sendCode(
             @Valid @RequestBody EmailCodeRequest request) {
-        emailVerificationService.sendCode(request.email());
-        return ResponseEntity.ok(BaseResponse.success(200, "인증번호 발송에 성공했습니다.", null));
+        return ResponseEntity.ok(BaseResponse.success(200, "인증번호 발송에 성공했습니다.",
+                emailVerificationService.sendCode(request.email())));
     }
 
     @Operation(
@@ -78,7 +81,8 @@ public class AuthController {
             description =
                     """
                     **Parameters** email, code(6자리)
-                    **Returns** 성공 시 data 없음. 틀리면 AUTH_40002, 만료·5번 틀림이면 AUTH_40001
+                    **Returns** 성공 시 data 없음 (이미 인증된 이메일이면 다시 불러도 200).
+                    틀리면 AUTH_40002 + data.remainingAttempts, 5번 틀리면 AUTH_40010, 10분 지나면 AUTH_40001
                     """)
     @PostMapping("/email/verify")
     public ResponseEntity<BaseResponse<Void>> verify(
@@ -107,7 +111,9 @@ public class AuthController {
             description =
                     """
                     **Parameters** email, password
-                    **Returns (쿠키)** ACCESS_TOKEN, REFRESH_TOKEN. 틀리면 AUTH_40004(남은 횟수), 5번 틀리면 AUTH_42902(5분 잠금), 카카오 계정이면 AUTH_40005
+                    **Returns (쿠키)** ACCESS_TOKEN, REFRESH_TOKEN.
+                    틀리면 AUTH_40004 + data.remainingAttempts, 잠기면 AUTH_42902 + data.retryAfterSeconds.
+                    없는 이메일·카카오 계정도 AUTH_40004 (같은 문구·같은 횟수 — 가입 여부를 알려 주지 않음)
                     """)
     @PostMapping("/login")
     public ResponseEntity<BaseResponse<Void>> login(@Valid @RequestBody LoginRequest request) {
@@ -142,6 +148,7 @@ public class AuthController {
                     **Parameters** email
                     **Returns** 가입 여부와 관계없이 항상 200 (계정이 있는지 알려 주지 않음). 링크는 30분, 한 번만.
                     같은 이메일로 하루 5번 넘으면 AUTH_42903
+                    60초 안에 다시 보내면 AUTH_42904 + data.retryAfterSeconds (없는 이메일도 같음, 하루 횟수엔 안 셈). 메일 발송 실패 AUTH_50202(오늘 횟수에 안 셈)
                     """)
     @PostMapping("/password/reset/request")
     public ResponseEntity<BaseResponse<Void>> sendResetLink(

@@ -1,5 +1,7 @@
 package com.dangdang.domain.auth.service;
 
+import com.dangdang.domain.auth.dto.response.AuthRetryInfo;
+import com.dangdang.domain.auth.dto.response.EmailCodeSendResponse;
 import com.dangdang.domain.auth.exception.AuthErrorCode;
 import com.dangdang.domain.auth.infra.EmailSender;
 import com.dangdang.domain.auth.infra.EmailVerificationStore;
@@ -22,29 +24,54 @@ public class EmailVerificationService {
     private final EmailSender emailSender;
     private final UserRepository userRepository;
 
-    public void sendCode(String rawEmail) {
+    public EmailCodeSendResponse sendCode(String rawEmail) {
         String email = User.normalize(rawEmail);
         if (userRepository.existsByEmail(email)) {
             throw new CustomException(AuthErrorCode.EMAIL_ALREADY_USED);
         }
-        if (store.increaseSendCount(email) > EmailVerificationStore.MAX_SENDS_PER_DAY) {
-            throw new CustomException(AuthErrorCode.EMAIL_SEND_LIMIT);
+        long wait = store.startResendWait(email);   // 하루 횟수보다 먼저 → 대기 중 누른 건 안 셈
+        if (wait > 0) {
+            throw new CustomException(AuthErrorCode.RESEND_TOO_SOON, AuthErrorCode.RESEND_TOO_SOON.getMessage(),
+                    AuthRetryInfo.waitSeconds(wait));                         // V-08
+        }
+        long sentToday = store.increaseSendCount(email);
+        if (sentToday > EmailVerificationStore.MAX_SENDS_PER_DAY) {
+            throw new CustomException(AuthErrorCode.EMAIL_SEND_LIMIT);   // V-11
         }
         String code = String.format("%06d", RANDOM.nextInt(1_000_000)); // 앞자리 0 유지
         store.saveCode(email, code);
-        emailSender.sendVerificationCode(email, code);
+        try {
+            emailSender.sendVerificationCode(email, code);
+        } catch (CustomException e) {   // MAIL_SEND_FAILED → V-12
+            store.clearResendWait(email);   // 바로 다시 누를 수 있게
+            store.giveBackSend(email);      // 못 보낸 건 오늘 횟수에서 뺌
+            throw e;
+        }
         log.info("[Auth] 인증번호 발송 - 이메일: {}", email);
+        return EmailCodeSendResponse.of(sentToday);
     }
 
     public void verify(String rawEmail, String code) {
         String email = User.normalize(rawEmail);
         String saved = store.findCode(email);
         if (saved == null) {
-            throw new CustomException(AuthErrorCode.EMAIL_CODE_EXPIRED);
+            if (store.isVerified(email)) {
+                return;   // V-13 자동 확인이 두 번 와도 두 번째도 성공 (이미 인증됨)
+            }
+            if (store.tries(email) >= EmailVerificationStore.MAX_TRIES) {
+                throw new CustomException(AuthErrorCode.EMAIL_CODE_TOO_MANY_TRIES);   // V-07
+            }
+            throw new CustomException(AuthErrorCode.EMAIL_CODE_EXPIRED);              // V-06
         }
         if (!saved.equals(code)) {
-            store.increaseTries(email);
-            throw new CustomException(AuthErrorCode.EMAIL_CODE_MISMATCH);
+            int left = (int) (EmailVerificationStore.MAX_TRIES - store.increaseTries(email));
+            if (left <= 0) {
+                throw new CustomException(AuthErrorCode.EMAIL_CODE_TOO_MANY_TRIES);   // 5번째 → V-07
+            }
+            throw new CustomException(
+                    AuthErrorCode.EMAIL_CODE_MISMATCH,
+                    AuthErrorCode.EMAIL_CODE_MISMATCH.getMessage() + " " + left + "번 더 틀리면 인증번호를 다시 받아야 해요.",
+                    AuthRetryInfo.attemptsLeft(left));                                // V-04
         }
         store.markVerified(email);
         log.info("[Auth] 이메일 인증 완료 - 이메일: {}", email);

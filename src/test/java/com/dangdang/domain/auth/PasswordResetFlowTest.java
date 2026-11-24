@@ -127,6 +127,7 @@ class PasswordResetFlowTest {
     void 새_링크를_받으면_예전_링크는_못_쓴다() throws Exception {
         request("jisu@x.com");
         String old = tokenOf("jisu@x.com");
+        redis.delete("pwreset:wait:jisu@x.com");   // 60초 대기는 이 테스트에서 안 봄
         request("jisu@x.com");
         confirm(old, "newpass123").andExpect(jsonPath("$.errorCode").value("AUTH_40008"));
         confirm(tokenOf("jisu@x.com"), "newpass123").andExpect(status().isOk());
@@ -168,6 +169,7 @@ class PasswordResetFlowTest {
     void 같은_이메일로_하루_5번_넘게_요청하면_429() throws Exception {
         for (int i = 0; i < 5; i++) {
             request("nobody@x.com").andExpect(status().isOk());
+            redis.delete("pwreset:wait:nobody@x.com");   // 60초 대기는 이 테스트에서 안 봄
         }
         request("nobody@x.com")
                 .andExpect(status().isTooManyRequests())
@@ -176,6 +178,18 @@ class PasswordResetFlowTest {
 
     @Test
     void 이상한_토큰은_만료와_같은_400() throws Exception {
-        confirm("made-up-token", "newpass123").andExpect(jsonPath("$.errorCode").value("AUTH_40008"));
+        confirm("made-up-token", "newpass123")
+                .andExpect(jsonPath("$.errorCode").value("AUTH_40008"))
+                .andExpect(jsonPath("$.message").value("이 링크는 더 이상 쓸 수 없어요. 링크는 30분 동안 한 번만 쓸 수 있어요."));
+    }
+
+    @Test
+    void 일분_안에_다시_요청하면_없는_이메일도_똑같이_429() throws Exception {
+        request("jisu@x.com").andExpect(status().isOk());
+        request("jisu@x.com").andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.errorCode").value("AUTH_42904"))
+                .andExpect(jsonPath("$.data.retryAfterSeconds").isNumber());
+        request("nobody@x.com").andExpect(status().isOk());
+        request("nobody@x.com").andExpect(jsonPath("$.errorCode").value("AUTH_42904"));
     }
 }
