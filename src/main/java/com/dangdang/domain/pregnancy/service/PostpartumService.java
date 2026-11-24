@@ -9,8 +9,6 @@ import com.dangdang.domain.pregnancy.entity.Pregnancy;
 import com.dangdang.domain.pregnancy.enums.PregnancyState;
 import com.dangdang.domain.pregnancy.exception.PregnancyErrorCode;
 import com.dangdang.domain.pregnancy.repository.PregnancyRepository;
-import com.dangdang.domain.reminder.entity.Reminder;
-import com.dangdang.domain.reminder.enums.ReminderStatus;
 import com.dangdang.domain.reminder.repository.ReminderRepository;
 import com.dangdang.domain.user.entity.User;
 import com.dangdang.domain.user.exception.UserErrorCode;
@@ -46,7 +44,7 @@ public class PostpartumService {
     // E-03 입원했어요 / E-04 다시 켜기
     @Transactional
     public PregnancyStateResponse hospitalization(Long userId, boolean hospitalized) {
-        sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403
+        lockUser(userId);
         Instant now = clock.instant();
         Pregnancy p = activeOrStart(userId, now);
         int paused = 0;
@@ -69,7 +67,7 @@ public class PostpartumService {
     // E-06 출산일 → 산후 모드. 측정 알림 멈춤, 임신 중 기록은 그대로
     @Transactional
     public PregnancyStateResponse deliver(Long userId, LocalDate deliveryDate) {
-        sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403
+        lockUser(userId);
         if (deliveryDate.isAfter(today())) {
             throw new CustomException(PregnancyErrorCode.FUTURE_DELIVERY_DATE);
         }
@@ -84,7 +82,7 @@ public class PostpartumService {
     // E-09 나중에 다시 물어보기 — 같은 질문은 하나만 (덮어쓰기)
     @Transactional
     public LocalDate remindLater(Long userId, LocalDate remindOn) {
-        sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403
+        lockUser(userId);
         if (remindOn.isBefore(today())) {
             throw new CustomException(PregnancyErrorCode.PAST_ASK_DATE);
         }
@@ -110,13 +108,21 @@ public class PostpartumService {
     // E-12 임신 중 관리 졸업 — 산후에서만
     @Transactional
     public GraduationResponse graduate(Long userId) {
-        sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403
+        lockUser(userId);
         Pregnancy p = postpartum(userId);
         User user = p.getUser();
         Instant now = clock.instant();
         p.graduate(now);
         long weeks = Math.max(1, Duration.between(user.getCreatedAt(), now).toDays() / 7);
         return new GraduationResponse(pregnancyRepository.countReadings(userId), weeks);
+    }
+
+    // 이 사람 줄을 잠그고 건강정보 동의를 본다 — 입원·출산·졸업 같은 상태 바꾸기가 동시에 와도 차례로 (예정일 저장도 같은 잠금)
+    // 임신 줄이 없을 때 둘이 동시에 새 줄을 만들다 ux_pregnancies_active에 걸리는 일도 없다
+    private void lockUser(Long userId) {
+        userRepository.findByIdForUpdate(userId)
+                .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
+        sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403 (위에서 이미 더 센 잠금을 잡음)
     }
 
     private Pregnancy postpartum(Long userId) {
@@ -147,9 +153,7 @@ public class PostpartumService {
 
     // 아직 안 보낸 측정 알림은 취소 (이미 보낸 것·끝난 것은 그대로)
     private int cancelScheduled(Long userId) {
-        List<Reminder> scheduled = reminderRepository.findByUserIdAndStatus(userId, ReminderStatus.SCHEDULED);
-        scheduled.forEach(Reminder::cancel);
-        return scheduled.size();
+        return reminderRepository.cancelScheduledForUser(userId);
     }
 
     private LocalDate today() {

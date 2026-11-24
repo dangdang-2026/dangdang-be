@@ -55,8 +55,15 @@ public interface ReminderRepository extends JpaRepository<Reminder, Long> {
     List<Reminder> findByUserIdAndSlotAndMealIdIsNullAndStatusInAndScheduledAtGreaterThanEqualAndScheduledAtLessThanOrderByIdAsc(
             Long userId, MeasureSlot slot, Collection<ReminderStatus> statuses, Instant from, Instant to);
 
-    // 아직 안 보낸 내 알림 — 입원·출산하면 한꺼번에 취소한다
-    List<Reminder> findByUserIdAndStatus(Long userId, ReminderStatus status);
+    // 아직 안 보낸 내 알림을 한꺼번에 취소 — 입원·다른 상황·출산 (측정 알림 멈춤)
+    // 한 문장 UPDATE라 스케줄러가 그사이 보냄(SENT)으로 바꾼 알림을 CANCELED로 덮지 않는다 (claimDue도 SCHEDULED 조건)
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            UPDATE Reminder r SET r.status = com.dangdang.domain.reminder.enums.ReminderStatus.CANCELED
+            WHERE r.user.id = :userId
+              AND r.status = com.dangdang.domain.reminder.enums.ReminderStatus.SCHEDULED
+            """)
+    int cancelScheduledForUser(Long userId);
 
     // 이 식사로 생긴 알림 중 상태가 목록 안에 있는 것. 먼저 만든 순
     List<Reminder> findByMealIdAndStatusInOrderByIdAsc(Long mealId, Collection<ReminderStatus> statuses);
