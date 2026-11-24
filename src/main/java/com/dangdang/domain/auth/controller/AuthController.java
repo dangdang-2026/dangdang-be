@@ -67,7 +67,7 @@ public class AuthController {
                     **Parameters** email: 인증번호를 받을 이메일
                     **Returns** remainingSends(오늘 더 받을 수 있는 횟수), expiresInSeconds(600), resendAfterSeconds(60).
                     이미 가입된 이메일 AUTH_40901, 60초 안에 다시 AUTH_42904 + data.retryAfterSeconds(하루 횟수엔 안 셈),
-                    하루 5번 넘으면 AUTH_42901, 메일 발송 실패 AUTH_50202(오늘 횟수에 안 셈)
+                    하루 5번 넘으면 AUTH_42901, 메일 발송 실패 AUTH_50202(오늘 횟수는 하루 2번까지 돌려줌, 60초 대기는 그대로)
                     """)
     @PostMapping("/email/code")
     public ResponseEntity<BaseResponse<EmailCodeSendResponse>> sendCode(
@@ -81,7 +81,7 @@ public class AuthController {
             description =
                     """
                     **Parameters** email, code(6자리)
-                    **Returns** 성공 시 data 없음 (이미 인증된 이메일이면 다시 불러도 200).
+                    **Returns** 성공 시 data 없음 (같은 번호로 다시 불러도 200, 다른 번호면 AUTH_40001).
                     틀리면 AUTH_40002 + data.remainingAttempts, 5번 틀리면 AUTH_40010, 10분 지나면 AUTH_40001
                     """)
     @PostMapping("/email/verify")

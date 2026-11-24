@@ -4,9 +4,13 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.HexFormat;
 import java.util.concurrent.TimeUnit;
 
 @Component
@@ -17,12 +21,14 @@ public class EmailVerificationStore {
     public static final Duration RESEND_WAIT = Duration.ofSeconds(60);
     public static final int MAX_TRIES = 5;
     public static final int MAX_SENDS_PER_DAY = 5;
+    public static final int MAX_REFUNDS_PER_DAY = 2;   // 메일 실패로 횟수를 돌려주는 건 하루 2번까지 (실제론 갔는데 실패로 보일 수 있어서)
 
     private static final String CODE = "email:code:";
     private static final String TRIES = "email:tries:";
     private static final String SENDS = "email:sends:";
     private static final String VERIFIED = "email:verified:";
     private static final String WAIT = "email:wait:";
+    private static final String REFUNDS = "email:refunds:";
 
     private final StringRedisTemplate redis;
 
@@ -40,8 +46,17 @@ public class EmailVerificationStore {
         return count == null ? 0 : count;
     }
 
-    // 메일을 못 보냈으면 그 키의 횟수를 하나 돌려준다 (V-12 — 사용자 잘못이 아님). 0 밑으로는 안 내려감
+    // 메일을 못 보냈으면 그 키의 횟수를 하나 돌려준다 (V-12). 0 밑으로는 안 내려감
+    // SMTP는 실제로 보낸 뒤에도 실패로 보일 수 있어서(리뷰 #126) 돌려주는 건 그 날 2번까지만 → 메일 폭탄 막기
     public void giveBackSend(String sendKey) {
+        String refundKey = REFUNDS + sendKey.substring(SENDS.length());   // 같은 이메일·같은 날
+        Long refunds = redis.opsForValue().increment(refundKey);
+        if (refunds != null && refunds == 1) {
+            redis.expire(refundKey, Duration.ofDays(1));
+        }
+        if (refunds == null || refunds > MAX_REFUNDS_PER_DAY) {
+            return;
+        }
         Long count = redis.opsForValue().decrement(sendKey);
         if (count != null && count < 0) {
             redis.delete(sendKey);   // 그 사이 키가 만료됐으면 -1로 만료 없이 남지 않게
@@ -67,6 +82,15 @@ public class EmailVerificationStore {
         redis.delete(TRIES + email); // 새 번호를 받으면 틀린 횟수 초기화
     }
 
+    // 메일을 못 보냈으면 새 번호를 치우고 전에 받은 번호를 되살린다 (없었으면 비움)
+    public void restoreCode(String email, String previous) {
+        if (previous == null) {
+            redis.delete(CODE + email);
+        } else {
+            redis.opsForValue().set(CODE + email, previous, CODE_TTL);
+        }
+    }
+
     public String findCode(String email) {
         return redis.opsForValue().get(CODE + email);
     }
@@ -90,10 +114,18 @@ public class EmailVerificationStore {
         return value == null ? 0 : Long.parseLong(value);
     }
 
-    public void markVerified(String email) {
+    // 인증 완료. 맞힌 번호의 해시를 남겨 두고 같은 번호로 다시 온 확인(V-13 두 번째)만 성공으로 본다 (리뷰 #126)
+    public void markVerified(String email, String code) {
         redis.delete(CODE + email);
         redis.delete(TRIES + email);
-        redis.opsForValue().set(VERIFIED + email, "1", VERIFIED_TTL);
+        redis.opsForValue().set(VERIFIED + email, hash(code), VERIFIED_TTL);
+    }
+
+    // 이 번호로 인증을 마쳤는지 (다른 번호면 false → 인증 여부를 알려 주지 않음)
+    public boolean isVerifiedWith(String email, String code) {
+        String saved = redis.opsForValue().get(VERIFIED + email);
+        return saved != null && MessageDigest.isEqual(saved.getBytes(StandardCharsets.UTF_8),
+                hash(code).getBytes(StandardCharsets.UTF_8));
     }
 
     public boolean isVerified(String email) {
@@ -102,5 +134,14 @@ public class EmailVerificationStore {
 
     public void clearVerified(String email) {
         redis.delete(VERIFIED + email);
+    }
+
+    private static String hash(String code) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(code.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException(e); // 자바에 항상 있어서 실제로는 안 남
+        }
     }
 }

@@ -182,7 +182,7 @@ class SignupFlowTest {
                 .satisfies(e -> assertThat(codeOf(e)).isEqualTo(AuthErrorCode.MAIL_SEND_FAILED));
         assertThat(redis.opsForValue().get("email:sends:fail@x.com:" + LocalDate.now(ZoneId.of("Asia/Seoul"))))
                 .isEqualTo("0");
-        assertThat(redis.hasKey("email:wait:fail@x.com")).isFalse();   // 합치며 추가: 60초 대기도 풀림 (73)
+        assertThat(redis.hasKey("email:wait:fail@x.com")).isTrue();   // 리뷰 #126: 실제로 갔을 수 있어서 60초 대기는 유지
     }
 
     @Test   // 리뷰: 오늘 횟수를 다 쓴 뒤엔 60초 타이머(42904)가 아니라 계속 「오늘 다 씀」(42901)
@@ -243,5 +243,26 @@ class SignupFlowTest {
         assertThat(mismatch).isLessThanOrEqualTo(4);
         assertThatThrownBy(() -> verificationService.verify("a@x.com", code))   // 맞는 번호여도 이제 다시 받아야 함
                 .satisfies(e -> assertThat(codeOf(e)).isEqualTo(AuthErrorCode.EMAIL_CODE_TOO_MANY_TRIES));
+    }
+
+    @Test   // 리뷰 #126: 메일 실패로 돌려주는 건 하루 2번까지 (메일 폭탄 막기)
+    void 메일_실패로_돌려주는_횟수는_하루_2번까지() {
+        for (int i = 0; i < 3; i++) {
+            assertThatThrownBy(() -> verificationService.sendCode("fail@x.com"))
+                    .satisfies(e -> assertThat(codeOf(e)).isEqualTo(AuthErrorCode.MAIL_SEND_FAILED));
+            redis.delete("email:wait:fail@x.com");
+        }
+        assertThat(redis.opsForValue().get("email:sends:fail@x.com:" + LocalDate.now(ZoneId.of("Asia/Seoul"))))
+                .isEqualTo("1");   // 3번 실패 중 2번만 돌려받음
+    }
+
+    @Test   // 리뷰 #126: 인증된 뒤 다른 번호로 확인하면 성공이 아니라 시간 지남 (인증 여부를 안 알려 줌)
+    void 인증된_뒤_다른_번호로_확인하면_시간_지남() {
+        verificationService.sendCode("a@x.com");
+        String code = SENT.get("a@x.com");
+        verificationService.verify("a@x.com", code);
+        String other = code.equals("000000") ? "111111" : "000000";
+        assertThatThrownBy(() -> verificationService.verify("a@x.com", other))
+                .satisfies(e -> assertThat(codeOf(e)).isEqualTo(AuthErrorCode.EMAIL_CODE_EXPIRED));
     }
 }
