@@ -54,11 +54,16 @@ class HospitalSyncFlowTest {
     void setUp() {
         pages.clear();
         calls.clear();
+        jdbc.update("DELETE FROM hospital_sync_state");
         jdbc.update("DELETE FROM hospitals");
     }
 
     @AfterEach
     void clean() {
+        jdbc.update("DELETE FROM hospital_sync_state");
+        // 잠금 줄은 지우지 말고 풀기만 (ShedLock이 「줄을 만들어 둠」을 기억해서, 지우면 다음 잠금을 못 잡음)
+        // shedlock 시각 칸은 시간대 없는 UTC 값 (ShedLock usingDbTime과 같은 기준)
+        jdbc.update("UPDATE shedlock SET lock_until = timezone('utc', now()) WHERE name = 'hospitalSync'");
         jdbc.update("DELETE FROM hospitals");
     }
 
@@ -92,6 +97,7 @@ class HospitalSyncFlowTest {
                 .isEqualTo("서울대학교병원");
         assertThat(jdbc.queryForObject("SELECT search_name FROM hospitals WHERE hira_code = 'C3'", String.class))
                 .isEqualTo("cha병원");
+        assertThat(jdbc.queryForObject("SELECT saved FROM hospital_sync_state", Integer.class)).isEqualTo(3);   // 끝까지 받음 표시
     }
 
     @Test
@@ -127,6 +133,7 @@ class HospitalSyncFlowTest {
         assertThat(result.completed()).isFalse();
         assertThat(calls).containsExactly(1, 2, 2, 2);   // 2쪽은 3번까지 다시 해 봄
         assertThat(jdbc.queryForObject("SELECT count(*) FROM hospitals", Long.class)).isEqualTo(3);   // GONE + 2
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM hospital_sync_state", Long.class)).isZero();   // 끝까지 받음 표시 없음
     }
     @Test
     void 요양병원_정신병원_치과_한방은_저장하지_않고_예전에_있던_줄도_지운다() {
@@ -145,5 +152,36 @@ class HospitalSyncFlowTest {
         assertThat(result.removed()).isEqualTo(1);   // 다 받았으니(6/6) 옛 줄은 지움
         assertThat(jdbc.queryForList("SELECT hira_code FROM hospitals ORDER BY hira_code", String.class))
                 .containsExactly("A", "B");
+    }
+
+    @Test
+    void 전체_수보다_일찍_빈_쪽이_오면_끝까지_못_받은_것으로_보고_안_지운다() {
+        oldHospital("STILL-OPEN");
+        pages.put(1, new HospitalSearchResult(List.of(h("C1", "가", null)), 3));   // 전체 3인데 1쪽 뒤 빈 쪽
+
+        HospitalSyncService.Result result = hospitalSyncService.syncAll();
+
+        assertThat(result.completed()).isFalse();
+        assertThat(result.received()).isEqualTo(1);
+        assertThat(result.removed()).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM hospitals WHERE hira_code = 'STILL-OPEN'", Long.class))
+                .isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM hospital_sync_state", Long.class)).isZero();
+    }
+
+    @Test
+    void 다른_서버가_잠금을_잡고_있으면_건너뛴다() {
+        jdbc.update("""
+                INSERT INTO shedlock (name, lock_until, locked_at, locked_by)
+                VALUES ('hospitalSync', timezone('utc', now()) + interval '1 hour', timezone('utc', now()), 'other-server')
+                ON CONFLICT (name) DO UPDATE SET lock_until = EXCLUDED.lock_until, locked_by = EXCLUDED.locked_by
+                """);
+        pages.put(1, new HospitalSearchResult(List.of(h("C1", "가", null)), 1));
+
+        HospitalSyncService.Result result = hospitalSyncService.syncAll();
+
+        assertThat(result.completed()).isFalse();
+        assertThat(calls).isEmpty();   // 심평원도 안 부름
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM hospitals", Long.class)).isZero();
     }
 }
