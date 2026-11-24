@@ -5,6 +5,8 @@ import com.dangdang.domain.meal.repository.MealRepository;
 import com.dangdang.domain.reading.repository.ReadingRepository;
 import com.dangdang.domain.record.dto.response.RecordDeleteResponse;
 import com.dangdang.domain.reminder.repository.ReminderRepository;
+import com.dangdang.domain.user.exception.UserErrorCode;
+import com.dangdang.domain.user.repository.UserRepository;
 import com.dangdang.global.common.KoreanTime;
 import com.dangdang.global.exception.CustomException;
 import com.dangdang.global.exception.GlobalErrorCode;
@@ -34,6 +36,7 @@ public class RecordDeleteService {
     private final MealRepository mealRepository;
     private final InsulinLogRepository insulinLogRepository;
     private final ReminderRepository reminderRepository;
+    private final UserRepository userRepository;
     private final Clock clock;
 
     @Transactional
@@ -47,6 +50,10 @@ public class RecordDeleteService {
         Instant start = KoreanTime.startOfDay(from);
         Instant end = KoreanTime.endOfDay(to);
         Instant now = clock.instant();
+        // 이 사람 줄을 FOR SHARE로 잡음 (동의 확인은 안 함 — 지우기는 동의가 없어도 됨)
+        // 지난 날짜 기준 등록(FOR UPDATE를 잡고 혈당을 다시 붙임)과 차례로 돌아서, 두 벌크 UPDATE가 같은 혈당 줄들을 서로 다른 순서로 잠그다 막히지 않게
+        userRepository.findByIdForShare(userId)
+                .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
 
         int readings = readingRepository.softDeleteInRange(userId, start, end, now);
         int insulinLogs = insulinLogRepository.softDeleteInRange(userId, start, end, now);
