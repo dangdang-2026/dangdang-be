@@ -19,13 +19,14 @@ public record KakaoLoginResponse(
         return new KakaoLoginResponse(r.result(), r.kakaoToken(), r.email(), r.email() == null ? null : mask(r.email()));
     }
 
-    // 앞 두 글자만 남긴다 (두 글자 이하면 한 글자). da***@gmail.com
+    // 앞 두 글자만 남긴다. 앞부분이 두 글자 이하면 하나도 안 남긴다 (a@x.com → ***@x.com, 리뷰 #128)
+    // email(원래 값)은 K-07 로그인 칸 미리 채우기용 — 카카오가 인증해 준 본인 이메일이라 본인에게만 간다
     static String mask(String email) {
         int at = email.indexOf('@');
         if (at <= 0) {
             return "***";
         }
-        int keep = at <= 2 ? 1 : 2;
+        int keep = at <= 2 ? 0 : 2;
         return email.substring(0, keep) + "***" + email.substring(at);
     }
 }
