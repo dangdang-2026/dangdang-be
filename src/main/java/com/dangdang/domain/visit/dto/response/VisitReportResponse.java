@@ -2,16 +2,15 @@ package com.dangdang.domain.visit.dto.response;
 
 import com.dangdang.domain.criteria.entity.CriteriaVersion;
 import com.dangdang.domain.criteria.enums.MeasureSlot;
+import com.dangdang.domain.insulin.entity.InsulinLog;
+import com.dangdang.domain.insulin.enums.InsulinType;
+import com.dangdang.domain.meal.enums.MealSlot;
 import com.dangdang.domain.reading.entity.Reading;
 import com.dangdang.domain.reading.enums.MeterLimit;
 import com.dangdang.domain.reading.enums.ReadingTiming;
 import com.dangdang.domain.reading.enums.ReadingType;
 import com.dangdang.domain.reading.service.ReadingEvaluator;
 import com.dangdang.domain.visit.enums.ReportKind;
-
-import com.dangdang.domain.insulin.entity.InsulinLog;
-import com.dangdang.domain.insulin.enums.InsulinType;
-import com.dangdang.domain.meal.enums.MealSlot;
 
 import java.math.BigDecimal;
 import java.time.Instant;

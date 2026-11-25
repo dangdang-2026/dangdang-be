@@ -319,6 +319,20 @@ class RecordFlowTest {
     }
 
     @Test
+    void 인슐린도_한국_날짜로_나뉜다_23시59분은_그날_0시는_다음_날() throws Exception {
+        LocalDate day = today().minusDays(3);
+        long lateNight = createInsulin(access, "BEDTIME", "10", kst(day, 23, 59));
+        long midnight = createInsulin(access, "BEDTIME", "11", kst(day.plusDays(1), 0, 0));   // UTC로는 전날 15:00
+
+        mvc.perform(get("/api/records").cookie(access)
+                        .param("from", day.toString()).param("to", day.plusDays(1).toString()))
+                .andExpect(jsonPath("$.data.days[0].events", hasSize(1)))
+                .andExpect(jsonPath("$.data.days[0].events[0].id").value(lateNight))
+                .andExpect(jsonPath("$.data.days[1].events", hasSize(1)))
+                .andExpect(jsonPath("$.data.days[1].events[0].id").value(midnight));
+    }
+
+    @Test
     void 고친_기록은_modified_지운_기록은_안_나온다() throws Exception {
         LocalDate day = today().minusDays(1);
         long edited = createReading(access, 100, "FASTING", kst(day, 7, 0), null);

@@ -587,6 +587,18 @@ class VisitReportFlowTest {
     }
 
     @Test
+    void 인슐린은_진료_전날_23시59분까지_들어가고_진료_당일_0시부터는_빠진다() throws Exception {
+        reading(access, 110, "FASTING", "FASTING", "2026-10-05T08:00:00+09:00");
+        long lastNight = insulin(access, "BEDTIME", null, "10", "2026-10-13T23:59:00+09:00");   // 진료 전날 마지막 → 들어감
+        insulin(access, "BEDTIME", null, "11", "2026-10-14T00:00:00+09:00");                    // 진료 당일 0시 → 빠짐 (UTC로는 전날)
+
+        report(access, visitId)
+                .andExpect(jsonPath("$.data.to").value("2026-10-13"))
+                .andExpect(jsonPath("$.data.insulinLogs", hasSize(1)))
+                .andExpect(jsonPath("$.data.insulinLogs[0].insulinLogId").value(lastNight));
+    }
+
+    @Test
     void 기간_직접_리포트는_저장한_기간과_병원으로_다시_계산한다() throws Exception {
         reading(access, 90, "FASTING", "FASTING", "2026-10-01T08:00:00+09:00");   // 기간 앞
         reading(access, 91, "FASTING", "FASTING", "2026-10-05T08:00:00+09:00");

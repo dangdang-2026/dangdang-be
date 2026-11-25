@@ -1,5 +1,6 @@
 package com.dangdang.domain.record.service;
 
+import com.dangdang.domain.insulin.entity.InsulinLog;
 import com.dangdang.domain.insulin.repository.InsulinLogRepository;
 import com.dangdang.domain.meal.dto.response.MealItemSummaryResponse;
 import com.dangdang.domain.meal.entity.Meal;
@@ -81,11 +82,13 @@ public class RecordService {
         List<Reading> readings = readingRepository.findAllInRange(userId, start, end);
         Map<Long, Instant> expectedAt = expectedTimeResolver.expectedAtByReading(userId, readings, meals);
 
+        List<InsulinLog> insulinLogs = insulinLogRepository.findAllInRange(userId, start, end);
+
         // 혈당·식사·인슐린을 한 줄로 합친 뒤 한국 날짜별로 나눔 (concat은 두 개만 합쳐서 Stream.of + flatMap)
         Map<LocalDate, List<RecordEventResponse>> byDate = Stream.of(
                         readings.stream().map(r -> RecordEventResponse.from(r, expectedAt.get(r.getId()))),
                         meals.stream().map(m -> RecordEventResponse.from(m, itemsByMeal.getOrDefault(m.getId(), List.of()))),
-                        insulinLogRepository.findAllInRange(userId, start, end).stream().map(RecordEventResponse::from))
+                        insulinLogs.stream().map(RecordEventResponse::from))
                 .flatMap(s -> s)
                 .sorted(EVENT_ORDER)
                 .collect(Collectors.groupingBy(e -> KoreanTime.dateOf(e.occurredAt())));

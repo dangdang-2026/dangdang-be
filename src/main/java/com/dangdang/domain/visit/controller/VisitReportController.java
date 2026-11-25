@@ -66,7 +66,8 @@ public class VisitReportController {
                     slots[]{slot, measured, outOfTarget, missed 빈칸}(하루 순서, 기록이나 빈칸이 있는 잴 때만, 잴 때 없는 기록은 slot null·missed 0으로 맨 뒤),
                     readings[]{readingId, measuredAt, readingType, slot, value, meterLimit(HI·LO로 적었으면 그 글자, value는 600·20 / 숫자면 null), aboveTarget, enteredLate, expectedAt(식후 혈당의 재야 할 시각, 모르면 null), timing(EARLY·ON_TIME·LATE ±15분, expectedAt이 null이면 null)}(원값 표, 잰 시각 순),
                     missedCells[]{date, slot}(원값 표 「–」 = 빈칸, 한국 날짜, 알림 시각 순. summary.missed = slots[].missed 합 = 이 개수),
-                    insulinLogs[]{insulinLogId, takenAt, insulinType, mealSlot, units, edited}(원값 표 · 인슐린, 맞은 시각 오래된 순, 없으면 []),
+                    insulinLogs[]{insulinLogId, takenAt, insulinType, mealSlot, units, edited}(원값 표 · 인슐린, 맞은 시각 오래된 순, 없으면 [].
+                    기간 안 인슐린만 나와서, 앞 진료가 없을 때 첫 혈당 기록일보다 먼저 적은 인슐린은 안 나옴),
                     questionCount(물어볼 것 수). 목표 밖은 기록마다 그때 기준으로 셈.
                     없거나 삭제됐거나 남의 일정이면 VISIT_40401, 진료 날짜가 미정이면 VISIT_40003
                     """)
