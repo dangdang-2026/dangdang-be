@@ -746,6 +746,20 @@ class ReadingFlowTest {
         assertThat(dinnerReminder.get("reading_id")).isNull();
     }
 
+    @Test
+    void 알림을_끝낸_혈당을_지우면_알림이_풀려서_놓친_측정으로_돌아간다() throws Exception {
+        long mealId = lunchWithReminder();
+        jdbc.update("UPDATE reminders SET status = 'SENT', sent_at = now() WHERE meal_id = ?", mealId);
+        long id = createPostMeal(mealId);
+        assertThat(reminderOf(mealId).get("status")).isEqualTo("DONE");
+
+        mvc.perform(delete("/api/readings/" + id).cookie(access)).andExpect(status().isOk());
+
+        Map<String, Object> reminder = reminderOf(mealId);
+        assertThat(reminder.get("status")).isEqualTo("SENT");
+        assertThat(reminder.get("reading_id")).isNull();
+    }
+
     // 지금 시작한 식사 (병원 기준이 있으면 식후 알림이 예약됨)
     private long mealStartedNow(String mealSlot) throws Exception {
         String body = mvc.perform(post("/api/meals").cookie(access).contentType(MediaType.APPLICATION_JSON)

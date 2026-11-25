@@ -164,6 +164,12 @@ public class ReminderService {
         }
     }
 
+    // 혈당을 지웠을 때: 그 혈당이 끝낸 알림을 풀어 줌 (DONE으로 남으면 '쟀음'으로 잡혀서)
+    @Transactional
+    public void releaseForDeletedReading(Long readingId) {
+        reminderRepository.findByReadingId(readingId).ifPresent(r -> detach(r, readingId));
+    }
+
     // 알림에서 이 혈당을 뗌
     // 지운 식사의 알림이면 되살리지 않고 취소. 아니면 혈당이 없었다면의 상태로 돌리고,
     // 그 식사에 다른 살아 있는 식후 혈당이 남아 있으면 그 혈당으로 다시 끝 처리 (남은 혈당이 있는데 '놓친 측정'으로 잡히지 않게)

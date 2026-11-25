@@ -146,6 +146,8 @@ public class ReadingService {
         findMine(userId, readingId).delete(clock.instant());
         try {
             readingRepository.flush();   // 동시 수정 충돌을 409로 바꾸려고 트랜잭션 끝나기 전에 씀
+            // 이 혈당이 끝낸 알림은 풀어 줌 (DONE으로 남으면 지운 혈당이 '쟀음'으로 잡혀서). 수정 때 relinkAfterEdit와 같은 규칙
+            reminderService.releaseForDeletedReading(readingId);
         } catch (ObjectOptimisticLockingFailureException e) {
             throw new CustomException(ReadingErrorCode.VERSION_CONFLICT);
         }
