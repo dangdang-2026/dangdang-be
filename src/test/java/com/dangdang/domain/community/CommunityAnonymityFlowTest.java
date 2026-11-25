@@ -224,6 +224,31 @@ class CommunityAnonymityFlowTest extends ReminderTestBase {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM profile_blocks", Long.class)).isZero();
     }
 
+    @Test
+    void 지우거나_가린_댓글의_답글로는_막을_수_없다() throws Exception {
+        String postId = write(minji, false);
+        String hiddenParent = comment(hana, postId, false);
+        String deletedParent = comment(hana, postId, false);
+        String replyOnHidden = reply(jisu, postId, hiddenParent);
+        String replyOnDeleted = reply(jisu, postId, deletedParent);
+        jdbc.update("UPDATE comments SET hidden_reason = 'MEDICATION' WHERE id = ?", Long.valueOf(hiddenParent));
+        jdbc.update("UPDATE comments SET deleted_at = now() WHERE id = ?", Long.valueOf(deletedParent));
+
+        for (String c : List.of(replyOnHidden, replyOnDeleted)) {   // 댓글 목록에서 같이 빠지는 답글
+            postJson(minji, "/api/blocks", "{\"commentId\":\"" + c + "\"}")
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.errorCode").value("COMMUNITY_40402"));
+        }
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM profile_blocks", Long.class)).isZero();
+    }
+
+    private String reply(Cookie who, String postId, String parentId) throws Exception {
+        String res = postJson(who, "/api/posts/" + postId + "/comments",
+                "{\"content\":\"답글\",\"isAnonymous\":false,\"parentId\":\"" + parentId + "\"}")
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        return JsonPath.read(res, "$.data.id");
+    }
+
     // ── B ──
     @Test
     void 익명_글의_글쓴이가_단_댓글은_이름을_골라도_익명이고_글쓴이_라벨() throws Exception {
