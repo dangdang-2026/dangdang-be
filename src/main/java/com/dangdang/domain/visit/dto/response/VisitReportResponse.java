@@ -50,7 +50,7 @@ public record VisitReportResponse(
 
     public record Summary(
             int measured,                    // 측정
-            long missed,                     // 빈칸 (알림이 갔는데 안 잰 측정)
+            long missed,                     // 빈칸 (알림이 갔는데 안 잰 측정, 이번 끼니 건너뛴 것 포함)
             int enteredLate,                 // 나중 입력 (잰 뒤 30분 넘게 지나서 적음)
             int below70,                     // 70 미만
             int outOfTarget,                 // 목표 밖 (기록마다 그때 기준으로)

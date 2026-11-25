@@ -82,7 +82,7 @@ public class ReadingController {
                     **Parameters** slot(FASTING·POST_MEAL, 기본 POST_MEAL), period(1W·2W·1M·3M·CUSTOM, 기본 1M),
                     from·to(한국 날짜 yyyy-MM-dd, period=CUSTOM일 때만 필수, 둘 다 포함, to는 오늘까지, 최대 300일)
                     **Returns** range(보는 기간)·compareRange(바로 앞 같은 길이 기간)·targetValue(지금 목표, 없으면 null)
-                    current·previous{average, inTargetRate(0~1, 목표가 없으면 null), count, missed(알림 갔는데 안 잰 수, 알림 뒤 30분 지난 것만), overDays,
+                    current·previous{average, inTargetRate(0~1, 목표가 없으면 null), count, missed(알림 갔는데 안 잰 수 + 「이번 끼니는 건너뛸게요」 한 수, 알림 시각 뒤 30분 지난 것만), overDays,
                     judged(목표와 비교한 수)·inTarget(그중 안)·judgedDays·inTargetDays(날 수)·belowLow(70 미만)}
                     firstRecordDate(처음 잰 날, 공복·식후·기타 전부, 없으면 null)
                     series·previousSeries(날짜별 average·count), byMeal(식후만 끼니별 평균, 공복이면 []).
@@ -158,5 +158,22 @@ public class ReadingController {
             @AuthenticationPrincipal AuthPrincipal principal, @PathVariable Long readingId) {
         readingService.delete(principal.userId(), readingId);
         return ResponseEntity.ok(BaseResponse.success(200, "혈당 기록을 삭제했습니다.", null));
+    }
+
+    @Operation(
+            summary = "[ 사용자 | 토큰 O | 지운 혈당 기록 되돌리기 (D-08) ]",
+            description =
+                    """
+                    **Parameters** readingId, 본문 없음
+                    **Returns** 되살린 기록 (판정·재야 할 시각 칸 포함, 상세와 같은 모양). 지운 지 5분 안에만 된다. 되돌려도 「수정됨」(editedAt)은 안 붙는다.
+                    지울 때 풀었던 측정 알림은 다시 붙는다(DONE). 지운 사이 그 끼니를 건너뛰었으면 건너뛴 뒤 잰 것과 같게 알림이 DONE이 된다.
+                    없거나 남의 기록이면 404 READING_40401, 지우지 않은 기록(두 번 누름)이면 409 READING_40901, 5분이 지났으면 409 READING_40902,
+                    붙은 식사가 지워졌으면 409 READING_40904(식사를 먼저 되돌리면 됨). 건강정보 동의가 없으면 403 USER_40302
+                    """)
+    @PostMapping("/{readingId}/restore")
+    public ResponseEntity<BaseResponse<ReadingResponse>> restore(
+            @AuthenticationPrincipal AuthPrincipal principal, @PathVariable Long readingId) {
+        return ResponseEntity.ok(BaseResponse.success(200, "혈당 기록을 되돌렸습니다.",
+                readingService.restore(principal.userId(), readingId)));
     }
 }

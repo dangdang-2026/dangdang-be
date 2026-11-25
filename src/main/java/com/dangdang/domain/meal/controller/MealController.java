@@ -106,4 +106,39 @@ public class MealController {
         mealService.delete(principal.userId(), mealId);
         return ResponseEntity.ok(BaseResponse.success(200, "식사 기록을 삭제했습니다.", null));
     }
+
+    @Operation(
+            summary = "[ 사용자 | 토큰 O | 지운 식사 기록 되돌리기 (D-08) ]",
+            description =
+                    """
+                    **Parameters** mealId, 본문 없음
+                    **Returns** 되살린 식사(음식 항목 포함). 지운 지 5분 안에만 된다. 지울 때 취소된 식후 알림은 시각이 아직 안 지났고 건너뛴 식사가 아니면 다시 예약.
+                    없거나 남의 식사면 404 MEAL_40401, 지우지 않은 식사(두 번 누름)면 409 MEAL_40903, 5분이 지났으면 409 MEAL_40904.
+                    건강정보 동의가 없으면 403 USER_40302
+                    """)
+    @PostMapping("/{mealId}/restore")
+    public ResponseEntity<BaseResponse<MealResponse>> restore(
+            @AuthenticationPrincipal AuthPrincipal principal, @PathVariable Long mealId) {
+        return ResponseEntity.ok(BaseResponse.success(200, "식사 기록을 되돌렸습니다.",
+                mealService.restore(principal.userId(), mealId)));
+    }
+
+    @Operation(
+            summary = "[ 사용자 | 토큰 O | 이번 끼니 식후 측정 건너뛰기 (H-05) ]",
+            description =
+                    """
+                    **Parameters** mealId, 본문 없음
+                    **Returns** 식사 (measureSkippedAt 채워짐). 이 식사의 아직 안 끝난 측정 알림(예약·보냄·열어 봄)과 기기가 없거나 알림을 꺼서 못 보낸 알림(SKIPPED)은 DISMISSED → 재알림 안 감.
+                    건너뛴 측정도 통계·진료 리포트의 「놓친 측정」에 센다 — 측정 알림이 있는 식사만 들어감
+                    (간식·병원 기준 없음·식사를 늦게 적어 알림 시각이 이미 지난 식사는 알림이 없어서 빠짐). 그 뒤 혈당을 적으면 알림은 DONE으로 붙는다.
+                    시작 시각을 고치거나 지웠다 되돌려도 알림을 다시 걸지 않는다. 두 번 눌러도 200(처음 시각 그대로).
+                    지우지 않은 식후 혈당이 이미 붙은 끼니면 409 MEAL_40905. 없거나 삭제됐거나 남의 기록이면 404 MEAL_40401.
+                    건강정보 동의가 없으면 403 USER_40302
+                    """)
+    @PostMapping("/{mealId}/measure-skip")
+    public ResponseEntity<BaseResponse<MealResponse>> skipMeasure(
+            @AuthenticationPrincipal AuthPrincipal principal, @PathVariable Long mealId) {
+        return ResponseEntity.ok(BaseResponse.success(200, "이번 끼니 측정을 건너뛰었어요.",
+                mealService.skipMeasure(principal.userId(), mealId)));
+    }
 }

@@ -323,7 +323,7 @@ public class VisitReportService {
         Instant rangeEnd = KoreanTime.endOfDay(to);
         Instant graceEnd = clock.instant().minus(ReadingStatsService.MISSED_GRACE);
         Instant end = rangeEnd.isBefore(graceEnd) ? rangeEnd : graceEnd;
-        return reminderRepository.countByUserIdAndSlotInAndStatusInAndScheduledAtGreaterThanEqualAndScheduledAtLessThan(
+        return reminderRepository.countMissed(
                 userId, List.of(MeasureSlot.values()), ReadingStatsService.MISSED_STATUSES,
                 KoreanTime.startOfDay(from), end);
     }

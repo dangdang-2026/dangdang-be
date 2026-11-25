@@ -91,6 +91,11 @@ public class Reminder {
         }
     }
 
+    // 「이번 끼니는 건너뛸게요」 한 식사의 알림 — 연결을 푼 뒤에도 다시 울리거나 SENT로 돌아가지 않게 (H-05)
+    public void dismiss() {
+        this.status = ReminderStatus.DISMISSED;
+    }
+
     // 지운 식사의 알림에서 혈당 연결을 풀 때 — 되살리지 않고 취소로 둠
     // (release로 SCHEDULED가 되면 지운 식사의 "재세요"가 가고, SENT가 되면 "놓친 측정"으로 잡혀서)
     public void releaseAsCanceled() {
@@ -98,18 +103,23 @@ public class Reminder {
         this.status = ReminderStatus.CANCELED;
     }
 
-    // 보냈다 — 예약 상태일 때만 바뀐다 (보내는 사이 사용자가 먼저 저장했으면 그 상태를 지킨다)
-    public void markSent(Instant now) {
+    // 보냈다 — 예약 상태일 때만 바뀐다 (보내는 사이 사용자가 먼저 저장·건너뛰기 했으면 그 상태를 지킨다)
+    // 바꿨으면 true (알림함에 남길지 정하려고)
+    public boolean markSent(Instant now) {
         if (this.status == ReminderStatus.SCHEDULED) {
             this.status = ReminderStatus.SENT;
             this.sentAt = now;
+            return true;
         }
+        return false;
     }
 
-    public void markSkipped() {
+    public boolean markSkipped() {
         if (this.status == ReminderStatus.SCHEDULED) {
             this.status = ReminderStatus.SKIPPED;
+            return true;
         }
+        return false;
     }
 
     // 처음 연 시각만 남긴다

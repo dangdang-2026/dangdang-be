@@ -16,6 +16,10 @@ public enum ReadingErrorCode implements BaseErrorCode {
     // 등록·수정 입력 오류
     VALUE_OR_METER_LIMIT("READING_40004", "혈당 숫자나 HI·LO 중 하나만 보내 주세요.", HttpStatus.BAD_REQUEST),
     MEASURED_BEFORE_MEAL("READING_40005", "식후 혈당은 식사 시작 뒤 시각으로 적어 주세요.", HttpStatus.BAD_REQUEST),
+    // 되돌리기 (D-08)
+    NOT_DELETED("READING_40901", "지우지 않은 기록이에요.", HttpStatus.CONFLICT),
+    UNDO_EXPIRED("READING_40902", "지운 지 5분이 지나서 되돌릴 수 없어요.", HttpStatus.CONFLICT),
+    MEAL_DELETED("READING_40904", "이 혈당의 식사 기록이 지워졌어요. 식사를 먼저 되돌려 주세요.", HttpStatus.CONFLICT),
 
     // 같은 기록을 다른 곳(다른 기기 등)에서 먼저 고치거나 지움
     VERSION_CONFLICT("READING_40903", "다른 곳에서 먼저 고쳤어요. 새로고침한 뒤 다시 시도해 주세요.", HttpStatus.CONFLICT),

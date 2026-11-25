@@ -1,7 +1,9 @@
 package com.dangdang.domain.record.controller;
 
 import com.dangdang.domain.record.dto.response.CalendarResponse;
+import com.dangdang.domain.record.dto.response.RecordDeleteResponse;
 import com.dangdang.domain.record.dto.response.RecordsResponse;
+import com.dangdang.domain.record.service.RecordDeleteService;
 import com.dangdang.domain.record.service.RecordService;
 import com.dangdang.global.common.BaseResponse;
 import com.dangdang.global.common.QueryParams;
@@ -11,18 +13,20 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-@Tag(name = "Record", description = "기록 탭 조회 API")
+@Tag(name = "Record", description = "기록 탭 조회·기간 지우기 API")
 @RestController
 @RequestMapping("/api/records")
 @RequiredArgsConstructor
 public class RecordController {
 
     private final RecordService recordService;
+    private final RecordDeleteService recordDeleteService;
 
     @Operation(
             summary = "[ 사용자 | 토큰 O | 일별·주간 기록 통합 조회 ]",
@@ -61,5 +65,29 @@ public class RecordController {
             @RequestParam(required = false) String month) {
         return ResponseEntity.ok(BaseResponse.success(200, "기록 달력 조회에 성공했습니다.",
                 recordService.calendar(principal.userId(), QueryParams.requiredMonth(month, "month"))));
+    }
+
+    @Operation(
+            summary = "[ 사용자 | 토큰 O | 기간 골라 기록 지우기 (M-07) ]",
+            description =
+                    """
+                    **Parameters** from·to(한국 날짜 yyyy-MM-dd, 필수, 둘 다 포함, 최대 366일)
+                    **Returns** from, to, deletedReadings(지운 혈당 수), deletedMeals(지운 식사 수), deletedInsulinLogs(지운 인슐린 수). 이미 지운 기록은 안 셈.
+                    혈당은 잰 시각, 식사는 시작 시각, 인슐린은 맞은 시각으로 기간에 드는지 보고 지운다(하나 지우기와 같은 소프트 삭제).
+                    기간 안 식사에 붙은 혈당은 기간 밖이어도 같이 지우고 deletedReadings에 센다(예: to 날 23:30 저녁 + 다음 날 01:30 식후 혈당).
+                    기간 안 혈당이 기간 밖 식사에 붙어 있으면 혈당만 지운다(하나 지우기와 같음).
+                    지운 식사의 아직 안 보낸 식후 알림은 취소하고, 지운 식사의 알림은 통계·리포트 「놓친 측정」에서 빠진다. 지운 혈당이 끝낸 알림은 풀린다.
+                    되돌리기는 없음 — 응답에 지운 id가 없으니 화면은 되돌리기를 띄우지 않는다.
+                    날짜 형식이 틀리거나 from > to 거나 366일 넘으면 GLOBAL_40001
+                    """)
+    @DeleteMapping
+    public ResponseEntity<BaseResponse<RecordDeleteResponse>> deleteInRange(
+            @AuthenticationPrincipal AuthPrincipal principal,
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to) {
+        return ResponseEntity.ok(BaseResponse.success(200, "기간 기록을 지웠습니다.",
+                recordDeleteService.deleteInRange(principal.userId(),
+                        QueryParams.requiredDate(from, "from"),
+                        QueryParams.requiredDate(to, "to"))));
     }
 }

@@ -48,8 +48,9 @@ public class ReadingStatsService {
     // 기간 직접 고르기 최대 길이 (임신 기간 전체 280일 + 여유)
     private static final int MAX_CUSTOM_DAYS = 300;
 
-    // "놓친 측정" = 알림을 보냈거나 열어 봤는데 혈당이 안 붙은 알림 (DONE이 안 됨)
-    public static final List<ReminderStatus> MISSED_STATUSES = List.of(ReminderStatus.SENT, ReminderStatus.OPENED);
+    // "놓친 측정" = 알림을 보냈거나 열어 봤거나 「이번 끼니는 건너뛸게요」 했는데 혈당이 안 붙은 알림 (DONE이 안 됨)
+    public static final List<ReminderStatus> MISSED_STATUSES =
+            List.of(ReminderStatus.SENT, ReminderStatus.OPENED, ReminderStatus.DISMISSED);
     // 알림이 가고 이만큼 지나야 "놓침"으로 셈 (늦게 적기 기준 30분과 같게)
     public static final Duration MISSED_GRACE = Duration.ofMinutes(30);
     private static final List<MeasureSlot> POST_MEAL_SLOTS =
@@ -196,7 +197,7 @@ public class ReadingStatsService {
         Instant rangeEnd = KoreanTime.endOfDay(range.to());
         Instant graceEnd = clock.instant().minus(MISSED_GRACE);
         Instant end = rangeEnd.isBefore(graceEnd) ? rangeEnd : graceEnd;
-        return reminderRepository.countByUserIdAndSlotInAndStatusInAndScheduledAtGreaterThanEqualAndScheduledAtLessThan(
+        return reminderRepository.countMissed(
                 userId, slots, MISSED_STATUSES, KoreanTime.startOfDay(range.from()), end);
     }
 

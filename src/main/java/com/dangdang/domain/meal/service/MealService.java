@@ -21,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.dangdang.global.common.KoreanTime;
+import com.dangdang.global.common.UndoWindow;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -90,10 +91,9 @@ public class MealService {
         if (req.isEmpty()) {
             throw new CustomException(MealErrorCode.NOTHING_TO_UPDATE);
         }
-        // 식사 줄을 잠그고 읽음 — 혈당 쪽 저장·수정도 같은 줄을 잠그고 시작 시각을 봐서,
-        // 아래 "식후 혈당보다 늦게" 확인과 혈당 쪽 "식사 시작보다 앞" 확인이 동시에 둘 다 통과하지 않게 함
-        Meal meal = mealRepository.findMineForUpdate(mealId, userId)
-                .orElseThrow(() -> new CustomException(MealErrorCode.MEAL_NOT_FOUND));
+        // 식사 줄을 잠그고 읽음 — 건너뛰기·지우기와 동시에 오면 앞 요청이 끝난 뒤의 상태(건너뜀·지움)를 보고 알림을 다시 걸지 않게.
+        // 혈당 쪽 저장·수정도 같은 줄을 잠그고 시작 시각을 봐서, 아래 "식후 혈당보다 늦게" 확인과 혈당 쪽 "식사 시작보다 앞" 확인이 동시에 둘 다 통과하지 않게 함
+        Meal meal = findMineForUpdate(userId, mealId);
         boolean timingChanged = (req.mealSlot() != null && req.mealSlot() != meal.getMealSlot())
                 || (req.startedAt() != null && !req.startedAt().equals(meal.getStartedAt()));
         if (req.startedAt() != null && readingRepository
@@ -103,7 +103,9 @@ public class MealService {
             throw new CustomException(MealErrorCode.STARTED_AFTER_READING);
         }
         meal.update(req.mealSlot(), req.startedAt(), req.note(), clock.instant());
-        if (timingChanged) {   // 끼니나 시작 시각이 바뀌면 알림 시각·종류도 바뀜. 메모만 바꾸면 그대로 둠
+        // 끼니나 시작 시각이 바뀌면 알림 시각·종류도 바뀜. 메모만 바꾸면 그대로 둠
+        // 이번 끼니 측정을 건너뛴 식사는 다시 안 건다 (H-05)
+        if (timingChanged && meal.getMeasureSkippedAt() == null) {
             reminderService.rescheduleAfterMeal(userId, mealId, meal.getMealSlot(), meal.getStartedAt());
         }
         // 변경 감지로 트랜잭션 끝날 때 반영되지만, 응답에 새 updatedAt을 담으려고 먼저 DB에 씀
@@ -114,8 +116,56 @@ public class MealService {
     // 삭제 (soft delete). 이미 지운 식사를 또 지우면 findMine에서 404
     @Transactional
     public void delete(Long userId, Long mealId) {
-        findMine(userId, mealId).delete(clock.instant());   // 변경 감지로 트랜잭션 끝날 때 반영됨
+        // 줄을 잠가서 읽음 — 동시에 온 수정이 지운 식사에 알림을 새로 걸지 않게 (수정은 지운 뒤에 404)
+        findMineForUpdate(userId, mealId).delete(clock.instant());   // 변경 감지로 트랜잭션 끝날 때 반영됨
         reminderService.cancelForMeal(mealId);               // 지운 식사의 식후 알림이 울리지 않게 함
+    }
+
+    // 되돌리기 (D-08). 지울 때 취소한 식후 알림을 다시 건다
+    // 조건부 UPDATE 한 번이라 동시에 두 번 눌러도 하나만 성공, 나머지는 409
+    @Transactional
+    public MealResponse restore(Long userId, Long mealId) {
+        sensitiveConsentGuard.require(userId);   // 되살리기도 건강 기록 저장이라 동의가 없으면 403
+        if (mealRepository.restore(mealId, userId, UndoWindow.since(clock.instant())) == 0) {
+            throw restoreFailure(userId, mealId);
+        }
+        Meal meal = findMine(userId, mealId);   // 벌크 UPDATE가 영속성 컨텍스트를 비워서 DB에서 새로 읽음
+        // 이미 보냈거나 혈당을 잰 알림이 있으면 안 걸고, 알림 시각이 지났으면 안 만든다 (rescheduleAfterMeal 규칙 그대로)
+        // 이번 끼니 측정을 건너뛴 식사는 다시 안 건다 (H-05)
+        if (meal.getMeasureSkippedAt() == null) {
+            reminderService.rescheduleAfterMeal(userId, mealId, meal.getMealSlot(), meal.getStartedAt());
+        }
+        return MealResponse.from(meal, mealItemService.itemsOf(mealId));
+    }
+
+    // 왜 못 되돌렸는지: 없음·남의 것 404 / 안 지움 409 / 5분 지남 409
+    private CustomException restoreFailure(Long userId, Long mealId) {
+        return mealRepository.findByIdAndUserId(mealId, userId)
+                .map(m -> m.getDeletedAt() == null
+                        ? new CustomException(MealErrorCode.NOT_DELETED)
+                        : new CustomException(MealErrorCode.UNDO_EXPIRED))
+                .orElseGet(() -> new CustomException(MealErrorCode.MEAL_NOT_FOUND));
+    }
+
+    // H-05 이번 끼니 식후 측정 건너뛰기. 처음 누른 시각만 남고 두 번 눌러도 200
+    @Transactional
+    public MealResponse skipMeasure(Long userId, Long mealId) {
+        sensitiveConsentGuard.require(userId);   // 식사 줄에 쓰는 것이라 동의가 없으면 403
+        // 지운 식사·남의 식사는 404. 줄을 잠가서 동시에 두 번 눌러도 뒤 요청이 앞 요청의 시각을 보고 그대로 둠
+        Meal meal = findMineForUpdate(userId, mealId);
+        if (readingRepository.existsByUserIdAndMealIdAndReadingTypeAndDeletedAtIsNull(userId, mealId, ReadingType.POST_MEAL)) {
+            throw new CustomException(MealErrorCode.ALREADY_MEASURED);   // 이미 식후 혈당을 잰 끼니는 건너뛸 게 없음
+        }
+        meal.skipMeasure(clock.instant());
+        reminderService.dismissForMeal(mealId);
+        mealRepository.flush();                  // 응답에 새 updatedAt을 담으려고 (update와 같은 이유)
+        return MealResponse.from(meal, mealItemService.itemsOf(mealId));
+    }
+
+    // findMine과 같은데 이 식사 줄을 트랜잭션 끝까지 잠금 (수정·지우기·건너뛰기가 서로 기다리게)
+    private Meal findMineForUpdate(Long userId, Long mealId) {
+        return mealRepository.findMineForUpdate(mealId, userId)
+                .orElseThrow(() -> new CustomException(MealErrorCode.MEAL_NOT_FOUND));
     }
 
     // 내 것 + 삭제 안 된 것만. 없음·삭제됨·남의 것은 전부 404

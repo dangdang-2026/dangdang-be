@@ -33,7 +33,7 @@ public record ReadingStatsResponse(
             Integer average,          // 평균 (반올림). 기록이 없으면 null
             Double inTargetRate,      // 목표 안 비율 0~1 (소수 둘째 자리) = inTarget ÷ judged. judged가 0이면 null
             int count,                // 측정 횟수 (목표가 없던 기록 포함)
-            long missed,              // 알림이 갔는데 혈당을 안 남긴 횟수
+            long missed,              // 알림이 갔는데(또는 이번 끼니를 건너뛰었는데) 혈당을 안 남긴 횟수
             int overDays,             // 목표를 넘은 기록이 하나라도 있는 날 수
             int judged,               // 그때 목표와 비교한 기록 수 (D-17 「86번 중」)
             int inTarget,             // 그중 목표 안 (D-17 「71번」)

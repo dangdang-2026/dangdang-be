@@ -62,7 +62,7 @@ public class VisitReportController {
                     kind·from·to·visitId·visitDate, careSite{careSiteId, name}(없거나 지운 병원이면 null), displayName,
                     pregnancyWeeks{from, to}(리포트 기간과 겹치는 임신의 예정일로 셈, 없으면 null, 그날이 임신 전·출산 뒤면 그 칸만 null),
                     criteria[](기간 안 날마다 적용된 기준 + 기록들이 실제로 판정에 쓴 기준, 오래된 순),
-                    summary{measured 측정, missed 빈칸, enteredLate 나중 입력, below70, outOfTarget, inTargetRate, compared},
+                    summary{measured 측정, missed 빈칸(알림 뒤 안 잰 측정 · 건너뛴 끼니 포함), enteredLate 나중 입력, below70, outOfTarget, inTargetRate, compared},
                     slots[]{slot, measured, outOfTarget}(하루 순서, 잴 때 없는 기록은 slot null로 맨 뒤),
                     readings[]{readingId, measuredAt, readingType, slot, value, aboveTarget, enteredLate}(원값 표),
                     questionCount(물어볼 것 수). 목표 밖은 기록마다 그때 기준으로 셈.
