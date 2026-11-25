@@ -142,7 +142,7 @@ src/main/java/com/dangdang
 
 src/main/resources
 ├── application.yaml        # 공통 설정 (local · prod 프로필 분리)
-├── db/migration/           # Flyway (V1__… · V20261127_1__…)
+├── db/migration/           # Flyway (V1__… · V20261124_96__…)
 └── mail/                   # 메일 템플릿
 
 docker/
