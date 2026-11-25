@@ -90,7 +90,10 @@ public class MealService {
         if (req.isEmpty()) {
             throw new CustomException(MealErrorCode.NOTHING_TO_UPDATE);
         }
-        Meal meal = findMine(userId, mealId);
+        // 식사 줄을 잠그고 읽음 — 혈당 쪽 저장·수정도 같은 줄을 잠그고 시작 시각을 봐서,
+        // 아래 "식후 혈당보다 늦게" 확인과 혈당 쪽 "식사 시작보다 앞" 확인이 동시에 둘 다 통과하지 않게 함
+        Meal meal = mealRepository.findMineForUpdate(mealId, userId)
+                .orElseThrow(() -> new CustomException(MealErrorCode.MEAL_NOT_FOUND));
         boolean timingChanged = (req.mealSlot() != null && req.mealSlot() != meal.getMealSlot())
                 || (req.startedAt() != null && !req.startedAt().equals(meal.getStartedAt()));
         if (req.startedAt() != null && readingRepository
