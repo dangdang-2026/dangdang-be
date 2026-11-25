@@ -109,7 +109,7 @@ public class CareSiteService {
     // 삭제 (soft delete). 이미 지운 병원을 또 지우면 findMine에서 404
     // 이 병원을 가리키던 병원 기준(criteria_versions)·지난 일정·리포트·식사 안내는 그대로 둠 (지난 기록이 그때 병원을 가리켜야 해서)
     // 아직 안 온 일정·날짜 미정 일정은 질문·메모까지 같이 지운다 (C-20 「함께 지워져요: 다음 진료일 · 진료 알림」)
-    // 진료 알림(VISIT_BEFORE·VISIT_TODAY)은 서버가 아직 만들지 않아서 따로 취소할 예약이 없다
+    // 진료 알림(VISIT_BEFORE·VISIT_TODAY)은 조회와 claim이 deleted_at을 거르므로 따로 취소할 예약이 없다
     @Transactional
     public void delete(Long userId, Long careSiteId) {
         Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);   // DB(TIMESTAMPTZ)와 같은 정밀도 (일정 삭제와 같게)
