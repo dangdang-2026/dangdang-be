@@ -673,6 +673,93 @@ class ReadingFlowTest {
         assertThat(((Number) dinnerReminder.get("reading_id")).longValue()).isEqualTo(id);
     }
 
+    // 식후 혈당 하나 등록하고 readingId 돌려줌
+    private long createPostMeal(long mealId) throws Exception {
+        String body = mvc.perform(post("/api/readings").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content(postMealJson(mealId)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return ((Number) JsonPath.read(body, "$.data.readingId")).longValue();
+    }
+
+    @Test
+    void 지운_식사의_알림은_혈당을_공복으로_고쳐도_되살아나지_않는다() throws Exception {
+        long mealId = lunchWithReminder();
+        long id = createPostMeal(mealId);
+        assertThat(reminderOf(mealId).get("status")).isEqualTo("DONE");
+        mvc.perform(delete("/api/meals/" + mealId).cookie(access)).andExpect(status().isOk());
+
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"readingType\":\"FASTING\",\"slot\":\"FASTING\"}"))
+                .andExpect(status().isOk());
+
+        Map<String, Object> reminder = reminderOf(mealId);
+        assertThat(reminder.get("status")).isEqualTo("CANCELED");   // SCHEDULED로 돌아가 "재세요"가 가면 안 됨
+        assertThat(reminder.get("reading_id")).isNull();
+    }
+
+    @Test
+    void 알림을_들고_있던_혈당을_다른_식사로_옮기면_남은_식후_혈당이_알림을_이어받는다() throws Exception {
+        mvc.perform(post("/api/criteria-versions").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"postMealMinutes\":60,\"measureSlots\":[\"LUNCH_AFTER\",\"DINNER_AFTER\"]}"))
+                .andExpect(status().isCreated());
+        long lunch = mealStartedNow("LUNCH");
+        long dinner = mealStartedNow("DINNER");
+        jdbc.update("UPDATE reminders SET status = 'SENT', sent_at = now() WHERE meal_id = ?", lunch);
+        long first = createPostMeal(lunch);
+        long second = createPostMeal(lunch);
+        assertThat(((Number) reminderOf(lunch).get("reading_id")).longValue()).isEqualTo(first);
+
+        mvc.perform(patch("/api/readings/" + first).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mealId\":" + dinner + "}"))
+                .andExpect(status().isOk());
+
+        Map<String, Object> lunchReminder = reminderOf(lunch);
+        assertThat(lunchReminder.get("status")).isEqualTo("DONE");   // 놓친 측정(SENT)이 아님
+        assertThat(((Number) lunchReminder.get("reading_id")).longValue()).isEqualTo(second);
+    }
+
+    @Test
+    void 혈당을_점심에서_저녁으로_옮겼다가_다시_점심으로_옮기면_점심_알림이_다시_붙는다() throws Exception {
+        mvc.perform(post("/api/criteria-versions").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"postMealMinutes\":60,\"measureSlots\":[\"LUNCH_AFTER\",\"DINNER_AFTER\"]}"))
+                .andExpect(status().isCreated());
+        long lunch = mealStartedNow("LUNCH");
+        long dinner = mealStartedNow("DINNER");
+        // 점심 알림은 안 보냈는데 울릴 시각이 지났다고 침 → 풀면 SKIPPED가 됨
+        jdbc.update("UPDATE reminders SET scheduled_at = now() - interval '1 minute' WHERE meal_id = ?", lunch);
+        long id = createPostMeal(lunch);
+
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mealId\":" + dinner + "}"))
+                .andExpect(status().isOk());
+        assertThat(reminderOf(lunch).get("status")).isEqualTo("SKIPPED");
+
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mealId\":" + lunch + "}"))
+                .andExpect(status().isOk());
+        Map<String, Object> lunchReminder = reminderOf(lunch);
+        assertThat(lunchReminder.get("status")).isEqualTo("DONE");
+        assertThat(((Number) lunchReminder.get("reading_id")).longValue()).isEqualTo(id);
+        Map<String, Object> dinnerReminder = reminderOf(dinner);
+        assertThat(dinnerReminder.get("status")).isEqualTo("SCHEDULED");   // 저녁 알림은 풀려서 다시 예약 상태
+        assertThat(dinnerReminder.get("reading_id")).isNull();
+    }
+
+    @Test
+    void 알림을_끝낸_혈당을_지우면_알림이_풀려서_놓친_측정으로_돌아간다() throws Exception {
+        long mealId = lunchWithReminder();
+        jdbc.update("UPDATE reminders SET status = 'SENT', sent_at = now() WHERE meal_id = ?", mealId);
+        long id = createPostMeal(mealId);
+        assertThat(reminderOf(mealId).get("status")).isEqualTo("DONE");
+
+        mvc.perform(delete("/api/readings/" + id).cookie(access)).andExpect(status().isOk());
+
+        Map<String, Object> reminder = reminderOf(mealId);
+        assertThat(reminder.get("status")).isEqualTo("SENT");
+        assertThat(reminder.get("reading_id")).isNull();
+    }
+
     // 지금 시작한 식사 (병원 기준이 있으면 식후 알림이 예약됨)
     private long mealStartedNow(String mealSlot) throws Exception {
         String body = mvc.perform(post("/api/meals").cookie(access).contentType(MediaType.APPLICATION_JSON)

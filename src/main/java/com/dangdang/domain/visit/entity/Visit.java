@@ -6,6 +6,7 @@ import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.DynamicUpdate;
 
 import java.time.Instant;
 
@@ -13,6 +14,7 @@ import java.time.Instant;
 @Getter
 @Entity
 @Table(name = "visits")
+@DynamicUpdate   // 바뀐 칸만 UPDATE → 일정 수정이 읽어 둔 옛 deleted_at(null)으로 병원 지우기를 덮어쓰지 않는다
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Visit extends BaseTimeEntity {
 

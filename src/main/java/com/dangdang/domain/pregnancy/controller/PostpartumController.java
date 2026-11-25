@@ -59,7 +59,7 @@ public class PostpartumController {
             description = """
                     **Parameters** deliveryDate(오늘까지)
                     **Returns** state=POSTPARTUM, deliveryDate, pausedReminders
-                    측정 알림이 멈춘다. 입원 중·다른 상황(PAUSED)에서도 된다. 오늘 뒤 날짜 400 PREGNANCY_40001 · 이미 졸업 409 PREGNANCY_40902
+                    측정 알림이 멈춘다. 입원 중·다른 상황(PAUSED)에서도 된다. 오늘 뒤 날짜 400 PREGNANCY_40001 · 진단일보다 앞 400 PREGNANCY_40005(같은 날은 됨) · 이미 졸업 409 PREGNANCY_40902
                     """)
     @PatchMapping("/api/me/delivery-date")
     public ResponseEntity<BaseResponse<PregnancyStateResponse>> deliver(

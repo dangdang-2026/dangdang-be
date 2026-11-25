@@ -32,7 +32,7 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class ConsentService {
     private static final DateTimeFormatter KOREAN_DATE = DateTimeFormatter.ofPattern("yyyy년 M월 d일", Locale.KOREAN);
-    private static final String MARKETING_DEEP_LINK = "/my";   // 광고 설정 화면 주소가 정해지면 바꾼다
+    private static final String MARKETING_DEEP_LINK = "/my/notifications";   // 광고성 정보 받기 토글이 있는 알림 설정 화면 (앱 ROUTES.MY_NOTIFICATIONS)
 
     private final UserRepository userRepository;
     private final ConsentEventRepository consentEventRepository;

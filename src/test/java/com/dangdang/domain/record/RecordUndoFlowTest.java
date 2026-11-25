@@ -162,6 +162,68 @@ class RecordUndoFlowTest extends ReminderTestBase {
         assertThat(scheduledFor(mealId)).isZero();
     }
 
+    // 지울 때 풀었던 알림을 되돌릴 때 다시 붙인다 (지우기의 releaseForDeletedReading과 대칭)
+    @Test
+    void 식후_혈당을_되돌리면_풀렸던_알림이_다시_DONE() throws Exception {
+        long mealId = lunchTenMinutesAgo();
+        long reminderId = sentReminderFor(mealId);
+        long readingId = postMealReading(mealId);
+        assertThat(statusOf(reminderId)).isEqualTo("DONE");
+        mvc.perform(delete("/api/readings/" + readingId).cookie(jisu)).andExpect(status().isOk());
+        assertThat(statusOf(reminderId)).isEqualTo("SENT");
+
+        mvc.perform(post("/api/readings/" + readingId + "/restore").cookie(jisu)).andExpect(status().isOk());
+
+        assertThat(statusOf(reminderId)).isEqualTo("DONE");
+        assertThat(jdbc.queryForObject("SELECT reading_id FROM reminders WHERE id = ?", Long.class, reminderId))
+                .isEqualTo(readingId);
+    }
+
+    // 혈당을 지운 사이 그 끼니를 건너뛰었으면, 되돌린 혈당은 「건너뛴 뒤 잰 혈당」과 같게 알림을 DONE으로 붙인다
+    @Test
+    void 지운_사이_건너뛴_끼니의_식후_혈당을_되돌리면_건너뛴_뒤_잰_것처럼_DONE() throws Exception {
+        long mealId = lunchTenMinutesAgo();
+        long reminderId = sentReminderFor(mealId);
+        long readingId = postMealReading(mealId);
+        mvc.perform(delete("/api/readings/" + readingId).cookie(jisu)).andExpect(status().isOk());
+        mvc.perform(post("/api/meals/" + mealId + "/measure-skip").cookie(jisu)).andExpect(status().isOk());
+        assertThat(statusOf(reminderId)).isEqualTo("DISMISSED");
+
+        mvc.perform(post("/api/readings/" + readingId + "/restore").cookie(jisu)).andExpect(status().isOk());
+
+        assertThat(statusOf(reminderId)).isEqualTo("DONE");
+    }
+
+    // 지운 식사를 가리키는 혈당이 살아나지 않게 — 식사부터 되돌리면 된다
+    @Test
+    void 식사를_지운_뒤_식후_혈당만_되돌리면_409_READING_40904() throws Exception {
+        long mealId = lunchTenMinutesAgo();
+        long readingId = postMealReading(mealId);
+        mvc.perform(delete("/api/readings/" + readingId).cookie(jisu)).andExpect(status().isOk());
+        mvc.perform(delete("/api/meals/" + mealId).cookie(jisu)).andExpect(status().isOk());
+
+        mvc.perform(post("/api/readings/" + readingId + "/restore").cookie(jisu))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.errorCode").value("READING_40904"));
+        mvc.perform(get("/api/readings/" + readingId).cookie(jisu)).andExpect(status().isNotFound());
+
+        mvc.perform(post("/api/meals/" + mealId + "/restore").cookie(jisu)).andExpect(status().isOk());
+        mvc.perform(post("/api/readings/" + readingId + "/restore").cookie(jisu)).andExpect(status().isOk());
+    }
+
+    private long sentReminderFor(long mealId) {
+        long reminderId = reminderAt(jisuId, NOW.minus(Duration.ofMinutes(5)));
+        jdbc.update("UPDATE reminders SET meal_id = ?, status = 'SENT', sent_at = ? WHERE id = ?",
+                mealId, java.sql.Timestamp.from(NOW.minus(Duration.ofMinutes(5))), reminderId);
+        return reminderId;
+    }
+
+    private long postMealReading(long mealId) throws Exception {
+        return id(send(post("/api/readings"), jisu, "{\"value\":130,\"measuredAt\":\"" + NOW
+                        + "\",\"readingType\":\"POST_MEAL\",\"mealId\":" + mealId + "}")
+                .andExpect(status().isCreated()), "$.data.readingId");
+    }
+
     private long deletedReading() throws Exception {
         long readingId = id(send(post("/api/readings"), jisu, READING).andExpect(status().isCreated()), "$.data.readingId");
         mvc.perform(delete("/api/readings/" + readingId).cookie(jisu)).andExpect(status().isOk());   // 지운 시각 = NOW (고정 시계)
