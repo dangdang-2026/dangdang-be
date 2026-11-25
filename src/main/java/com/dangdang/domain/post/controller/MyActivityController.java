@@ -89,7 +89,7 @@ public class MyActivityController {
                     """
                     **Parameters** 없음
                     **Returns** postCount, commentCount, reactedPostCount, blockedCount (M-14 커뮤니티 설정).
-                    위 세 목록 · GET /api/blocks와 같은 조건으로 센다. 프로필이 없으면 전부 0
+                    위 세 목록 · GET /api/blocks와 같은 조건으로 센다 (blockedCount는 사람 수가 아니라 차단한 줄 수). 프로필이 없으면 전부 0
                     """)
     @GetMapping("/community-activity/counts")
     public ResponseEntity<BaseResponse<MyCommunityCountsResponse>> counts(

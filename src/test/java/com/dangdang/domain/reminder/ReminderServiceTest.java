@@ -22,6 +22,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 
+import static com.dangdang.support.TestConsents.grantSensitive;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest
@@ -38,7 +39,8 @@ class ReminderServiceTest {
 
     @BeforeEach
     void saveUser() {
-        userId = userRepository.save(User.ofEmail("jisu@x.com", "지수", "not-used", Instant.now())).getId();
+        userId = grantSensitive(jdbc,
+                userRepository.save(User.ofEmail("jisu@x.com", "지수", "not-used", Instant.now()))).getId();
     }
 
     @AfterEach

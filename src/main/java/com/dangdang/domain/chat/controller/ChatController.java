@@ -38,9 +38,12 @@ public class ChatController {
                     **Parameters** content(필수, 500자)
                     **Returns** question(보낸 말) · answer(당당이 답). answer.kind로 화면을 고른다:
                     RECORDS(Q-03 기록 카드 records) · QUESTION_DRAFT(Q-04 questionDraft) · INFO(Q-06 출처 sources) · UNKNOWN(병원에 물어보세요)
-                    RISK(Q-07 위험 신호 · actions 전화 버튼) · DOSE(약 용량 → 병원) · CONSENT_NEEDED(기록 사용 동의 필요) · FAILED(Q-08 다시 묻기)
-                    RISK·DOSE는 AI를 거치지 않아서 동의·하루 상한과 상관없이 온다
-                    국외 이전 동의(OVERSEAS_TRANSFER)가 없어도 일반 질문은 답한다(11/20). 내 기록 답은 AI_CHAT_RECORDS 동의가 있어야 한다. 하루 30번 넘으면 429 AI_42901 (FAILED는 횟수에 안 셈)
+                    RISK(Q-07 위급 안내 · actions 전화 버튼) · DOSE(약 용량 → 병원) · CONSENT_NEEDED(기록 사용 동의 필요) · FAILED(Q-08 다시 묻기)
+                    RISK·DOSE는 말 목록으로 먼저 잡으면 AI를 거치지 않아서 국외 이전 동의·하루 상한·건강정보 동의와 상관없이 온다. 건강정보 동의(SENSITIVE)가 없으면(재동의 필요 포함) 대화 기록에 남기지 않아서 question.id·answer.id가 null
+                    RISK면 risk{type URGENT·HYPO·MIND·SAFETY, title, warning}, content는 본문만. 버튼은 actions(CALL_HOSPITAL·CALL_119·CALL_109·CALL_1577_0199·CALL_112·CALL_1366)
+                    AI가 위급·마음 위기·폭력 이유를 고르면 같은 RISK 안내로 바꿔서 준다 (이때는 AI를 불렀으니 횟수에 셈)
+                    UNKNOWN이면 reason(JUDGMENT·NO_SOURCE·CHITCHAT·RUDE·OFF_TOPIC·NO_CONSENT·DISTRESS·APP_HELP·ABOUT)으로 버튼을 고른다
+                    그 밖의 질문은 건강정보 동의가 없으면 403 USER_40302 (아무것도 저장 안 함). 국외 이전 동의(OVERSEAS_TRANSFER)가 없으면 403 AI_40301 (위험 신호·약 용량은 이 동의 없이도 옴). 내 기록 답은 AI_CHAT_RECORDS 동의가 더 있어야 한다. 하루 30번 넘으면 429 AI_42901 (FAILED는 횟수에 안 셈)
                     """)
     @PostMapping
     public ResponseEntity<BaseResponse<ChatAskResponse>> ask(
@@ -51,7 +54,8 @@ public class ChatController {
 
     @Operation(summary = "[ 사용자 | 토큰 O | 대화 목록 ]",
             description = "**Parameters** cursorId(첫 장은 비움, 다음 장은 받은 nextCursorId), size(기본 20, 1~50) "
-                    + "**Returns** items(최신이 먼저), size, hasNext, nextCursorId")
+                    + "**Returns** items(최신이 먼저), size, hasNext, nextCursorId. "
+                    + "items[].risk(RISK 위급 안내 틀)·reason(UNKNOWN 이유)은 물어보기 답과 같고, 예전 대화는 null일 수 있다")
     @GetMapping
     public ResponseEntity<BaseResponse<ChatPageResponse>> list(
             @AuthenticationPrincipal AuthPrincipal principal,

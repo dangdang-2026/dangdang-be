@@ -32,12 +32,13 @@ public final class PostSpecifications {
             List<Predicate> where = new ArrayList<>();
             where.add(cb.isNull(root.get("deletedAt")));      // 지운 글 제외
             where.add(cb.isNull(root.get("hiddenReason")));   // 가려진 글 제외
-            if (myProfileId != null) {                        // 내가 안 보기 한 사람의 글 제외
+            if (myProfileId != null) {                        // 내가 안 보기 한 사람의 글 제외 (이름 차단은 이름 글만, 익명 차단은 익명 글만)
                 Subquery<Long> blocked = query.subquery(Long.class);
                 Root<ProfileBlock> block = blocked.from(ProfileBlock.class);
                 blocked.select(block.get("id")).where(
                         cb.equal(block.get("profile").get("id"), myProfileId),
-                        cb.equal(block.get("blockedProfile").get("id"), root.get("profile").get("id")));
+                        cb.equal(block.get("blockedProfile").get("id"), root.get("profile").get("id")),
+                        cb.equal(block.get("viaAnonymous"), root.get("anonymous")));
                 where.add(cb.not(cb.exists(blocked)));
             }
             if (category != null) {

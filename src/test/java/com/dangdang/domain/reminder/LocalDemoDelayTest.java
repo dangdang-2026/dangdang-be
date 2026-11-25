@@ -23,6 +23,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 
+import static com.dangdang.support.TestConsents.grantSensitive;
 import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest
@@ -42,7 +43,8 @@ class LocalDemoDelayTest {
 
     @Test
     void local_프로필이면_식후_60분이어도_1분_뒤로_잡힌다() {
-        Long userId = userRepository.save(User.ofEmail("jisu@x.com", "지수", "not-used", Instant.now())).getId();
+        Long userId = grantSensitive(jdbc,
+                userRepository.save(User.ofEmail("jisu@x.com", "지수", "not-used", Instant.now()))).getId();
         criteriaService.create(userId, new CriteriaVersionCreateRequest(
                 60, List.of(MeasureSlot.LUNCH_AFTER), null, null, null, null));
         Instant startedAt = clock.instant();   // 11/10 고침: 고정 시각(11/09 12:00)이면 이미 지나서 null이 된다

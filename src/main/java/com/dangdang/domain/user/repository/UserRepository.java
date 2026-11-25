@@ -25,6 +25,12 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Query("select u from User u where u.id = :id")
     Optional<User> findByIdForUpdate(@Param("id") Long id);
 
+    // 이 사람 줄을 「읽기 잠금」(FOR SHARE)으로 읽는다: 건강 기록 저장끼리는 서로 안 막고,
+    // 건강정보 철회(FOR UPDATE)와는 차례로 — 철회 중이면 끝날 때까지 기다린다 (SensitiveConsentGuard)
+    @Lock(LockModeType.PESSIMISTIC_READ)
+    @Query("select u from User u where u.id = :id")
+    Optional<User> findByIdForShare(@Param("id") Long id);
+
     // 이메일 필수 전(11/24)에 카카오로 가입해 이메일이 빈 계정 → 카카오가 인증한 이메일로 채운다 (한 줄 UPDATE)
     // 다른 계정이 그 이메일을 쓰면(대소문자 무시) 안 채운다 (합치지 않는다, AUTH-05). 채웠으면 1, 아니면 0
     // 확인과 쓰기가 한 문장이라 「없는 줄 알았는데 커밋 때 ux_users_email에 걸려 500」이 없다

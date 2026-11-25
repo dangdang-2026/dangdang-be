@@ -1,12 +1,16 @@
 package com.dangdang.domain.reading.repository;
 
+import com.dangdang.domain.criteria.entity.CriteriaVersion;
 import com.dangdang.domain.reading.entity.Reading;
 import com.dangdang.domain.reading.enums.ReadingType;
 import org.springframework.data.domain.Limit;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -19,8 +23,10 @@ public interface ReadingRepository extends JpaRepository<Reading, Long> {
 
     // 목록 한 페이지: 내 것 + 삭제 안 됨 + from 이후 + 커서(cursorAt, cursorId)보다 과거. 최신순
     // 첫 페이지는 cursorAt = 기간 끝(to 다음 날 0시), cursorId = 0 으로 부름 (null 안 씀. 0이라 기간 끝 시각과 딱 같은 기록은 빠짐)
+    // 병원 기준도 같이 가져옴 (응답의 목표 판정 targetValue·aboveTarget용)
     @Query("""
             select r from Reading r
+            join fetch r.criteriaVersion
             where r.user.id = :userId
               and r.deletedAt is null
               and r.measuredAt >= :from
@@ -68,7 +74,20 @@ public interface ReadingRepository extends JpaRepository<Reading, Long> {
 
     // 여러 식사에 연결된(meal_id) 내 혈당을 한 번에 (같은 음식 지난 기록용). 잰 시각 순
     // 시간이 가깝다고 붙이지 않고 meal_id로 연결된 것만 씀
+    // 병원 기준도 같이 가져옴 (응답의 목표 판정 칸 — 혈당마다 기준을 또 조회하지 않게)
+    @EntityGraph(attributePaths = "criteriaVersion")
     List<Reading> findAllByUserIdAndMealIdInAndDeletedAtIsNullOrderByMeasuredAtAscIdAsc(Long userId, Collection<Long> mealIds);
+
+    // 이 식사에 지우지 않은 이 종류(식후) 혈당이 있는지 — 이미 잰 끼니는 건너뛰기를 막으려고 (H-05)
+    boolean existsByUserIdAndMealIdAndReadingTypeAndDeletedAtIsNull(Long userId, Long mealId, ReadingType readingType);
+
+    // 이 식사에 붙은 살아 있는 식후 혈당 중 이 시각보다 앞에 잰 것이 있는지 (식사 시작을 늦출 때 확인)
+    boolean existsByUserIdAndMealIdAndReadingTypeAndDeletedAtIsNullAndMeasuredAtBefore(
+            Long userId, Long mealId, ReadingType readingType, Instant startedAt);
+
+    // 이 식사에 붙은 살아 있는 식후 혈당 중 이 혈당을 뺀 것. 먼저 잰 순 (알림을 들고 있던 혈당을 옮기거나 지울 때 남은 혈당으로 다시 붙이려고)
+    List<Reading> findByMealIdAndReadingTypeAndDeletedAtIsNullAndIdNotOrderByMeasuredAtAscIdAsc(
+            Long mealId, ReadingType readingType, Long excludedId);
 
     // 기간 안 기록 개수·목표와 비교한 수·목표 밖 수 (from 이상 to 미만). 기록을 다 읽지 않고 DB에서 셈
     // 목표 판정은 ReadingEvaluator.aboveTarget과 같음 (기록마다 잴 때 적용 중이던 기준, 목표값 이상이면 밖)
@@ -97,4 +116,79 @@ public interface ReadingRepository extends JpaRepository<Reading, Long> {
               and r.deletedAt is null
             """)
     Instant findFirstMeasuredAt(Long userId);
+
+    // 하나 찾기 (지운 것 포함) — 되돌리기가 실패했을 때 이유(없음·안 지움·5분 지남)를 고르려고만 씀
+    Optional<Reading> findByIdAndUserId(Long id, Long userId);
+
+    // 되돌리기 (D-08): 내 것 + 지운 지 since 이후인 것만 deleted_at을 비운다. 바뀐 줄 수(0 또는 1)
+    // 조건을 UPDATE 안에 넣어서 두 번(동시에) 눌러도 하나만 1 (뒤 요청은 앞 요청이 끝날 때까지 줄 잠금을 기다렸다가 조건을 다시 봄)
+    // 하나 지우기(엔티티 변경)처럼 row_version도 올림
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update Reading r set r.deletedAt = null, r.rowVersion = r.rowVersion + 1
+            where r.id = :id
+              and r.user.id = :userId
+              and r.deletedAt is not null
+              and r.deletedAt >= :since
+            """)
+    int restore(Long id, Long userId, Instant since);
+
+    // 기간 지우기 (M-07): 기간 안 살아 있는 내 혈당 id
+    @Query("""
+            select r.id from Reading r
+            where r.user.id = :userId
+              and r.deletedAt is null
+              and r.measuredAt >= :from
+              and r.measuredAt < :to
+            """)
+    List<Long> findIdsInRange(Long userId, Instant from, Instant to);
+
+    // 기간 지우기 (M-07): 이 식사들에 붙은 살아 있는 내 혈당 id (식사와 같이 지워서 식사-식후 혈당 짝이 갈라지지 않게)
+    @Query("""
+            select r.id from Reading r
+            where r.user.id = :userId
+              and r.deletedAt is null
+              and r.mealId in :mealIds
+            """)
+    List<Long> findIdsByMealIds(Long userId, Collection<Long> mealIds);
+
+    // 이 혈당들을 한 번에 지운 것으로. 그사이 하나씩 지운 건 deleted_at 조건으로 빠짐 → 지운 줄 수가 정확
+    // row_version도 올린다 — 그사이 같은 기록을 고치던 요청이 옛 버전으로 deleted_at을 되살리지 않고 409(READING_40903)가 되게
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update Reading r set r.deletedAt = :now, r.rowVersion = r.rowVersion + 1
+            where r.id in :ids
+              and r.user.id = :userId
+              and r.deletedAt is null
+            """)
+    int softDeleteAll(Collection<Long> ids, Long userId, Instant now);
+
+    // 지난 날짜부터 적용하는 기준 (C-09): 이 기간에 잰 내 기록(지운 것 포함 — 되돌리면 새 기준으로 보이게)을 이 기준에 다시 붙임. 바뀐 줄 수
+    // row_version을 올림 — 그사이 같은 기록을 고치던 요청이 옛 버전으로 옛 기준을 다시 덮지 않고 409(READING_40903)가 되게
+    // updated_at·edited_at은 안 건드림 → 사용자가 고친 게 아니라 「수정됨」이 안 뜸
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update Reading r set r.criteriaVersion = :criteria, r.rowVersion = r.rowVersion + 1
+            where r.user.id = :userId
+              and r.measuredAt >= :from
+              and r.measuredAt < :to
+            """)
+    int relinkCriteria(Long userId, CriteriaVersion criteria, Instant from, Instant to);
+
+    // 지난 날짜 기준 (C-09): 다음 기준 시작일(nextFrom)에 잰 기록 중 그 기준을 적기 전이라 앞 기준을 가리키는 것을 새 기준으로
+    // 앞 기준 = 적용일이 nextFrom보다 이른 기준, 또는 그날 서버가 만든 빈 기준. 다음 기준을 가리키는 기록은 그대로
+    // relinkCriteria처럼 지운 기록도 포함하고 row_version만 올림
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update Reading r set r.criteriaVersion = :criteria, r.rowVersion = r.rowVersion + 1
+            where r.user.id = :userId
+              and r.measuredAt >= :from
+              and r.measuredAt < :to
+              and r.criteriaVersion.id in (
+                  select c.id from CriteriaVersion c
+                  where c.user.id = :userId
+                    and c <> :criteria
+                    and (c.effectiveFrom < :nextFrom or (c.autoEmpty = true and c.effectiveFrom = :nextFrom)))
+            """)
+    int relinkStaleOnDay(Long userId, CriteriaVersion criteria, LocalDate nextFrom, Instant from, Instant to);
 }

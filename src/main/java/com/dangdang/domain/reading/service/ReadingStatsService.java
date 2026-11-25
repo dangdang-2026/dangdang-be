@@ -34,7 +34,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -48,8 +48,9 @@ public class ReadingStatsService {
     // 기간 직접 고르기 최대 길이 (임신 기간 전체 280일 + 여유)
     private static final int MAX_CUSTOM_DAYS = 300;
 
-    // "놓친 측정" = 알림을 보냈거나 열어 봤는데 혈당이 안 붙은 알림 (DONE이 안 됨)
-    public static final List<ReminderStatus> MISSED_STATUSES = List.of(ReminderStatus.SENT, ReminderStatus.OPENED);
+    // "놓친 측정" = 알림을 보냈거나 열어 봤거나 「이번 끼니는 건너뛸게요」 했는데 혈당이 안 붙은 알림 (DONE이 안 됨)
+    public static final List<ReminderStatus> MISSED_STATUSES =
+            List.of(ReminderStatus.SENT, ReminderStatus.OPENED, ReminderStatus.DISMISSED);
     // 알림이 가고 이만큼 지나야 "놓침"으로 셈 (늦게 적기 기준 30분과 같게)
     public static final Duration MISSED_GRACE = Duration.ofMinutes(30);
     private static final List<MeasureSlot> POST_MEAL_SLOTS =
@@ -86,7 +87,8 @@ public class ReadingStatsService {
                 hasPrevious ? summarize(previous, previousMissed) : null,
                 series(current, range),
                 hasPrevious ? series(previous, compareRange) : null,
-                type == ReadingType.POST_MEAL ? byMeal(current, previous) : List.of());
+                type == ReadingType.POST_MEAL ? byMeal(current, previous) : List.of(),
+                firstRecordDate(userId));
     }
 
     // 보는 기간. 정해진 기간은 오늘까지 거꾸로, CUSTOM은 from·to 그대로 (둘 다 포함)
@@ -119,16 +121,22 @@ public class ReadingStatsService {
     }
 
     private Summary summarize(List<Reading> readings, long missed) {
-        // 목표가 있었던 기록만 "안/밖"을 셀 수 있음 (그때 기준에 목표가 없던 기록은 비율에서 뺌)
-        List<Boolean> judged = readings.stream().map(ReadingEvaluator::aboveTarget).filter(Objects::nonNull).toList();
-        Double inTargetRate = judged.isEmpty() ? null
-                : round2((double) judged.stream().filter(above -> !above).count() / judged.size());
-        int overDays = (int) readings.stream()
-                .filter(r -> Boolean.TRUE.equals(ReadingEvaluator.aboveTarget(r)))
-                .map(this::dateOf)
-                .distinct()
-                .count();
-        return new Summary(average(readings), inTargetRate, readings.size(), missed, overDays);
+        // 목표가 있었던 기록만 "안/밖"을 셀 수 있음 (그때 기준에 목표가 없던 기록은 비율·분모에서 뺌)
+        List<Reading> judged = readings.stream().filter(r -> ReadingEvaluator.aboveTarget(r) != null).toList();
+        List<Reading> over = judged.stream().filter(ReadingEvaluator::aboveTarget).toList();   // judged라 null 없음
+        int inTarget = judged.size() - over.size();
+        Double inTargetRate = judged.isEmpty() ? null : round2((double) inTarget / judged.size());
+        Set<LocalDate> judgedDays = judged.stream().map(this::dateOf).collect(Collectors.toSet());
+        Set<LocalDate> overDays = over.stream().map(this::dateOf).collect(Collectors.toSet());
+        int belowLow = (int) readings.stream().filter(ReadingEvaluator::belowLow).count();
+        return new Summary(average(readings), inTargetRate, readings.size(), missed, overDays.size(),
+                judged.size(), inTarget, judgedDays.size(), judgedDays.size() - overDays.size(), belowLow);
+    }
+
+    // 처음 잰 날 (한국, 지운 기록 빼고). 기록이 하나도 없으면 null
+    private LocalDate firstRecordDate(Long userId) {
+        Instant first = readingRepository.findFirstMeasuredAt(userId);
+        return first == null ? null : KoreanTime.dateOf(first);
     }
 
     // 날짜별 평균. 기록 없는 날도 넣어서 그래프 x축이 비지 않게 함
@@ -189,7 +197,7 @@ public class ReadingStatsService {
         Instant rangeEnd = KoreanTime.endOfDay(range.to());
         Instant graceEnd = clock.instant().minus(MISSED_GRACE);
         Instant end = rangeEnd.isBefore(graceEnd) ? rangeEnd : graceEnd;
-        return reminderRepository.countByUserIdAndSlotInAndStatusInAndScheduledAtGreaterThanEqualAndScheduledAtLessThan(
+        return reminderRepository.countMissed(
                 userId, slots, MISSED_STATUSES, KoreanTime.startOfDay(range.from()), end);
     }
 

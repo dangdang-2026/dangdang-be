@@ -8,17 +8,21 @@ import com.dangdang.domain.criteria.enums.MeasureSlot;
 import com.dangdang.domain.criteria.repository.CriteriaVersionRepository;
 import com.dangdang.domain.insulin.repository.InsulinLogRepository;
 import com.dangdang.domain.pregnancy.entity.Pregnancy;
+import com.dangdang.domain.pregnancy.enums.PregnancyState;
 import com.dangdang.domain.pregnancy.repository.PregnancyRepository;
 import com.dangdang.domain.reading.entity.Reading;
 import com.dangdang.domain.reading.enums.ReadingType;
 import com.dangdang.domain.reading.repository.ReadingCounts;
 import com.dangdang.domain.reading.repository.ReadingRepository;
+import com.dangdang.domain.reading.service.ExpectedTimeResolver;
 import com.dangdang.domain.reading.service.ReadingEvaluator;
 import com.dangdang.domain.reading.service.ReadingStatsService;
+import com.dangdang.domain.reminder.repository.MissedReminder;
 import com.dangdang.domain.reminder.repository.ReminderRepository;
 import com.dangdang.domain.user.entity.User;
 import com.dangdang.domain.user.exception.UserErrorCode;
 import com.dangdang.domain.user.repository.UserRepository;
+import com.dangdang.domain.user.service.SensitiveConsentGuard;
 import com.dangdang.domain.visit.dto.request.VisitReportCreateRequest;
 import com.dangdang.domain.visit.dto.response.VisitReportPageResponse;
 import com.dangdang.domain.visit.dto.response.VisitReportResponse;
@@ -40,6 +44,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Slice;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -47,6 +52,7 @@ import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -65,8 +71,6 @@ public class VisitReportService {
 
     // 한 리포트 기간 최대 길이 (임신 기간 전체 280일 + 여유, 혈당 통계 기간 직접 고르기와 같음)
     static final int MAX_DAYS = 300;
-    // 이 값 미만이면 「70 미만」으로 셈
-    private static final int LOW_VALUE = 70;
     // 임신 기간 (예정일에서 거꾸로 세는 기준)
     private static final int PREGNANCY_DAYS = 280;
 
@@ -78,9 +82,12 @@ public class VisitReportService {
     private final CareSiteRepository careSiteRepository;
     private final ReadingRepository readingRepository;
     private final InsulinLogRepository insulinLogRepository;
+    private final ExpectedTimeResolver expectedTimeResolver;
     private final ReminderRepository reminderRepository;
     private final CriteriaVersionRepository criteriaVersionRepository;
     private final PregnancyRepository pregnancyRepository;
+    private final SensitiveConsentGuard sensitiveConsentGuard;
+    private final TransactionTemplate transactionTemplate;
     private final Clock clock;
 
     private record Period(LocalDate from, LocalDate to) {
@@ -115,10 +122,14 @@ public class VisitReportService {
         if (same.isPresent()) {
             return new VisitReportSaveResponse(same.get().getId(), false);
         }
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
         try {
-            SavedReport saved = savedReportRepository.saveAndFlush(newReport.apply(user));
+            // 저장만 짧은 트랜잭션으로 — 건강정보 동의 확인(잠금)과 저장이 한 트랜잭션이어야 철회와 겹치지 않음
+            SavedReport saved = transactionTemplate.execute(status -> {
+                sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403
+                User user = userRepository.findById(userId)
+                        .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
+                return savedReportRepository.saveAndFlush(newReport.apply(user));
+            });
             return new VisitReportSaveResponse(saved.getId(), true);
         } catch (DataIntegrityViolationException e) {
             // 그사이 같은 리포트가 먼저 저장됨 → 그걸 돌려줌. 그래도 없으면 다른 제약에 걸린 것이라 그대로 던짐
@@ -278,10 +289,15 @@ public class VisitReportService {
         Instant start = KoreanTime.startOfDay(from);
         Instant end = KoreanTime.endOfDay(to);
         List<Reading> readings = readingRepository.findAllInRange(userId, start, end);
+        // 식후 혈당마다 재야 할 시각 (오늘 화면·기록 목록과 같은 규칙, 알림·식사·병원 기준을 한 번씩만 읽음)
+        // 리포트는 식사를 따로 안 읽어서 List.of() → 식후 혈당이 붙은 식사만 한 번에 찾음
+        Map<Long, Instant> expectedAt = expectedTimeResolver.expectedAtByReading(userId, readings, List.of());
 
         List<VisitReportResponse.Row> rows = readings.stream()
-                .map(r -> VisitReportResponse.Row.of(r, ReadingEvaluator.aboveTarget(r)))
+                .map(r -> VisitReportResponse.Row.of(r, ReadingEvaluator.aboveTarget(r), expectedAt.get(r.getId())))
                 .toList();
+        // 빈칸은 한 번만 읽어서 요약 · 잴 때별 · 원값 표 「–」에 같이 씀 → 세 숫자가 어긋날 수 없음
+        List<MissedReminder> missed = missedReminders(userId, from, to);
 
         return new VisitReportResponse(
                 kind, from, to,
@@ -291,54 +307,61 @@ public class VisitReportService {
                 user.getDisplayName(),
                 pregnancyWeeks(userId, from, to),
                 criteriaIn(userId, from, to, readings),
-                summary(userId, rows, from, to),
-                slotCounts(rows),
+                summary(readings, rows, missed.size()),
+                slotCounts(rows, missed),
                 rows,
+                missed.stream()
+                        .map(m -> new VisitReportResponse.MissedCell(KoreanTime.dateOf(m.cellAt()), m.getSlot()))
+                        .toList(),
                 // 인슐린은 맞은 그대로만 (summary·slots엔 안 섞음)
                 insulinLogRepository.findAllInRange(userId, start, end).stream()
                         .map(VisitReportResponse.InsulinRow::of).toList(),
                 visit == null ? null : visitQuestionRepository.countByVisitIdAndDeletedAtIsNull(visit.getId()));
     }
 
-    private VisitReportResponse.Summary summary(Long userId, List<VisitReportResponse.Row> rows,
-                                                LocalDate from, LocalDate to) {
+    private VisitReportResponse.Summary summary(List<Reading> readings, List<VisitReportResponse.Row> rows,
+                                                long missed) {
         // 목표가 있었던 기록만 안/밖을 셈 (혈당 통계와 같은 방식)
         long judged = rows.stream().filter(r -> r.aboveTarget() != null).count();
         int outOfTarget = (int) rows.stream().filter(r -> Boolean.TRUE.equals(r.aboveTarget())).count();
         return new VisitReportResponse.Summary(
                 rows.size(),
-                missed(userId, from, to),
+                missed,
                 (int) rows.stream().filter(VisitReportResponse.Row::enteredLate).count(),
-                (int) rows.stream().filter(r -> r.value() < LOW_VALUE).count(),
+                (int) readings.stream().filter(ReadingEvaluator::belowLow).count(),     // 70 미만 (LO 포함)
+                (int) readings.stream().filter(ReadingEvaluator::aboveHigh).count(),    // 200 이상 (HI 포함)
                 outOfTarget,
                 inTargetRate(judged, outOfTarget),
                 judged > 0);
     }
 
-    // 빈칸 = 기간 안 놓친 측정 알림 수 (혈당 통계 「놓친 측정」과 같은 기준, 모든 잴 때)
+    // 빈칸 = 기간 안 놓친 측정 알림 (혈당 통계 「놓친 측정」과 같은 기준, 모든 잴 때, 지운 식사의 알림은 뺌)
+    // 식사 알림은 식사한 날로 기간·날짜를 정함 (자정 넘은 식후 알림도 식사한 날 칸, 기간 마지막 날 밤 식사의 알림도 들어감)
     // 알림 시각에서 MISSED_GRACE가 안 지난 알림은 아직 잴 시간이 있어서 안 셈
-    private long missed(Long userId, LocalDate from, LocalDate to) {
-        Instant rangeEnd = KoreanTime.endOfDay(to);
+    private List<MissedReminder> missedReminders(Long userId, LocalDate from, LocalDate to) {
         Instant graceEnd = clock.instant().minus(ReadingStatsService.MISSED_GRACE);
-        Instant end = rangeEnd.isBefore(graceEnd) ? rangeEnd : graceEnd;
-        return reminderRepository.countByUserIdAndSlotInAndStatusInAndScheduledAtGreaterThanEqualAndScheduledAtLessThan(
-                userId, List.of(MeasureSlot.values()), ReadingStatsService.MISSED_STATUSES,
-                KoreanTime.startOfDay(from), end);
+        return reminderRepository.findMissed(userId, ReadingStatsService.MISSED_STATUSES,
+                KoreanTime.startOfDay(from), KoreanTime.endOfDay(to), graceEnd);
     }
 
-    // 잴 때별 목표 밖 / 측정. 하루 순서(공복 → 아침·점심·저녁 식후 → 자기 전), 잴 때를 안 고른 기록은 맨 뒤
-    // 기록이 있는 잴 때만 나옴
-    private List<VisitReportResponse.SlotCount> slotCounts(List<VisitReportResponse.Row> rows) {
+    // 잴 때별 목표 밖 / 측정 / 빈칸. 하루 순서(공복 → 아침·점심·저녁 식후 → 자기 전), 잴 때를 안 고른 기록은 맨 뒤
+    // 기록이 있거나 빈칸이 있는 잴 때만 나옴
+    private List<VisitReportResponse.SlotCount> slotCounts(List<VisitReportResponse.Row> rows,
+                                                           List<MissedReminder> missed) {
         Map<MeasureSlot, List<VisitReportResponse.Row>> bySlot = new LinkedHashMap<>();
         for (MeasureSlot slot : MeasureSlot.values()) {
             bySlot.put(slot, new ArrayList<>());
         }
         bySlot.put(null, new ArrayList<>());
         rows.forEach(r -> bySlot.get(r.slot()).add(r));
+        Map<MeasureSlot, Integer> missedBySlot = new HashMap<>();   // 빈칸은 늘 잴 때가 있음 (null 키 없음)
+        missed.forEach(m -> missedBySlot.merge(m.getSlot(), 1, Integer::sum));
+
         return bySlot.entrySet().stream()
-                .filter(e -> !e.getValue().isEmpty())
+                .filter(e -> !e.getValue().isEmpty() || missedBySlot.containsKey(e.getKey()))
                 .map(e -> new VisitReportResponse.SlotCount(e.getKey(), e.getValue().size(),
-                        (int) e.getValue().stream().filter(r -> Boolean.TRUE.equals(r.aboveTarget())).count()))
+                        (int) e.getValue().stream().filter(r -> Boolean.TRUE.equals(r.aboveTarget())).count(),
+                        missedBySlot.getOrDefault(e.getKey(), 0)))
                 .toList();
     }
 
@@ -370,10 +393,12 @@ public class VisitReportService {
     // 임신 주수 (예정일 기준 280일에서 거꾸로 셈, 내 정보 API와 같은 방식)
     // 지금 진행 중인 임신이 아니라 리포트 기간과 겹치는 임신으로 셈 (출산 뒤 다음 임신 중에 옛 리포트를 열어도 그때 주수)
     // 겹치는 임신이 여럿이면 최근 것. 예정일이 없거나 겹치는 임신이 없으면 null
+    // 그 임신이 다른 상황(PAUSED)이면 내 정보 API처럼 주수를 숨긴다 (더 옛 임신으로 넘어가지도 않음)
     private VisitReportResponse.PregnancyWeeks pregnancyWeeks(Long userId, LocalDate from, LocalDate to) {
         return pregnancyRepository.findAllByUserIdOrderByIdDesc(userId).stream()
                 .filter(p -> p.getDueDate() != null && overlaps(p, from, to))
                 .findFirst()
+                .filter(p -> p.getState() != PregnancyState.PAUSED)
                 .map(p -> new VisitReportResponse.PregnancyWeeks(weekOn(p, from), weekOn(p, to)))
                 .orElse(null);
     }

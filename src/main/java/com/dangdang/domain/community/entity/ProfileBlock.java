@@ -25,6 +25,9 @@ public class ProfileBlock {
     @JoinColumn(name = "blocked_profile_id")
     private CommunityProfile blockedProfile;   // 안 보이는 사람
 
+    @Column(name = "via_anonymous", nullable = false)
+    private boolean viaAnonymous;              // 익명 글·댓글에서 막았으면 true → 목록에 「익명 사용자」
+
     @Column(nullable = false, updatable = false)
     private Instant createdAt;
 }

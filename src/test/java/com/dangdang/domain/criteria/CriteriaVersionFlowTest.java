@@ -22,6 +22,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 
+import static com.dangdang.support.TestConsents.grantSensitive;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -42,8 +43,8 @@ class CriteriaVersionFlowTest {
 
     @BeforeEach
     void loginFirst() throws Exception {
-        userId = userRepository
-                .save(User.ofEmail("jisu@x.com", "지수", passwordEncoder.encode("abcd1234"), Instant.now()))
+        userId = grantSensitive(jdbc, userRepository
+                .save(User.ofEmail("jisu@x.com", "지수", passwordEncoder.encode("abcd1234"), Instant.now())))
                 .getId();
         access = mvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)

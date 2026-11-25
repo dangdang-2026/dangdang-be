@@ -5,7 +5,9 @@ import com.dangdang.domain.meal.dto.response.MealItemSummaryResponse;
 import com.dangdang.domain.meal.entity.Meal;
 import com.dangdang.domain.meal.repository.MealRepository;
 import com.dangdang.domain.meal.service.MealItemService;
+import com.dangdang.domain.reading.entity.Reading;
 import com.dangdang.domain.reading.repository.ReadingRepository;
+import com.dangdang.domain.reading.service.ExpectedTimeResolver;
 import com.dangdang.domain.record.dto.response.CalendarResponse;
 import com.dangdang.domain.record.dto.response.RecordEventResponse;
 import com.dangdang.domain.record.dto.response.RecordsResponse;
@@ -56,6 +58,7 @@ public class RecordService {
     private final InsulinLogRepository insulinLogRepository;
     private final UserRepository userRepository;
     private final VisitRepository visitRepository;
+    private final ExpectedTimeResolver expectedTimeResolver;
     private final Clock clock;
 
     // 기록 통합 조회. from·to 둘 다 포함, 기록 없는 날도 days에 빈 events로 들어감
@@ -74,9 +77,13 @@ public class RecordService {
         Map<Long, List<MealItemSummaryResponse>> itemsByMeal =
                 mealItemService.itemsByMeal(meals.stream().map(Meal::getId).toList());
 
+        // 혈당을 먼저 읽고, 식후 혈당의 재야 할 시각을 한 번에 구함 (기간 밖 식사에 붙은 혈당은 resolver가 식사를 찾아 줌)
+        List<Reading> readings = readingRepository.findAllInRange(userId, start, end);
+        Map<Long, Instant> expectedAt = expectedTimeResolver.expectedAtByReading(userId, readings, meals);
+
         // 혈당·식사·인슐린을 한 줄로 합친 뒤 한국 날짜별로 나눔 (concat은 두 개만 합쳐서 Stream.of + flatMap)
         Map<LocalDate, List<RecordEventResponse>> byDate = Stream.of(
-                        readingRepository.findAllInRange(userId, start, end).stream().map(RecordEventResponse::from),
+                        readings.stream().map(r -> RecordEventResponse.from(r, expectedAt.get(r.getId()))),
                         meals.stream().map(m -> RecordEventResponse.from(m, itemsByMeal.getOrDefault(m.getId(), List.of()))),
                         insulinLogRepository.findAllInRange(userId, start, end).stream().map(RecordEventResponse::from))
                 .flatMap(s -> s)

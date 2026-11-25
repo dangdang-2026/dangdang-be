@@ -8,6 +8,7 @@ import com.dangdang.domain.postpartum.exception.PostpartumErrorCode;
 import com.dangdang.domain.postpartum.repository.PostpartumTestRepository;
 import com.dangdang.domain.pregnancy.enums.PregnancyState;
 import com.dangdang.domain.pregnancy.repository.PregnancyRepository;
+import com.dangdang.domain.user.service.SensitiveConsentGuard;
 import com.dangdang.global.exception.CustomException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -24,14 +25,16 @@ public class PostpartumTestService {
     private final PostpartumTestRepository postpartumTestRepository;
     private final PregnancyRepository pregnancyRepository;
     private final Clock clock;
+    private final SensitiveConsentGuard sensitiveConsentGuard;
 
     @Transactional
     public PostpartumTestResponse create(Long userId, PostpartumTestCreateRequest req) {
+        sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403
         var pregnancy = pregnancyRepository.findByUserIdAndStateNot(userId, PregnancyState.ENDED)
                 .filter(p -> p.getState() == PregnancyState.POSTPARTUM)
                 .orElseThrow(() -> new CustomException(PostpartumErrorCode.NOT_POSTPARTUM));
         PostpartumTest saved = postpartumTestRepository.save(PostpartumTest.of(pregnancy.getUser(), req.name().strip(),
-                req.testDate(), req.remindDayBefore() == null || req.remindDayBefore(),
+                req.testDate(), req.placeName(), req.remindDayBefore() == null || req.remindDayBefore(),
                 req.remindSameDay() == null || req.remindSameDay(), clock.instant()));
         return PostpartumTestResponse.from(saved);
     }
@@ -44,15 +47,17 @@ public class PostpartumTestService {
 
     @Transactional
     public PostpartumTestResponse update(Long userId, Long testId, PostpartumTestUpdateRequest req) {
+        sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403
         PostpartumTest test = mine(userId, testId);
-        test.change(req.name() == null ? null : req.name().strip(), req.testDate(), req.remindDayBefore(),
-                req.remindSameDay(), clock.instant());
+        test.change(req.name() == null ? null : req.name().strip(), req.testDate(), req.placeName(),
+                req.remindDayBefore(), req.remindSameDay(), clock.instant());
         return PostpartumTestResponse.from(test);
     }
 
     // E-11 결과 메모 — 빈 글은 지움(null)
     @Transactional
     public PostpartumTestResponse writeResult(Long userId, Long testId, String note) {
+        sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403
         PostpartumTest test = mine(userId, testId);
         test.writeResult(note == null || note.isBlank() ? null : note.strip(), clock.instant());
         return PostpartumTestResponse.from(test);

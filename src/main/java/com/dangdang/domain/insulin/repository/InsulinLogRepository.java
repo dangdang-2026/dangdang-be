@@ -8,6 +8,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -74,4 +75,16 @@ public interface InsulinLogRepository extends JpaRepository<InsulinLog, Long> {
     // 지난 기록 불러오기 — 자기 전: 끼니가 없는 같은 종류 중 맞은 시각이 가장 늦은 1건
     Optional<InsulinLog> findFirstByUserIdAndInsulinTypeAndMealSlotIsNullAndDeletedAtIsNullOrderByTakenAtDescIdDesc(
             Long userId, InsulinType insulinType);
+
+    // 기간 지우기 (M-07): 기간 안 살아 있는 내 인슐린 기록을 한 번에 지운 것으로 (맞은 시각 기준). 지운 줄 수
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update InsulinLog l set l.deletedAt = :now
+            where l.user.id = :userId
+              and l.deletedAt is null
+              and l.takenAt >= :from
+              and l.takenAt < :to
+            """)
+    int softDeleteInRange(@Param("userId") Long userId, @Param("from") Instant from, @Param("to") Instant to,
+                          @Param("now") Instant now);
 }

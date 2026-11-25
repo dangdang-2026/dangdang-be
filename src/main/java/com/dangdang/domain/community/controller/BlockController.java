@@ -29,8 +29,13 @@ public class BlockController {
             summary = "[ 사용자 | 토큰 O | 프로필 차단 ]",
             description =
                     """
-                    **Parameters** blockedProfileId
-                    **Returns** blocked=true. 다시 해도 200. 자기 자신 COMMUNITY_40003, 없는 프로필 COMMUNITY_40402
+                    **Parameters** blockedProfileId · postId · commentId 중 하나만 (익명 글·댓글은 postId·commentId로)
+                    **Returns** blocked=true. 다시 해도 200
+                    가리는 범위: 이름(blockedProfileId·이름 글·이름 댓글)으로 막으면 그 사람의 이름 글·댓글만,
+                    익명 글·댓글로 막으면 그 사람의 익명 글·댓글만 (서로 영향 없음 → 익명 글쓴이를 짐작할 수 없게). 둘 다 막으면 전부
+                    익명으로 막으면 그 글·댓글 하나가 아니라 그 사람의 익명 글·댓글 전부가 가려진다
+                    가려지거나 지운 글·댓글, 가려진 글의 댓글로는 막을 수 없다 (COMMUNITY_40402)
+                    자기 자신 COMMUNITY_40003, 없는(지운·탈퇴) 대상 COMMUNITY_40402, 셋 중 둘 이상·하나도 없음 GLOBAL_40001
                     """)
     @PostMapping
     public ResponseEntity<BaseResponse<BlockResponse>> block(
@@ -44,7 +49,10 @@ public class BlockController {
             description =
                     """
                     **Parameters** cursor, size(1~100, 기본 20)
-                    **Returns** items(profileId, nickname, blockedAt), nextCursor, hasNext. 최근 차단 순
+                    **Returns** items(blockId, profileId, nickname, anonymous, blockedAt), nextCursor, hasNext. 최근 차단 순
+                    익명 글·댓글에서 막은 줄은 anonymous=true · nickname 「익명 사용자」 · profileId null.
+                    이번 배포 전에 막은 사람은 익명 글도 계속 가리려고 「익명 사용자」 줄이 하나 더 있다.
+                    같은 사람을 이름으로 한 번, 익명으로 한 번 막으면 두 줄
                     """)
     @GetMapping
     public ResponseEntity<BaseResponse<BlockListResponse>> list(
@@ -62,7 +70,7 @@ public class BlockController {
             description =
                     """
                     **Parameters** blockedProfileId
-                    **Returns** blocked=false. 차단한 적 없어도 200
+                    **Returns** blocked=false. 이름으로 막은 줄만 푼다 (「익명 사용자」 줄은 DELETE /api/blocks/entries/{blockId}). 차단한 적 없어도 200
                     """)
     @DeleteMapping("/{blockedProfileId}")
     public ResponseEntity<BaseResponse<BlockResponse>> unblock(
@@ -70,5 +78,20 @@ public class BlockController {
             @PathVariable @Positive(message = "프로필 번호를 확인해 주세요.") Long blockedProfileId) {
         return ResponseEntity.ok(BaseResponse.success(200, "프로필 차단 해제에 성공했습니다.",
                 blockService.unblock(principal.userId(), blockedProfileId)));
+    }
+
+    @Operation(
+            summary = "[ 사용자 | 토큰 O | 차단 목록 한 줄 풀기 ]",
+            description =
+                    """
+                    **Parameters** blockId (차단 목록의 blockId)
+                    **Returns** blocked=false. 「익명 사용자」 줄은 이걸로만 풀 수 있다. 없거나 남의 줄이어도 200
+                    """)
+    @DeleteMapping("/entries/{blockId}")
+    public ResponseEntity<BaseResponse<BlockResponse>> unblockEntry(
+            @AuthenticationPrincipal AuthPrincipal principal,
+            @PathVariable @Positive(message = "번호를 확인해 주세요.") Long blockId) {
+        return ResponseEntity.ok(BaseResponse.success(200, "프로필 차단 해제에 성공했습니다.",
+                blockService.unblockEntry(principal.userId(), blockId)));
     }
 }

@@ -5,6 +5,7 @@ import com.dangdang.domain.caresite.repository.CareSiteRepository;
 import com.dangdang.domain.user.entity.User;
 import com.dangdang.domain.user.exception.UserErrorCode;
 import com.dangdang.domain.user.repository.UserRepository;
+import com.dangdang.domain.user.service.SensitiveConsentGuard;
 import com.dangdang.domain.visit.dto.request.VisitCreateRequest;
 import com.dangdang.domain.visit.dto.request.VisitUpdateRequest;
 import com.dangdang.domain.visit.dto.response.VisitDetailResponse;
@@ -44,6 +45,7 @@ public class VisitService {
     private final VisitQuestionRepository visitQuestionRepository;
     private final VisitNoteRepository visitNoteRepository;
     private final Clock clock;
+    private final SensitiveConsentGuard sensitiveConsentGuard;
 
     // 진료 날짜로 받을 수 있는 범위: 한국 기준 2000-01-01 0시 이상 ~ 2101-01-01 0시 미만 (QueryParams와 같은 연도)
     private static final Instant MIN_VISIT_AT = KoreanTime.startOfDay(LocalDate.of(QueryParams.MIN_YEAR, 1, 1));
@@ -52,6 +54,7 @@ public class VisitService {
     // 일정 등록. 병원을 고르면 내 병원(삭제 안 된 것)인지 확인
     @Transactional
     public VisitResponse create(Long userId, VisitCreateRequest req) {
+        sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
         checkMyCareSite(userId, req.careSiteId());
@@ -83,14 +86,26 @@ public class VisitService {
     // 수정 (보낸 칸만). null을 보내면 병원 지우기·날짜 미정으로
     @Transactional
     public VisitResponse update(Long userId, Long visitId, VisitUpdateRequest req) {
+        sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403
         if (req.isEmpty()) {
             throw new CustomException(VisitErrorCode.NOTHING_TO_UPDATE);
         }
         Visit visit = findMine(userId, visitId);
         // 병원은 실제로 바꿀 때만 확인함. 화면이 원래 병원 id를 그대로 다시 보냈는데
         // 그 병원이 그사이 지워졌다고 수정 전체가 404로 실패하면 안 돼서
-        if (req.isCareSiteIdSent() && !Objects.equals(req.getCareSiteId(), visit.getCareSiteId())) {
+        boolean changesCareSite = req.isCareSiteIdSent() && !Objects.equals(req.getCareSiteId(), visit.getCareSiteId());
+        if (changesCareSite) {
             checkMyCareSite(userId, req.getCareSiteId());
+        } else if (visit.getCareSiteId() != null && req.isVisitAtSent()
+                && becomesUpcoming(visit.getVisitAt(), req.getVisitAt())) {
+            // 지난 일정을 다가오는 일정(또는 날짜 미정)으로 옮길 때도 병원을 본다
+            // 지운 병원의 다가오는 일정은 병원 지우기 때 같이 지워지므로(C-20), 지운 병원으로는 미래로 못 옮긴다
+            checkMyCareSite(userId, visit.getCareSiteId());
+        }
+        // 병원 줄을 잡은 뒤, 값을 바꾸기 전에 일정 줄을 FOR UPDATE로 잠그고 다시 본다 (잠금 순서 care_sites → visits)
+        // 위에서 읽은 일정은 잠그지 않은 값이라, 그사이 병원 지우기가 이 일정을 지웠으면 여기서 404 (지운 일정을 되살리지 않게)
+        lockMine(userId, visitId);
+        if (changesCareSite) {
             visit.changeCareSite(req.getCareSiteId());
         }
         if (req.isVisitAtSent()) {
@@ -119,6 +134,19 @@ public class VisitService {
                 .orElseThrow(() -> new CustomException(VisitErrorCode.VISIT_NOT_FOUND));
     }
 
+    // findMine과 같은데 일정 줄을 FOR UPDATE로 잠근다 (일정 수정)
+    private Visit lockMine(Long userId, Long visitId) {
+        return visitRepository.findMineForUpdate(visitId, userId)
+                .orElseThrow(() -> new CustomException(VisitErrorCode.VISIT_NOT_FOUND));
+    }
+
+    // findMine과 같은데 일정 줄을 FOR SHARE로 잠근다 (질문·메모 추가)
+    // 일정·병원 지우기와 겹치면 지우기가 끝난 뒤 404, 추가가 먼저면 지우기가 새 질문·메모까지 지운다
+    Visit findMineForShare(Long userId, Long visitId) {
+        return visitRepository.findMineForShare(visitId, userId)
+                .orElseThrow(() -> new CustomException(VisitErrorCode.VISIT_NOT_FOUND));
+    }
+
     // 진료 날짜는 한국 기준 2000~2100년만 받음 (다른 날짜 입력 QueryParams와 같은 범위)
     // "+300000-01-01T00:00:00Z" 같은 값도 Instant로 읽혀서, 그대로 두면 DB(TIMESTAMPTZ)에 못 넣어 500이 남
     // 연도를 꺼내려고 시간대를 바꾸면 Instant 끝에 가까운 값에서 그 변환이 먼저 터지므로, 경계 시각과 바로 비교함
@@ -133,9 +161,27 @@ public class VisitService {
     }
 
     // 병원을 골랐으면 내 병원(삭제 안 된 것)이어야 함. 없음·삭제됨·남의 병원은 병원 API와 같은 404
+    // 병원 줄을 FOR SHARE로 잠그고 본다 → 병원 지우기(FOR UPDATE)와 겹치면 지우기가 끝난 뒤 지워진 상태를 보고 404
+    // (안 잠그면 지우는 사이 새로 넣은 다가오는 일정이 지운 병원에 남는다). 잠금 순서는 care_sites → visits
     private void checkMyCareSite(Long userId, Long careSiteId) {
-        if (careSiteId != null && careSiteRepository.findByIdAndUserIdAndDeletedAtIsNull(careSiteId, userId).isEmpty()) {
+        if (careSiteId == null) {
+            return;
+        }
+        boolean alive = careSiteRepository.findMineForShare(careSiteId, userId)
+                .map(site -> site.getDeletedAt() == null)
+                .orElse(false);
+        if (!alive) {
             throw new CustomException(CareSiteErrorCode.CARE_SITE_NOT_FOUND);
         }
+    }
+
+    // 지난 일정이 다가오는 일정(지금 이후 또는 날짜 미정)이 되는지. 병원 지우기가 지우는 범위와 같은 기준
+    private boolean becomesUpcoming(Instant before, Instant after) {
+        Instant now = clock.instant();
+        return !isUpcoming(before, now) && isUpcoming(after, now);
+    }
+
+    private static boolean isUpcoming(Instant visitAt, Instant now) {
+        return visitAt == null || !visitAt.isBefore(now);
     }
 }

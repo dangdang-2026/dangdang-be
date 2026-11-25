@@ -29,6 +29,9 @@ public class PostpartumTest {
     @Column(nullable = false)
     private LocalDate testDate;
 
+    @Column(length = 50)
+    private String placeName;                // 어디서 하나요 (E-08) — 고른 병원 이름이나 직접 적은 글자 그대로. 없으면 null
+
     @Column(nullable = false)
     private boolean remindDayBefore;
 
@@ -47,12 +50,13 @@ public class PostpartumTest {
     @Column(nullable = false)
     private Instant updatedAt;
 
-    public static PostpartumTest of(User user, String name, LocalDate testDate, boolean remindDayBefore,
-                                    boolean remindSameDay, Instant now) {
+    public static PostpartumTest of(User user, String name, LocalDate testDate, String placeName,
+                                    boolean remindDayBefore, boolean remindSameDay, Instant now) {
         PostpartumTest t = new PostpartumTest();
         t.user = user;
         t.name = name;
         t.testDate = testDate;
+        t.placeName = blankToNull(placeName);
         t.remindDayBefore = remindDayBefore;
         t.remindSameDay = remindSameDay;
         t.createdAt = now;
@@ -61,13 +65,16 @@ public class PostpartumTest {
     }
 
     // 보낸 칸만 바꾼다. 날짜를 바꾸면 알림을 다시 보낼 수 있게 「보냄」 표시를 지운다
-    public void change(String name, LocalDate testDate, Boolean remindDayBefore, Boolean remindSameDay, Instant now) {
+    // placeName: null = 그대로, 빈 글 = 지우기
+    public void change(String name, LocalDate testDate, String placeName, Boolean remindDayBefore,
+                       Boolean remindSameDay, Instant now) {
         if (name != null) this.name = name;
         if (testDate != null && !testDate.equals(this.testDate)) {
             this.testDate = testDate;
             this.dayBeforeSentAt = null;
             this.sameDaySentAt = null;
         }
+        if (placeName != null) this.placeName = blankToNull(placeName);
         if (remindDayBefore != null) this.remindDayBefore = remindDayBefore;
         if (remindSameDay != null) this.remindSameDay = remindSameDay;
         this.updatedAt = now;
@@ -78,11 +85,7 @@ public class PostpartumTest {
         this.updatedAt = now;
     }
 
-    public void markDayBeforeHandled(Instant now) {
-        this.dayBeforeSentAt = now;
-    }
-
-    public void markSameDayHandled(Instant now) {
-        this.sameDaySentAt = now;
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.strip();
     }
 }

@@ -52,15 +52,27 @@ public record VisitNoteExtract(
     // - 아래 중 하나라도 걸리면 「확인 필요」(체크 해제)로 바꿈 → 사용자가 보고 고르게
     //   확신 정도(status)가 없음 / 값이 기준 범위 밖 / 근거 문장이 메모에 없음(AI가 지어냈을 수 있음)
     //   다음 진료일이 이번 진료일보다 앞이거나 같음 / 잴 때에 모르는 값이 섞임
+    // - 식후 시점·식후 목표 중 하나만 찾았거나 하나가 「확인 필요」면 둘 다 「확인 필요」 (C-12 「식후 기준」 카드 하나)
     // - 잴 때는 겹치는 걸 빼고 하루 순서로 정렬
     @JsonIgnore
     public VisitNoteExtract normalized(String memo, LocalDate visitDate) {
         String flatMemo = flatten(memo);
+        Field<Integer> target = check(postMealTarget, flatMemo, v -> v >= MIN_TARGET && v <= MAX_TARGET);
+        Field<Integer> minutes = check(postMealMinutes, flatMemo,
+                v -> v >= MIN_POST_MEAL_MINUTES && v <= MAX_POST_MEAL_MINUTES && v % 10 == 0);
+        // 식후 시점과 식후 목표는 짝 (C-12 「식후 기준」 카드 하나·체크 하나)
+        // 하나만 찾았거나 하나라도 「확인 필요」면 찾은 것 모두 「확인 필요」 → 병원이 말한 적 없는 조합이 체크된 채로 안 나가게
+        boolean onlyOne = (target == null) != (minutes == null);
+        boolean anyUnsure = isCheckNeeded(target) || isCheckNeeded(minutes);
+        if (onlyOne || anyUnsure) {
+            target = target == null ? null : checkNeeded(target);
+            minutes = minutes == null ? null : checkNeeded(minutes);
+        }
         return new VisitNoteExtract(
                 normalizeSlots(measureSlots, flatMemo),
                 check(fastingTarget, flatMemo, v -> v >= MIN_TARGET && v <= MAX_TARGET),
-                check(postMealTarget, flatMemo, v -> v >= MIN_TARGET && v <= MAX_TARGET),
-                check(postMealMinutes, flatMemo, v -> v >= MIN_POST_MEAL_MINUTES && v <= MAX_POST_MEAL_MINUTES && v % 10 == 0),
+                target,
+                minutes,
                 check(nextVisitDate, flatMemo, v -> v.isAfter(visitDate)
                         && v.getYear() >= QueryParams.MIN_YEAR && v.getYear() <= QueryParams.MAX_YEAR),
                 insulinSkipped,
@@ -94,6 +106,10 @@ public record VisitNoteExtract(
             return checkNeeded(field);
         }
         return field;
+    }
+
+    private static boolean isCheckNeeded(Field<?> field) {
+        return field != null && field.status() == ExtractStatus.CHECK_NEEDED;
     }
 
     private static <T> Field<T> checkNeeded(Field<T> field) {

@@ -20,8 +20,12 @@ import org.springframework.web.client.ResourceAccessException;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -63,7 +67,7 @@ class PostPrecheckFlowTest {
 
     @Test
     void AI가_찾은_문장을_그대로_돌려준다() throws Exception {
-        given(postCheckClient.check(any(), any())).willReturn(new PostCheckClient.Result(List.of(
+        given(postCheckClient.check(any(), any(), anyBoolean())).willReturn(new PostCheckClient.Result(List.of(
                 new PostCheckClient.Issue("DOSE", "지난주부터 인슐린 8단위로 늘렸는데 다들 몇 단위 맞으세요?")), true));
 
         mvc.perform(post("/api/posts/precheck").cookie(jisu).contentType(MediaType.APPLICATION_JSON)
@@ -75,8 +79,29 @@ class PostPrecheckFlowTest {
     }
 
     @Test
+    void 걸린_종류는_본문_해시로_30분_기억하고_다시_확인해_걸린_게_없으면_지운다() throws Exception {
+        given(postCheckClient.check(any(), any(), anyBoolean())).willReturn(new PostCheckClient.Result(List.of(
+                new PostCheckClient.Issue("DOSE", "인슐린 8단위"), new PostCheckClient.Issue("MIND", "힘들어요"),
+                new PostCheckClient.Issue("DOSE", "두 알")), false));
+        mvc.perform(post("/api/posts/precheck").cookie(jisu).contentType(MediaType.APPLICATION_JSON)
+                .content(body("제목", "인슐린 8단위 힘들어요 두 알"))).andExpect(status().isOk());
+
+        Set<String> keys = redis.keys("post:precheck:*");
+        assertThat(keys).hasSize(1);
+        String key = keys.iterator().next();
+        assertThat(key).doesNotContain("인슐린");                                  // 내용은 해시로만
+        assertThat(redis.opsForValue().get(key)).isEqualTo("DOSE,MIND");
+        assertThat(redis.getExpire(key)).isBetween(1L, 1800L);
+
+        given(postCheckClient.check(any(), any(), anyBoolean())).willReturn(new PostCheckClient.Result(List.of(), false));
+        mvc.perform(post("/api/posts/precheck").cookie(jisu).contentType(MediaType.APPLICATION_JSON)
+                .content(body("제목 바꿈", "인슐린 8단위 힘들어요 두 알"))).andExpect(status().isOk());   // 제목은 키에 없다
+        assertThat(redis.keys("post:precheck:*")).isEmpty();                       // 마지막 확인 결과만 남긴다
+    }
+
+    @Test
     void 걸린_게_없으면_빈_목록() throws Exception {
-        given(postCheckClient.check(any(), any())).willReturn(new PostCheckClient.Result(List.of(), false));
+        given(postCheckClient.check(any(), any(), anyBoolean())).willReturn(new PostCheckClient.Result(List.of(), false));
 
         mvc.perform(post("/api/posts/precheck").cookie(jisu).contentType(MediaType.APPLICATION_JSON)
                         .content(body("아침 뭐 드세요?", "공복 혈당 때문에 고민이에요.")))
@@ -87,7 +112,7 @@ class PostPrecheckFlowTest {
 
     @Test
     void AI_서버가_죽어도_200이고_글쓰기를_막지_않는다() throws Exception {
-        given(postCheckClient.check(any(), any())).willThrow(new ResourceAccessException("연결 거부"));
+        given(postCheckClient.check(any(), any(), anyBoolean())).willThrow(new ResourceAccessException("연결 거부"));
 
         mvc.perform(post("/api/posts/precheck").cookie(jisu).contentType(MediaType.APPLICATION_JSON)
                         .content(body("제목", "인슐린 8단위")))
@@ -98,7 +123,7 @@ class PostPrecheckFlowTest {
 
     @Test
     void 제목은_비워도_된다() throws Exception {
-        given(postCheckClient.check(any(), any())).willReturn(new PostCheckClient.Result(List.of(), false));
+        given(postCheckClient.check(any(), any(), anyBoolean())).willReturn(new PostCheckClient.Result(List.of(), false));
 
         mvc.perform(post("/api/posts/precheck").cookie(jisu).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"content\":\"본문만 있어요\"}"))
@@ -111,7 +136,21 @@ class PostPrecheckFlowTest {
                         .content(body("제목", " ")))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errorCode").value("GLOBAL_40001"));
-        verify(postCheckClient, never()).check(any(), any());
+        verify(postCheckClient, never()).check(any(), any(), anyBoolean());
+    }
+
+    @Test
+    void 커뮤니티_AI_확인에_동의해야_GPT까지_본다() throws Exception {
+        given(postCheckClient.check(any(), any(), anyBoolean())).willReturn(new PostCheckClient.Result(List.of(), false));
+        mvc.perform(post("/api/posts/precheck").cookie(jisu).contentType(MediaType.APPLICATION_JSON)
+                .content(body("제목", "인슐린 4단위"))).andExpect(status().isOk());
+        verify(postCheckClient).check(any(), any(), eq(false));
+
+        mvc.perform(post("/api/me/consents").cookie(jisu).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"items\":[{\"type\":\"COMMUNITY_AI_CHECK\",\"granted\":true}]}")).andExpect(status().isOk());
+        mvc.perform(post("/api/posts/precheck").cookie(jisu).contentType(MediaType.APPLICATION_JSON)
+                .content(body("제목", "인슐린 4단위"))).andExpect(status().isOk());
+        verify(postCheckClient).check(any(), any(), eq(true));
     }
 
     @Test

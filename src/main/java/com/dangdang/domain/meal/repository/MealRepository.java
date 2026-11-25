@@ -90,4 +90,38 @@ public interface MealRepository extends JpaRepository<Meal, Long> {
     @Modifying(flushAutomatically = true)
     @Query("update Meal m set m.updatedAt = :now where m.id = :mealId")
     void touch(Long mealId, Instant now);
+
+    // 하나 찾기 (지운 것 포함) — 되돌리기 실패 이유(없음·안 지움·5분 지남)를 고르려고만 씀
+    Optional<Meal> findByIdAndUserId(Long id, Long userId);
+
+    // 되돌리기 (D-08): 혈당과 같은 규칙. 조건부 UPDATE라 동시에 두 번 눌러도 하나만 1
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update Meal m set m.deletedAt = null
+            where m.id = :id
+              and m.user.id = :userId
+              and m.deletedAt is not null
+              and m.deletedAt >= :since
+            """)
+    int restore(Long id, Long userId, Instant since);
+
+    // 기간 안 살아 있는 내 식사 번호만 (기간 지우기에서 알림까지 취소하려고)
+    @Query("""
+            select m.id from Meal m
+            where m.user.id = :userId
+              and m.deletedAt is null
+              and m.startedAt >= :from
+              and m.startedAt < :to
+            """)
+    List<Long> findIdsInRange(Long userId, Instant from, Instant to);
+
+    // 이 식사들을 한 번에 지운 것으로. 그사이 하나씩 지운 건 deleted_at 조건으로 빠짐 → 지운 줄 수가 정확
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update Meal m set m.deletedAt = :now
+            where m.id in :ids
+              and m.user.id = :userId
+              and m.deletedAt is null
+            """)
+    int softDeleteAll(Collection<Long> ids, Long userId, Instant now);
 }

@@ -86,7 +86,7 @@ public class FoodController {
             description =
                     """
                     **Parameters** code(식약처 식품코드, 1~30자), page(기본 0, 0~10000), size(기본 20, 1~100)
-                    **Returns** items[]{mealId, startedAt, mealSlot, items[](이 식사에서 이 음식을 먹은 항목: 먹은 양·영양값), readings[](이 식사에 연결된 혈당, 잰 시각 순)}·page·size·totalElements·hasNext.
+                    **Returns** items[]{mealId, startedAt, mealSlot, items[](이 식사에서 이 음식을 먹은 항목: 먹은 양·영양값), readings[](이 식사에 연결된 혈당, 잰 시각 순. 혈당 상세와 같은 칸: meterLimit·판정 칸·expectedAt·timing·originalValue·originalMeterLimit·editedAt)}·page·size·totalElements·hasNext.
                     내가 이 음식을 먹은 식사만, 식사 시작 시각 최신순. 지운 식사·항목은 빠짐. 한 식사에 같은 음식이 여러 번 있어도 식사 1개로 묶음.
                     혈당은 식사에 연결된(mealId) 것만 붙임 (시간이 가까워도 연결 안 된 혈당은 안 붙임).
                     먹은 적이 없는 코드면 items=[] (식약처 데이터에서 사라진 코드여도 지난 기록은 보여 줌).
