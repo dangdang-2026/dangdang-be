@@ -37,6 +37,8 @@ public interface AnnouncementRepository extends JpaRepository<Announcement, Long
 
     // 카드를 내리면 그 카드를 건 소식도 끝낸다 (안 끝내면 카드가 다시 올라갈 때 옛 소식이 저절로 되살아난다)
     // 끝 시각 규칙은 Announcement.end와 같다: 시작 전이면 끝 = 시작, 이미 그보다 일찍 끝난 줄은 그대로
+    // (이 PR 전에 내린 카드의 소식은 V20261125_2 마이그레이션이 같은 규칙으로 끝냈다. content_card_id 인덱스도 거기서)
+    // clearAutomatically라 이 쿼리 뒤엔 영속성 컨텍스트가 비워진다 → 같은 트랜잭션의 엔티티 변경은 이 호출 전에
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("update Announcement a set a.activeTo = case when a.activeFrom > :now then a.activeFrom else :now end"
             + " where a.contentCardId = :cardId"
