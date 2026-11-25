@@ -7,6 +7,8 @@ import com.dangdang.domain.meal.dto.response.MealResponse;
 import com.dangdang.domain.meal.entity.Meal;
 import com.dangdang.domain.meal.exception.MealErrorCode;
 import com.dangdang.domain.meal.repository.MealRepository;
+import com.dangdang.domain.reading.enums.ReadingType;
+import com.dangdang.domain.reading.repository.ReadingRepository;
 import com.dangdang.domain.reminder.service.ReminderService;
 import com.dangdang.domain.user.entity.User;
 import com.dangdang.domain.user.exception.UserErrorCode;
@@ -34,6 +36,7 @@ public class MealService {
     private final UserRepository userRepository;
     private final ReminderService reminderService;
     private final MealItemService mealItemService;
+    private final ReadingRepository readingRepository;
     private final Clock clock;
     private final SensitiveConsentGuard sensitiveConsentGuard;
 
@@ -87,9 +90,18 @@ public class MealService {
         if (req.isEmpty()) {
             throw new CustomException(MealErrorCode.NOTHING_TO_UPDATE);
         }
-        Meal meal = findMine(userId, mealId);
+        // 식사 줄을 잠그고 읽음 — 혈당 쪽 저장·수정도 같은 줄을 잠그고 시작 시각을 봐서,
+        // 아래 "식후 혈당보다 늦게" 확인과 혈당 쪽 "식사 시작보다 앞" 확인이 동시에 둘 다 통과하지 않게 함
+        Meal meal = mealRepository.findMineForUpdate(mealId, userId)
+                .orElseThrow(() -> new CustomException(MealErrorCode.MEAL_NOT_FOUND));
         boolean timingChanged = (req.mealSlot() != null && req.mealSlot() != meal.getMealSlot())
                 || (req.startedAt() != null && !req.startedAt().equals(meal.getStartedAt()));
+        if (req.startedAt() != null && readingRepository
+                .existsByUserIdAndMealIdAndReadingTypeAndDeletedAtIsNullAndMeasuredAtBefore(
+                        userId, mealId, ReadingType.POST_MEAL, req.startedAt())) {
+            // 식후 혈당은 식사 시작 뒤여야 함 (혈당 쪽 READING_40005와 같은 규칙을 식사 쪽에서)
+            throw new CustomException(MealErrorCode.STARTED_AFTER_READING);
+        }
         meal.update(req.mealSlot(), req.startedAt(), req.note(), clock.instant());
         if (timingChanged) {   // 끼니나 시작 시각이 바뀌면 알림 시각·종류도 바뀜. 메모만 바꾸면 그대로 둠
             reminderService.rescheduleAfterMeal(userId, mealId, meal.getMealSlot(), meal.getStartedAt());

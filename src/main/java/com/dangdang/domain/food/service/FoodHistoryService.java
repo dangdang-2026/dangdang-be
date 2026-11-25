@@ -7,13 +7,16 @@ import com.dangdang.domain.meal.entity.Meal;
 import com.dangdang.domain.meal.repository.MealItemRepository;
 import com.dangdang.domain.meal.repository.MealRepository;
 import com.dangdang.domain.reading.dto.response.ReadingResponse;
+import com.dangdang.domain.reading.entity.Reading;
 import com.dangdang.domain.reading.repository.ReadingRepository;
+import com.dangdang.domain.reading.service.ExpectedTimeResolver;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -28,6 +31,7 @@ public class FoodHistoryService {
     private final MealRepository mealRepository;
     private final MealItemRepository mealItemRepository;
     private final ReadingRepository readingRepository;
+    private final ExpectedTimeResolver expectedTimeResolver;
 
     // foods에 그 코드가 있는지는 보지 않음
     // 식사 항목은 고른 그때의 값을 복사해 두므로, 식약처 데이터를 새로 넣어 코드가 사라져도 지난 기록은 보여 줌
@@ -44,10 +48,13 @@ public class FoodHistoryService {
                 .findAllByMealIdInAndFoodCodeAndDeletedAtIsNullOrderByIdAsc(mealIds, foodCode).stream()
                 .collect(Collectors.groupingBy(i -> i.getMeal().getId(),
                         Collectors.mapping(MealItemSummaryResponse::from, Collectors.toList())));
-        Map<Long, List<ReadingResponse>> readingsByMeal = readingRepository
-                .findAllByUserIdAndMealIdInAndDeletedAtIsNullOrderByMeasuredAtAscIdAsc(userId, mealIds).stream()
-                .collect(Collectors.groupingBy(r -> r.getMealId(),
-                        Collectors.mapping(ReadingResponse::from, Collectors.toList())));
+        List<Reading> readings = readingRepository
+                .findAllByUserIdAndMealIdInAndDeletedAtIsNullOrderByMeasuredAtAscIdAsc(userId, mealIds);
+        // 이 페이지 식사는 이미 읽었으니 넘겨서 또 조회하지 않게
+        Map<Long, Instant> expectedAt = expectedTimeResolver.expectedAtByReading(userId, readings, meals.getContent());
+        Map<Long, List<ReadingResponse>> readingsByMeal = readings.stream()
+                .collect(Collectors.groupingBy(Reading::getMealId,
+                        Collectors.mapping(r -> ReadingResponse.of(r, expectedAt.get(r.getId())), Collectors.toList())));
 
         List<FoodHistoryResponse> items = meals.getContent().stream()
                 .map(m -> FoodHistoryResponse.of(m,

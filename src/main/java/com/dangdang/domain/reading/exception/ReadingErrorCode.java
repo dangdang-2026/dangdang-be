@@ -13,6 +13,12 @@ public enum ReadingErrorCode implements BaseErrorCode {
     INVALID_CURSOR("READING_40002", "cursorAt과 cursorId는 같이 보내 주세요.", HttpStatus.BAD_REQUEST),
     // 수정 입력 오류
     NOTHING_TO_UPDATE("READING_40003", "바꿀 값을 하나 이상 보내 주세요.", HttpStatus.BAD_REQUEST),
+    // 등록·수정 입력 오류
+    VALUE_OR_METER_LIMIT("READING_40004", "혈당 숫자나 HI·LO 중 하나만 보내 주세요.", HttpStatus.BAD_REQUEST),
+    MEASURED_BEFORE_MEAL("READING_40005", "식후 혈당은 식사 시작 뒤 시각으로 적어 주세요.", HttpStatus.BAD_REQUEST),
+
+    // 같은 기록을 다른 곳(다른 기기 등)에서 먼저 고치거나 지움
+    VERSION_CONFLICT("READING_40903", "다른 곳에서 먼저 고쳤어요. 새로고침한 뒤 다시 시도해 주세요.", HttpStatus.CONFLICT),
 
     // 없음·삭제됨·남의 기록 모두 같은 404 (남의 기록이 "있다"는 것도 알려주지 않으려고)
     READING_NOT_FOUND("READING_40401", "혈당 기록을 찾을 수 없어요.", HttpStatus.NOT_FOUND);

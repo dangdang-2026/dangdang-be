@@ -3,6 +3,7 @@ package com.dangdang.domain.reading.repository;
 import com.dangdang.domain.reading.entity.Reading;
 import com.dangdang.domain.reading.enums.ReadingType;
 import org.springframework.data.domain.Limit;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
@@ -19,8 +20,10 @@ public interface ReadingRepository extends JpaRepository<Reading, Long> {
 
     // 목록 한 페이지: 내 것 + 삭제 안 됨 + from 이후 + 커서(cursorAt, cursorId)보다 과거. 최신순
     // 첫 페이지는 cursorAt = 기간 끝(to 다음 날 0시), cursorId = 0 으로 부름 (null 안 씀. 0이라 기간 끝 시각과 딱 같은 기록은 빠짐)
+    // 병원 기준도 같이 가져옴 (응답의 목표 판정 targetValue·aboveTarget용)
     @Query("""
             select r from Reading r
+            join fetch r.criteriaVersion
             where r.user.id = :userId
               and r.deletedAt is null
               and r.measuredAt >= :from
@@ -68,7 +71,17 @@ public interface ReadingRepository extends JpaRepository<Reading, Long> {
 
     // 여러 식사에 연결된(meal_id) 내 혈당을 한 번에 (같은 음식 지난 기록용). 잰 시각 순
     // 시간이 가깝다고 붙이지 않고 meal_id로 연결된 것만 씀
+    // 병원 기준도 같이 가져옴 (응답의 목표 판정 칸 — 혈당마다 기준을 또 조회하지 않게)
+    @EntityGraph(attributePaths = "criteriaVersion")
     List<Reading> findAllByUserIdAndMealIdInAndDeletedAtIsNullOrderByMeasuredAtAscIdAsc(Long userId, Collection<Long> mealIds);
+
+    // 이 식사에 붙은 살아 있는 식후 혈당 중 이 시각보다 앞에 잰 것이 있는지 (식사 시작을 늦출 때 확인)
+    boolean existsByUserIdAndMealIdAndReadingTypeAndDeletedAtIsNullAndMeasuredAtBefore(
+            Long userId, Long mealId, ReadingType readingType, Instant startedAt);
+
+    // 이 식사에 붙은 살아 있는 식후 혈당 중 이 혈당을 뺀 것. 먼저 잰 순 (알림을 들고 있던 혈당을 옮기거나 지울 때 남은 혈당으로 다시 붙이려고)
+    List<Reading> findByMealIdAndReadingTypeAndDeletedAtIsNullAndIdNotOrderByMeasuredAtAscIdAsc(
+            Long mealId, ReadingType readingType, Long excludedId);
 
     // 기간 안 기록 개수·목표와 비교한 수·목표 밖 수 (from 이상 to 미만). 기록을 다 읽지 않고 DB에서 셈
     // 목표 판정은 ReadingEvaluator.aboveTarget과 같음 (기록마다 잴 때 적용 중이던 기준, 목표값 이상이면 밖)

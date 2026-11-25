@@ -20,6 +20,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -348,6 +349,208 @@ class ReadingFlowTest {
                 .andExpect(jsonPath("$.errorCode").value("MEAL_40401"));
     }
 
+    // ---------- 처음 값·고친 시각·식사 연결 끊기 ----------
+
+    @Test
+    void 식후를_공복으로_바꾸면_식사_연결이_끊긴다() throws Exception {
+        long mealId = createMeal(access);
+        String body = mvc.perform(post("/api/readings").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content(postMealJson(mealId)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        long id = ((Number) JsonPath.read(body, "$.data.readingId")).longValue();
+
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"readingType\":\"FASTING\",\"slot\":\"FASTING\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.readingType").value("FASTING"))
+                .andExpect(jsonPath("$.data.mealId").value((Object) null))
+                .andExpect(jsonPath("$.data.editedAt").isNotEmpty())
+                .andExpect(jsonPath("$.data.originalValue").value((Object) null));   // 값은 안 고침
+    }
+
+    @Test
+    void 같은_값으로_저장하면_수정으로_안_센다() throws Exception {
+        long id = create(95, Instant.now());
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"value\":95}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.editedAt").value((Object) null))
+                .andExpect(jsonPath("$.data.originalValue").value((Object) null));
+    }
+
+    // ---------- HI·LO (G-11) ----------
+
+    @Test
+    void HI를_보내면_600으로_저장되고_HI가_남는다() throws Exception {
+        mvc.perform(post("/api/readings").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"meterLimit\":\"HI\",\"measuredAt\":\"" + Instant.now() + "\",\"readingType\":\"OTHER\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.value").value(600))
+                .andExpect(jsonPath("$.data.meterLimit").value("HI"))
+                .andExpect(jsonPath("$.data.belowLow").value(false));
+    }
+
+    @Test
+    void 숫자와_HI를_같이_보내거나_둘_다_없으면_400() throws Exception {
+        for (String body : List.of(
+                "{\"value\":120,\"meterLimit\":\"HI\",\"measuredAt\":\"" + Instant.now() + "\",\"readingType\":\"OTHER\"}",
+                "{\"measuredAt\":\"" + Instant.now() + "\",\"readingType\":\"OTHER\"}")) {
+            mvc.perform(post("/api/readings").cookie(access).contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errorCode").value("READING_40004"));
+        }
+    }
+
+    @Test
+    void LO를_숫자로_고치면_LO가_풀리고_처음_값이_남는다() throws Exception {
+        String body = mvc.perform(post("/api/readings").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"meterLimit\":\"LO\",\"measuredAt\":\"" + Instant.now() + "\",\"readingType\":\"FASTING\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.value").value(20))
+                .andExpect(jsonPath("$.data.belowLow").value(true))
+                .andReturn().getResponse().getContentAsString();
+        long id = ((Number) JsonPath.read(body, "$.data.readingId")).longValue();
+
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"value\":45}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.value").value(45))
+                .andExpect(jsonPath("$.data.meterLimit").value((Object) null))
+                .andExpect(jsonPath("$.data.originalValue").value(20))
+                .andExpect(jsonPath("$.data.belowLow").value(true));
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"value\":45,\"meterLimit\":\"LO\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("READING_40004"));
+    }
+
+    @Test
+    void 숫자_600을_HI로_고치면_값은_같아도_고친_것으로_센다() throws Exception {
+        long id = create(600, Instant.now());
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"meterLimit\":\"HI\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.value").value(600))
+                .andExpect(jsonPath("$.data.meterLimit").value("HI"))
+                .andExpect(jsonPath("$.data.originalValue").value(600))
+                .andExpect(jsonPath("$.data.editedAt").isNotEmpty());
+    }
+
+    @Test
+    void HI를_숫자로_고치면_처음_값에_HI가_남는다() throws Exception {
+        String body = mvc.perform(post("/api/readings").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"meterLimit\":\"HI\",\"measuredAt\":\"" + Instant.now() + "\",\"readingType\":\"OTHER\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.originalMeterLimit").value((Object) null))
+                .andReturn().getResponse().getContentAsString();
+        long id = ((Number) JsonPath.read(body, "$.data.readingId")).longValue();
+
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"value\":450}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.value").value(450))
+                .andExpect(jsonPath("$.data.originalValue").value(600))
+                .andExpect(jsonPath("$.data.originalMeterLimit").value("HI"));   // 「처음 600」이 아니라 「처음 HI」
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"value\":600}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.originalValue").value(600))   // 숫자 600은 처음(HI)과 다름
+                .andExpect(jsonPath("$.data.originalMeterLimit").value("HI"));
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"meterLimit\":\"HI\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.originalValue").value((Object) null))   // 처음 그대로 HI로 돌아옴
+                .andExpect(jsonPath("$.data.originalMeterLimit").value((Object) null));
+    }
+
+    @Test
+    void 처음_값으로_되돌리면_처음_값은_비고_고친_시각은_남는다() throws Exception {
+        long id = create(100, Instant.now());
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"value\":120}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.originalValue").value(100));
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"value\":100}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.value").value(100))
+                .andExpect(jsonPath("$.data.originalValue").value((Object) null))
+                .andExpect(jsonPath("$.data.originalMeterLimit").value((Object) null))
+                .andExpect(jsonPath("$.data.editedAt").isNotEmpty());
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"value\":130}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.originalValue").value(100));   // 다시 고치면 처음 값이 다시 남음
+    }
+
+    // ---------- 식후 시각 (G-10) ----------
+
+    @Test
+    void 식후_혈당을_식사_시작보다_앞_시각으로_적거나_고치면_400() throws Exception {
+        long mealId = createMeal(access);   // 2시간 전 시작
+        mvc.perform(post("/api/readings").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"value\":150,\"measuredAt\":\"" + Instant.now().minus(Duration.ofHours(3))
+                                + "\",\"readingType\":\"POST_MEAL\",\"mealId\":" + mealId + "}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("READING_40005"));
+
+        String body = mvc.perform(post("/api/readings").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content(postMealJson(mealId)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        long id = ((Number) JsonPath.read(body, "$.data.readingId")).longValue();
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"measuredAt\":\"" + Instant.now().minus(Duration.ofHours(3)) + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("READING_40005"));
+        mvc.perform(get("/api/readings/" + id).cookie(access))
+                .andExpect(jsonPath("$.data.editedAt").value((Object) null));   // 400이면 고친 것도 안 남음
+    }
+
+    @Test
+    void 식사_시작을_혈당보다_뒤로_옮겨_둬도_값만_고치면_200() throws Exception {
+        long mealId = createMeal(access);   // 2시간 전 시작
+        String body = mvc.perform(post("/api/readings").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"value\":150,\"measuredAt\":\"" + Instant.now().minus(Duration.ofHours(1))
+                                + "\",\"readingType\":\"POST_MEAL\",\"mealId\":" + mealId + "}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        long id = ((Number) JsonPath.read(body, "$.data.readingId")).longValue();
+        // 식사 시작이 혈당(1시간 전)보다 뒤인 예전 데이터 (지금은 식사 수정이 MEAL_40008로 막아서 DB로 만듦)
+        jdbc.update("UPDATE meals SET started_at = ? WHERE id = ?",
+                java.sql.Timestamp.from(Instant.now().minus(Duration.ofMinutes(30))), mealId);
+
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"value\":160}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.value").value(160));
+    }
+
+    @Test
+    void 식사_시작과_같은_시각은_식후로_적을_수_있다() throws Exception {
+        Instant startedAt = Instant.now().minus(Duration.ofHours(1)).truncatedTo(ChronoUnit.SECONDS);
+        String meal = mvc.perform(post("/api/meals").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mealSlot\":\"LUNCH\",\"startedAt\":\"" + startedAt + "\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        long mealId = ((Number) JsonPath.read(meal, "$.data.mealId")).longValue();
+
+        mvc.perform(post("/api/readings").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"value\":150,\"measuredAt\":\"" + startedAt
+                                + "\",\"readingType\":\"POST_MEAL\",\"mealId\":" + mealId + "}"))
+                .andExpect(status().isCreated());
+    }
+
+    @Test
+    void 공복_혈당은_식사보다_앞이어도_된다() throws Exception {
+        long mealId = createMeal(access);
+        mvc.perform(post("/api/readings").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"value\":90,\"measuredAt\":\"" + Instant.now().minus(Duration.ofHours(3))
+                                + "\",\"readingType\":\"FASTING\",\"mealId\":" + mealId + "}"))
+                .andExpect(status().isCreated());
+    }
+
     // ---------- 식후 알림 끝 처리 ----------
 
     // 병원 기준(식후 60분, 점심 식후만) 넣고, 지금 점심 시작 → 1시간 뒤 알림이 예약된 식사 id
@@ -406,6 +609,164 @@ class ReadingFlowTest {
         Map<String, Object> reminder = reminderOf(mealId);
         assertThat(reminder.get("status")).isEqualTo("DONE");
         assertThat(((Number) reminder.get("reading_id")).longValue()).isEqualTo(id);
+    }
+
+    @Test
+    void 공복으로_적은_혈당을_식후로_바꾸면_공복_알림_시각으로_재야_할_시각을_구하지_않는다() throws Exception {
+        LocalDate day = today().minusDays(1);
+        mvc.perform(post("/api/criteria-versions").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"postMealMinutes\":60,\"measureSlots\":[\"FASTING\",\"BREAKFAST_AFTER\"],"
+                                + "\"effectiveFrom\":\"" + day.minusDays(10) + "\"}"))
+                .andExpect(status().isCreated());
+        Long userId = jdbc.queryForObject("SELECT id FROM users WHERE email = 'jisu@x.com'", Long.class);
+        jdbc.update("INSERT INTO reminders (user_id, slot, scheduled_at, status, sent_at) VALUES (?, 'FASTING', ?, 'SENT', ?)",
+                userId, java.sql.Timestamp.from(kst(day, 7, 30)), java.sql.Timestamp.from(kst(day, 7, 30)));
+        String created = mvc.perform(post("/api/readings").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"value\":150,\"measuredAt\":\"" + kst(day, 8, 0)
+                                + "\",\"readingType\":\"FASTING\",\"slot\":\"FASTING\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        long id = ((Number) JsonPath.read(created, "$.data.readingId")).longValue();
+        assertThat(jdbc.queryForObject("SELECT status FROM reminders WHERE slot = 'FASTING'", String.class))
+                .isEqualTo("DONE");   // 공복 알림을 이 혈당이 끝냄
+        String meal = mvc.perform(post("/api/meals").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mealSlot\":\"BREAKFAST\",\"startedAt\":\"" + kst(day, 6, 0) + "\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        long breakfast = ((Number) JsonPath.read(meal, "$.data.mealId")).longValue();
+
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"readingType\":\"POST_MEAL\",\"slot\":\"BREAKFAST_AFTER\",\"mealId\":" + breakfast + "}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.expectedAt").value(kst(day, 7, 0).toString()))   // 아침 6시 + 60분 (공복 알림 7:30 아님)
+                .andExpect(jsonPath("$.data.timing").value("LATE"));
+
+        Map<String, Object> fasting = jdbc.queryForMap("SELECT status, reading_id FROM reminders WHERE slot = 'FASTING'");
+        assertThat(fasting.get("status")).isEqualTo("SENT");   // 보낸 알림이라 다시 "놓친 측정"으로 셈
+        assertThat(fasting.get("reading_id")).isNull();
+    }
+
+    @Test
+    void 점심_혈당을_저녁_식사로_옮기면_점심_알림은_풀리고_저녁_알림이_끝난다() throws Exception {
+        mvc.perform(post("/api/criteria-versions").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"postMealMinutes\":60,\"measureSlots\":[\"LUNCH_AFTER\",\"DINNER_AFTER\"]}"))
+                .andExpect(status().isCreated());
+        long lunch = mealStartedNow("LUNCH");
+        long dinner = mealStartedNow("DINNER");
+        jdbc.update("UPDATE reminders SET status = 'SENT', sent_at = now() WHERE meal_id = ?", lunch);   // 점심 알림은 이미 보냄
+        String body = mvc.perform(post("/api/readings").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content(postMealJson(lunch)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        long id = ((Number) JsonPath.read(body, "$.data.readingId")).longValue();
+        assertThat(reminderOf(lunch).get("status")).isEqualTo("DONE");
+
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mealId\":" + dinner + "}"))
+                .andExpect(status().isOk());
+
+        Map<String, Object> lunchReminder = reminderOf(lunch);
+        assertThat(lunchReminder.get("status")).isEqualTo("SENT");   // 점심은 다시 "놓친 측정"
+        assertThat(lunchReminder.get("reading_id")).isNull();
+        Map<String, Object> dinnerReminder = reminderOf(dinner);
+        assertThat(dinnerReminder.get("status")).isEqualTo("DONE");
+        assertThat(((Number) dinnerReminder.get("reading_id")).longValue()).isEqualTo(id);
+    }
+
+    // 식후 혈당 하나 등록하고 readingId 돌려줌
+    private long createPostMeal(long mealId) throws Exception {
+        String body = mvc.perform(post("/api/readings").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content(postMealJson(mealId)))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return ((Number) JsonPath.read(body, "$.data.readingId")).longValue();
+    }
+
+    @Test
+    void 지운_식사의_알림은_혈당을_공복으로_고쳐도_되살아나지_않는다() throws Exception {
+        long mealId = lunchWithReminder();
+        long id = createPostMeal(mealId);
+        assertThat(reminderOf(mealId).get("status")).isEqualTo("DONE");
+        mvc.perform(delete("/api/meals/" + mealId).cookie(access)).andExpect(status().isOk());
+
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"readingType\":\"FASTING\",\"slot\":\"FASTING\"}"))
+                .andExpect(status().isOk());
+
+        Map<String, Object> reminder = reminderOf(mealId);
+        assertThat(reminder.get("status")).isEqualTo("CANCELED");   // SCHEDULED로 돌아가 "재세요"가 가면 안 됨
+        assertThat(reminder.get("reading_id")).isNull();
+    }
+
+    @Test
+    void 알림을_들고_있던_혈당을_다른_식사로_옮기면_남은_식후_혈당이_알림을_이어받는다() throws Exception {
+        mvc.perform(post("/api/criteria-versions").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"postMealMinutes\":60,\"measureSlots\":[\"LUNCH_AFTER\",\"DINNER_AFTER\"]}"))
+                .andExpect(status().isCreated());
+        long lunch = mealStartedNow("LUNCH");
+        long dinner = mealStartedNow("DINNER");
+        jdbc.update("UPDATE reminders SET status = 'SENT', sent_at = now() WHERE meal_id = ?", lunch);
+        long first = createPostMeal(lunch);
+        long second = createPostMeal(lunch);
+        assertThat(((Number) reminderOf(lunch).get("reading_id")).longValue()).isEqualTo(first);
+
+        mvc.perform(patch("/api/readings/" + first).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mealId\":" + dinner + "}"))
+                .andExpect(status().isOk());
+
+        Map<String, Object> lunchReminder = reminderOf(lunch);
+        assertThat(lunchReminder.get("status")).isEqualTo("DONE");   // 놓친 측정(SENT)이 아님
+        assertThat(((Number) lunchReminder.get("reading_id")).longValue()).isEqualTo(second);
+    }
+
+    @Test
+    void 혈당을_점심에서_저녁으로_옮겼다가_다시_점심으로_옮기면_점심_알림이_다시_붙는다() throws Exception {
+        mvc.perform(post("/api/criteria-versions").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"postMealMinutes\":60,\"measureSlots\":[\"LUNCH_AFTER\",\"DINNER_AFTER\"]}"))
+                .andExpect(status().isCreated());
+        long lunch = mealStartedNow("LUNCH");
+        long dinner = mealStartedNow("DINNER");
+        // 점심 알림은 안 보냈는데 울릴 시각이 지났다고 침 → 풀면 SKIPPED가 됨
+        jdbc.update("UPDATE reminders SET scheduled_at = now() - interval '1 minute' WHERE meal_id = ?", lunch);
+        long id = createPostMeal(lunch);
+
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mealId\":" + dinner + "}"))
+                .andExpect(status().isOk());
+        assertThat(reminderOf(lunch).get("status")).isEqualTo("SKIPPED");
+
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mealId\":" + lunch + "}"))
+                .andExpect(status().isOk());
+        Map<String, Object> lunchReminder = reminderOf(lunch);
+        assertThat(lunchReminder.get("status")).isEqualTo("DONE");
+        assertThat(((Number) lunchReminder.get("reading_id")).longValue()).isEqualTo(id);
+        Map<String, Object> dinnerReminder = reminderOf(dinner);
+        assertThat(dinnerReminder.get("status")).isEqualTo("SCHEDULED");   // 저녁 알림은 풀려서 다시 예약 상태
+        assertThat(dinnerReminder.get("reading_id")).isNull();
+    }
+
+    @Test
+    void 알림을_끝낸_혈당을_지우면_알림이_풀려서_놓친_측정으로_돌아간다() throws Exception {
+        long mealId = lunchWithReminder();
+        jdbc.update("UPDATE reminders SET status = 'SENT', sent_at = now() WHERE meal_id = ?", mealId);
+        long id = createPostMeal(mealId);
+        assertThat(reminderOf(mealId).get("status")).isEqualTo("DONE");
+
+        mvc.perform(delete("/api/readings/" + id).cookie(access)).andExpect(status().isOk());
+
+        Map<String, Object> reminder = reminderOf(mealId);
+        assertThat(reminder.get("status")).isEqualTo("SENT");
+        assertThat(reminder.get("reading_id")).isNull();
+    }
+
+    // 지금 시작한 식사 (병원 기준이 있으면 식후 알림이 예약됨)
+    private long mealStartedNow(String mealSlot) throws Exception {
+        String body = mvc.perform(post("/api/meals").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mealSlot\":\"" + mealSlot + "\",\"startedAt\":\"" + Instant.now() + "\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return ((Number) JsonPath.read(body, "$.data.mealId")).longValue();
     }
 
     @Test

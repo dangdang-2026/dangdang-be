@@ -82,7 +82,8 @@ public class MealController {
                     """
                     **Parameters** mealId + 바꿀 칸만: mealSlot, startedAt(지금 이전), note(255자, 비우려면 "")
                     **Returns** 수정된 식사. startedOffline은 바꿀 수 없음.
-                    바꿀 값이 없으면 MEAL_40003, 없거나 삭제됐거나 남의 기록이면 MEAL_40401
+                    바꿀 값이 없으면 MEAL_40003, 이 식사에 붙은 식후 혈당보다 뒤 시각으로 startedAt을 옮기면 MEAL_40008(같은 시각은 됨),
+                    없거나 삭제됐거나 남의 기록이면 MEAL_40401
                     """)
     @PatchMapping("/{mealId}")
     public ResponseEntity<BaseResponse<MealResponse>> update(
