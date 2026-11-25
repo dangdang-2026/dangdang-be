@@ -4,6 +4,10 @@ import com.dangdang.domain.criteria.dto.response.CriteriaVersionResponse;
 import com.dangdang.domain.criteria.enums.MeasureSlot;
 import com.dangdang.domain.criteria.service.CriteriaService;
 import com.dangdang.domain.meal.enums.MealSlot;
+import com.dangdang.domain.meal.repository.MealRepository;
+import com.dangdang.domain.reading.entity.Reading;
+import com.dangdang.domain.reading.enums.ReadingType;
+import com.dangdang.domain.reading.repository.ReadingRepository;
 import com.dangdang.domain.notification.repository.NotificationRepository;
 import com.dangdang.domain.reminder.dto.response.ReminderOpenResponse;
 import com.dangdang.domain.reminder.dto.response.ReminderSnoozeResponse;
@@ -31,10 +35,18 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class ReminderService {
     private static final Duration SNOOZE = Duration.ofMinutes(10);
+    // 새로 저장할 때 끝 처리하는 알림 (아직 안 끝난 것)
+    private static final List<ReminderStatus> PENDING =
+            List.of(ReminderStatus.SCHEDULED, ReminderStatus.SENT, ReminderStatus.OPENED);
+    // 고쳐서 다시 붙일 때는 SKIPPED도 넣음 — 예전에 풀면서 SKIPPED가 된 알림(식사 A → B → A)도 다시 붙게
+    private static final List<ReminderStatus> PENDING_OR_SKIPPED =
+            List.of(ReminderStatus.SCHEDULED, ReminderStatus.SENT, ReminderStatus.OPENED, ReminderStatus.SKIPPED);
     private final ReminderRepository reminderRepository;
     private final NotificationRepository notificationRepository;
     private final CriteriaService criteriaService;
     private final UserRepository userRepository;
+    private final MealRepository mealRepository;
+    private final ReadingRepository readingRepository;
     private final Clock clock;
     private final Optional<LocalDemoDelay> demoDelay;   //local 프로필에서만 값이 있다
 
@@ -92,11 +104,14 @@ public class ReminderService {
     // 이미 쟀는데 "재세요" 알림이 가는 걸 막음. reading_id는 알림 하나에만 붙을 수 있어서(유니크) 첫 번째에만 붙이고 나머지는 취소함
     @Transactional
     public void completeForMeal(Long mealId, Long readingId) {
+        completeForMeal(mealId, readingId, PENDING);
+    }
+
+    private void completeForMeal(Long mealId, Long readingId, List<ReminderStatus> statuses) {
         if (reminderRepository.existsByReadingId(readingId)) {
             return;             // 이 혈당은 이미 다른 알림을 끝낸 적 있음 (수정으로 식사를 바꾼 경우 등)
         }
-        List<Reminder> pending = reminderRepository.findByMealIdAndStatusInOrderByIdAsc(
-                mealId, List.of(ReminderStatus.SCHEDULED, ReminderStatus.SENT, ReminderStatus.OPENED));
+        List<Reminder> pending = reminderRepository.findByMealIdAndStatusInOrderByIdAsc(mealId, statuses);
         for (int i = 0; i < pending.size(); i++) {
             if (i == 0) pending.get(i).complete(readingId);
             else pending.get(i).cancel();
@@ -106,6 +121,11 @@ public class ReminderService {
     // 식사 없는 혈당(공복, 자기 전)을 저장했을 때: 그날(한국) 그 시점 알림을 끝 처리 (completeForMeal과 같은 규칙)
     @Transactional
     public void completeForSlot(Long userId, MeasureSlot slot, Instant measuredAt, Long readingId) {
+        completeForSlot(userId, slot, measuredAt, readingId, PENDING);
+    }
+
+    private void completeForSlot(Long userId, MeasureSlot slot, Instant measuredAt, Long readingId,
+                                 List<ReminderStatus> statuses) {
         if (slot != MeasureSlot.FASTING && slot != MeasureSlot.BEDTIME) {
             return;             // 식후는 식사(mealId)로 끝 처리한다
         }
@@ -115,7 +135,7 @@ public class ReminderService {
         LocalDate day = measuredAt.atZone(ClockConfig.KST).toLocalDate();   // 그날 = 한국 날짜
         List<Reminder> pending = reminderRepository
                 .findByUserIdAndSlotAndMealIdIsNullAndStatusInAndScheduledAtGreaterThanEqualAndScheduledAtLessThanOrderByIdAsc(
-                        userId, slot, List.of(ReminderStatus.SCHEDULED, ReminderStatus.SENT, ReminderStatus.OPENED),
+                        userId, slot, statuses,
                         day.atStartOfDay(ClockConfig.KST).toInstant(),
                         day.plusDays(1).atStartOfDay(ClockConfig.KST).toInstant());
         for (int i = 0; i < pending.size(); i++) {
@@ -134,14 +154,38 @@ public class ReminderService {
             if (matches(linked.get(), mealId, slot, measuredAt)) {
                 return;
             }
-            linked.get().release(clock.instant());
+            detach(linked.get(), readingId);
             reminderRepository.flush();   // reading_id가 unique라, 새 알림에 붙이기 전에 푼 것을 먼저 DB에 씀
         }
         if (mealId != null) {
-            completeForMeal(mealId, readingId);
+            completeForMeal(mealId, readingId, PENDING_OR_SKIPPED);
         } else if (slot != null) {
-            completeForSlot(userId, slot, measuredAt, readingId);
+            completeForSlot(userId, slot, measuredAt, readingId, PENDING_OR_SKIPPED);
         }
+    }
+
+    // 알림에서 이 혈당을 뗌
+    // 지운 식사의 알림이면 되살리지 않고 취소. 아니면 혈당이 없었다면의 상태로 돌리고,
+    // 그 식사에 다른 살아 있는 식후 혈당이 남아 있으면 그 혈당으로 다시 끝 처리 (남은 혈당이 있는데 '놓친 측정'으로 잡히지 않게)
+    private void detach(Reminder reminder, Long readingId) {
+        Long mealId = reminder.getMealId();
+        if (mealId == null) {
+            reminder.release(clock.instant());
+            return;
+        }
+        boolean mealDeleted = mealRepository.findById(mealId).map(m -> m.getDeletedAt() != null).orElse(true);
+        if (mealDeleted) {
+            reminder.releaseAsCanceled();
+            return;
+        }
+        reminder.release(clock.instant());
+        reminderRepository.flush();   // 남은 혈당을 붙이기 전에 푼 것을 먼저 씀 (reading_id unique)
+        readingRepository.findByMealIdAndReadingTypeAndDeletedAtIsNullAndIdNotOrderByMeasuredAtAscIdAsc(
+                        mealId, ReadingType.POST_MEAL, readingId).stream()
+                .map(Reading::getId)
+                .filter(id -> !reminderRepository.existsByReadingId(id))
+                .findFirst()
+                .ifPresent(reminder::complete);
     }
 
     private static boolean matches(Reminder reminder, Long mealId, MeasureSlot slot, Instant measuredAt) {
