@@ -1,6 +1,7 @@
 package com.dangdang.domain.visit;
 
 import com.dangdang.domain.reminder.scheduler.ReminderScheduler;
+import com.dangdang.domain.visit.service.VisitReminderNotifier;
 import com.dangdang.support.ReminderTestBase;
 import com.jayway.jsonpath.JsonPath;
 import jakarta.servlet.http.Cookie;
@@ -28,7 +29,8 @@ class VisitReminderTest extends ReminderTestBase {
     static final Instant KST_0659_NOV10 = Instant.parse("2026-11-09T21:59:00Z");
     static final Instant KST_0700_NOV10 = Instant.parse("2026-11-09T22:00:00Z");
 
-    @Autowired ReminderScheduler scheduler;
+    @Autowired ReminderScheduler scheduler;   // 스케줄러에 붙었는지는 첫 테스트에서만 봄
+    @Autowired VisitReminderNotifier notifier;  // 나머지는 직접 불러서, 에러를 스케줄러가 삼키지 않게 함
 
     Cookie jisu;
     long careSiteId;
@@ -65,15 +67,15 @@ class VisitReminderTest extends ReminderTestBase {
     void 밤_10시가_지나_등록하면_전날_알림은_건너뛰고_다음_날_아침_7시에_당일_알림() throws Exception {
         clock.set(KST_2200_NOV9);
         createVisit(jisu, "2026-11-10T10:00:00+09:00", careSiteId);
-        scheduler.run();
+        notifier.notifyDue();
         assertThat(fakeSender.sent).isEmpty();
 
         clock.set(KST_0659_NOV10);
-        scheduler.run();
+        notifier.notifyDue();
         assertThat(fakeSender.sent).isEmpty();
 
         clock.set(KST_0700_NOV10);
-        scheduler.run();
+        notifier.notifyDue();
         assertThat(fakeSender.sent).hasSize(1);
         assertThat(types()).containsExactly("VISIT_TODAY");
         assertThat(jdbc.queryForObject("SELECT title FROM notifications", String.class)).isEqualTo("오늘 진료가 있어요");
@@ -84,7 +86,7 @@ class VisitReminderTest extends ReminderTestBase {
         createVisit(jisu, "2026-11-09T10:00:00+09:00", null);   // 이미 지난 오전 진료 → 안 보냄
         createVisit(jisu, "2026-11-09T15:00:00+09:00", null);   // 오후 3시 진료 → 보냄
 
-        scheduler.run();   // 13:00
+        notifier.notifyDue();   // 13:00
 
         assertThat(fakeSender.sent).hasSize(1);
         assertThat(types()).containsExactly("VISIT_TODAY");
@@ -99,7 +101,7 @@ class VisitReminderTest extends ReminderTestBase {
         Cookie minji = login("minji@x.com");
         createVisit(minji, "2026-11-09T16:00:00+09:00", null);   // 민지는 구독이 없어서 푸시는 안 감
 
-        scheduler.run();
+        notifier.notifyDue();
 
         assertThat(fakeSender.sent).isEmpty();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM notifications WHERE user_id = ?", Integer.class, jisuId))
@@ -111,7 +113,7 @@ class VisitReminderTest extends ReminderTestBase {
         long visitId = createVisit(jisu, "2026-11-09T15:00:00+09:00", careSiteId);
         jdbc.update("INSERT INTO notification_preferences (user_id, schedule_enabled) VALUES (?, false)", jisuId);
 
-        scheduler.run();
+        notifier.notifyDue();
 
         assertThat(fakeSender.sent).isEmpty();
         assertThat(inboxCount()).isZero();
@@ -123,28 +125,28 @@ class VisitReminderTest extends ReminderTestBase {
     void 진료_날짜를_바꾸면_새_날짜로_다시_보낸다() throws Exception {
         long visitId = createVisit(jisu, "2026-11-10T10:00:00+09:00", careSiteId);
         clock.set(KST_1900_NOV9);
-        scheduler.run();
+        notifier.notifyDue();
         assertThat(fakeSender.sent).hasSize(1);
 
         // 병원만 바꾸면 다시 안 보냄
         mvc.perform(patch("/api/visits/" + visitId).cookie(jisu).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"careSiteId\":null}"))
                 .andExpect(status().isOk());
-        scheduler.run();
+        notifier.notifyDue();
         assertThat(fakeSender.sent).hasSize(1);
 
         // 같은 시각을 나노초까지 붙여 다시 보내도 (DB에선 같은 값) 다시 안 보냄
         mvc.perform(patch("/api/visits/" + visitId).cookie(jisu).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"visitAt\":\"2026-11-10T10:00:00.000000001+09:00\"}"))
                 .andExpect(status().isOk());
-        scheduler.run();
+        notifier.notifyDue();
         assertThat(fakeSender.sent).hasSize(1);
 
         // 같은 날 다른 시각으로 바꾸면 전날 알림을 새로 보냄
         mvc.perform(patch("/api/visits/" + visitId).cookie(jisu).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"visitAt\":\"2026-11-10T11:30:00+09:00\"}"))
                 .andExpect(status().isOk());
-        scheduler.run();
+        notifier.notifyDue();
         assertThat(fakeSender.sent).hasSize(2);
         assertThat(jdbc.queryForList("SELECT body FROM notifications ORDER BY id", String.class))
                 .containsExactly("당당산부인과 · 오전 10:00", "오전 11:30");
