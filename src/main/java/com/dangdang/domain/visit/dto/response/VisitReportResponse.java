@@ -2,10 +2,14 @@ package com.dangdang.domain.visit.dto.response;
 
 import com.dangdang.domain.criteria.entity.CriteriaVersion;
 import com.dangdang.domain.criteria.enums.MeasureSlot;
+import com.dangdang.domain.insulin.entity.InsulinLog;
+import com.dangdang.domain.insulin.enums.InsulinType;
+import com.dangdang.domain.meal.enums.MealSlot;
 import com.dangdang.domain.reading.entity.Reading;
 import com.dangdang.domain.reading.enums.ReadingType;
 import com.dangdang.domain.visit.enums.ReportKind;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -25,6 +29,7 @@ public record VisitReportResponse(
         Summary summary,
         List<SlotCount> slots,               // 잴 때별 목표 밖 / 측정
         List<Row> readings,                  // 원값 표 (잰 시각 오래된 순)
+        List<InsulinRow> insulinLogs,        // 원값 표 · 인슐린 (맞은 시각 오래된 순, 없으면 [])
         Long questionCount) {                // 진료용이면 물어볼 것 수, 기간 직접이면 null
 
     public record CareSite(Long careSiteId, String name) {
@@ -74,6 +79,21 @@ public record VisitReportResponse(
         public static Row of(Reading r, Boolean aboveTarget) {
             return new Row(r.getId(), r.getMeasuredAt(), r.getReadingType(), r.getSlot(), r.getValue(),
                     aboveTarget, r.isEnteredLate());
+        }
+    }
+
+    // 인슐린은 목표 비교가 없어서 맞은 그대로만 (해석·합계 없음). 「인슐린 · 저녁 식사 때 6단위」
+    public record InsulinRow(
+            Long insulinLogId,
+            Instant takenAt,
+            InsulinType insulinType,
+            MealSlot mealSlot,               // 식사 때면 아침·점심·저녁, 자기 전이면 null
+            BigDecimal units,
+            boolean edited) {                // 저장한 뒤 고친 적이 있는지 (「수정됨」)
+
+        public static InsulinRow of(InsulinLog l) {
+            return new InsulinRow(l.getId(), l.getTakenAt(), l.getInsulinType(), l.getMealSlot(), l.getUnits(),
+                    l.isEdited());
         }
     }
 }

@@ -6,6 +6,7 @@ import com.dangdang.domain.caresite.repository.CareSiteRepository;
 import com.dangdang.domain.criteria.entity.CriteriaVersion;
 import com.dangdang.domain.criteria.enums.MeasureSlot;
 import com.dangdang.domain.criteria.repository.CriteriaVersionRepository;
+import com.dangdang.domain.insulin.repository.InsulinLogRepository;
 import com.dangdang.domain.pregnancy.entity.Pregnancy;
 import com.dangdang.domain.pregnancy.repository.PregnancyRepository;
 import com.dangdang.domain.reading.entity.Reading;
@@ -76,6 +77,7 @@ public class VisitReportService {
     private final UserRepository userRepository;
     private final CareSiteRepository careSiteRepository;
     private final ReadingRepository readingRepository;
+    private final InsulinLogRepository insulinLogRepository;
     private final ReminderRepository reminderRepository;
     private final CriteriaVersionRepository criteriaVersionRepository;
     private final PregnancyRepository pregnancyRepository;
@@ -273,8 +275,9 @@ public class VisitReportService {
         LocalDate to = period.to();
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
-        List<Reading> readings = readingRepository.findAllInRange(userId,
-                KoreanTime.startOfDay(from), KoreanTime.endOfDay(to));
+        Instant start = KoreanTime.startOfDay(from);
+        Instant end = KoreanTime.endOfDay(to);
+        List<Reading> readings = readingRepository.findAllInRange(userId, start, end);
 
         List<VisitReportResponse.Row> rows = readings.stream()
                 .map(r -> VisitReportResponse.Row.of(r, ReadingEvaluator.aboveTarget(r)))
@@ -291,6 +294,9 @@ public class VisitReportService {
                 summary(userId, rows, from, to),
                 slotCounts(rows),
                 rows,
+                // 인슐린은 맞은 그대로만 (summary·slots엔 안 섞음)
+                insulinLogRepository.findAllInRange(userId, start, end).stream()
+                        .map(VisitReportResponse.InsulinRow::of).toList(),
                 visit == null ? null : visitQuestionRepository.countByVisitIdAndDeletedAtIsNull(visit.getId()));
     }
 

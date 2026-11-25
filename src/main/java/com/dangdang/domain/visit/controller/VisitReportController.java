@@ -65,6 +65,7 @@ public class VisitReportController {
                     summary{measured 측정, missed 빈칸, enteredLate 나중 입력, below70, outOfTarget, inTargetRate, compared},
                     slots[]{slot, measured, outOfTarget}(하루 순서, 잴 때 없는 기록은 slot null로 맨 뒤),
                     readings[]{readingId, measuredAt, readingType, slot, value, aboveTarget, enteredLate}(원값 표),
+                    insulinLogs[]{insulinLogId, takenAt, insulinType, mealSlot, units, edited}(원값 표 · 인슐린, 맞은 시각 오래된 순, 없으면 []),
                     questionCount(물어볼 것 수). 목표 밖은 기록마다 그때 기준으로 셈.
                     없거나 삭제됐거나 남의 일정이면 VISIT_40401, 진료 날짜가 미정이면 VISIT_40003
                     """)
