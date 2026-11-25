@@ -147,7 +147,8 @@ public interface ReminderRepository extends JpaRepository<Reminder, Long> {
     @Query("UPDATE Reminder r SET r.claimedUntil = NULL WHERE r.id = :id")
     int release(Long id);
 
-    // H-05 이번 끼니 건너뛰기 — 이 식사의 아직 안 끝난 알림(예약·보냄·열어 봄)을 DISMISSED로
+    // H-05 이번 끼니 건너뛰기 — 이 식사의 아직 안 끝난 알림(예약·보냄·열어 봄)과 기기가 없거나 알림을 꺼서 못 보낸 알림(SKIPPED)을 DISMISSED로
+    // SKIPPED도 바꾸는 건, 사용자가 직접 건너뛴 끼니는 기기 유무와 상관없이 「놓친 측정」에 세려고
     // 상태를 읽고 고치는 쪽(열기·미루기·보냄·재알림 기록)은 줄을 잠가서 읽으니(findMineForUpdate·findByIdForUpdate)
     // 이 UPDATE와 겹쳐도 앞 요청이 끝난 뒤의 상태를 보고, DISMISSED를 옛 값(SENT·OPENED·SCHEDULED)으로 덮지 않음
     // clearAutomatically를 안 붙인다 — 같은 트랜잭션에서 고친 Meal이 영속성 컨텍스트에서 떨어져 저장이 안 될 수 있어서
@@ -157,7 +158,8 @@ public interface ReminderRepository extends JpaRepository<Reminder, Long> {
             WHERE r.mealId = :mealId
               AND r.status IN (com.dangdang.domain.reminder.enums.ReminderStatus.SCHEDULED,
                                com.dangdang.domain.reminder.enums.ReminderStatus.SENT,
-                               com.dangdang.domain.reminder.enums.ReminderStatus.OPENED)
+                               com.dangdang.domain.reminder.enums.ReminderStatus.OPENED,
+                               com.dangdang.domain.reminder.enums.ReminderStatus.SKIPPED)
             """)
     int dismissForMeal(Long mealId);
 

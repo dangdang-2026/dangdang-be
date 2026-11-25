@@ -60,6 +60,21 @@ class MeasureSkipFlowTest extends ReminderTestBase {
         assertThat(fakeSender.sent).isEmpty();
     }
 
+    // 기기가 없어 못 보낸(SKIPPED) 알림이 있는 식사도 건너뛰면 DISMISSED → 「놓친 측정」에 셈
+    @Test
+    void 못_보낸_알림이_있는_식사도_건너뛰면_DISMISSED로_놓친_측정에_센다() throws Exception {
+        setStatus(reminderId, "SKIPPED");
+        clock.set(NOW.plus(Duration.ofMinutes(31)));   // 알림 시각 + 30분이 지나야 놓침으로 셈
+        mvc.perform(get("/api/readings/stats").cookie(jisu).param("period", "1W"))
+                .andExpect(jsonPath("$.data.current.missed").value(0));
+
+        mvc.perform(post("/api/meals/" + mealId + "/measure-skip").cookie(jisu)).andExpect(status().isOk());
+
+        assertThat(statusOf(reminderId)).isEqualTo("DISMISSED");
+        mvc.perform(get("/api/readings/stats").cookie(jisu).param("period", "1W"))
+                .andExpect(jsonPath("$.data.current.missed").value(1));
+    }
+
     @Test
     void 두_번_눌러도_처음_시각_그대로() throws Exception {
         mvc.perform(post("/api/meals/" + mealId + "/measure-skip").cookie(jisu)).andExpect(status().isOk());

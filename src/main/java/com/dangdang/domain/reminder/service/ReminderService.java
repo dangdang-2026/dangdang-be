@@ -107,7 +107,7 @@ public class ReminderService {
                 .forEach(Reminder::cancel);   // 변경 감지로 트랜잭션 끝날 때 반영됨
     }
 
-    // H-05 이번 끼니 건너뛰기: 예약·보냄·열어 봄 → DISMISSED (재알림·보내기 대상에서 빠짐)
+    // H-05 이번 끼니 건너뛰기: 예약·보냄·열어 봄·못 보냄(SKIPPED) → DISMISSED (재알림·보내기 대상에서 빠지고 놓친 측정에 셈)
     @Transactional
     public void dismissForMeal(Long mealId) {
         reminderRepository.dismissForMeal(mealId);
