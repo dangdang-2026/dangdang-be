@@ -116,7 +116,7 @@ public class CardController {
         return ResponseEntity.ok(BaseResponse.success(200, "검수자를 적었습니다.", cardService.review(cardId, request)));
     }
 
-    @Operation(summary = "[ 운영자 | 카드 내리기 (U-26c) ]", description = "→ WITHDRAWN. 목록에서 빠지고 저장한 사람에겐 「내려간 카드」. 이 카드를 가리키는 소식 카드도 안 보임")
+    @Operation(summary = "[ 운영자 | 카드 내리기 (U-26c) ]", description = "→ WITHDRAWN. 목록에서 빠지고 저장한 사람에겐 「내려간 카드」. 이 카드를 건 소식 카드(스플래시·커뮤니티)도 지금 시각으로 끝남 (시작 전이면 끝 = 시작, 이미 끝난 소식은 그대로)")
     @PostMapping("/api/admin/cards/{cardId}/withdraw")
     public ResponseEntity<BaseResponse<CardDetailResponse>> withdraw(@PathVariable Long cardId) {
         return ResponseEntity.ok(BaseResponse.success(200, "카드를 내렸습니다.", cardService.withdraw(cardId)));
