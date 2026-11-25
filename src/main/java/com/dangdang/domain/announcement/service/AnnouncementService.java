@@ -52,7 +52,9 @@ public class AnnouncementService {
         String linkUrl = req.linkUrl();
         ContentCard card = null;
         if (req.contentCardId() != null) {
-            card = contentCardRepository.findById(req.contentCardId())
+            // 카드 줄을 공유 잠금으로 읽는다. 운영자가 그 카드를 내리는 중이면 끝난 뒤의 상태를 보고 막는다
+            // (안 잠그면 내리기의 endAllForCard가 아직 안 들어온 이 소식을 못 보고, 내린 카드에 열린 소식이 남는다)
+            card = contentCardRepository.findByIdForShare(req.contentCardId())
                     .orElseThrow(() -> new CustomException(CardErrorCode.CARD_NOT_FOUND));
             // 쓰는 중(DRAFT)·내려간 카드를 걸면 스플래시에서 눌렀을 때 404·「내려간 카드」가 뜬다
             if (!CardStatus.LIVE.contains(card.getStatus())) {
@@ -74,12 +76,19 @@ public class AnnouncementService {
 
     @Transactional
     public AnnouncementResponse end(Long id) {
-        Announcement a = announcementRepository.findById(id)
+        Announcement a = announcementRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new CustomException(AnnouncementErrorCode.ANNOUNCEMENT_NOT_FOUND));
         a.end(clock.instant());
         // 그 사이 카드가 내려갔으면 요약을 비운다 — 목록(active)과 같은 결과 (PR #120 리뷰)
         return AnnouncementResponse.from(a, a.getContentCardId() == null ? null
                 : contentCardRepository.findById(a.getContentCardId())
                         .filter(c -> CardStatus.LIVE.contains(c.getStatus())).orElse(null));
+    }
+
+    // 카드를 내릴 때 같이 부른다 (CardService.withdraw, 카드 줄을 잠근 같은 트랜잭션)
+    // now는 카드를 내린 시각(앱 시계)을 그대로 받아서, 카드 withdrawnAt과 소식 끝 시각이 같게
+    @Transactional
+    public void endAllForCard(Long cardId, Instant now) {
+        announcementRepository.endAllForCard(cardId, now);
     }
 }
