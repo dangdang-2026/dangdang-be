@@ -45,7 +45,8 @@ public class VisitQuestionService {
     @Transactional
     public VisitQuestionResponse create(Long userId, Long visitId, VisitQuestionCreateRequest req) {
         sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403
-        Visit visit = visitService.findMine(userId, visitId);
+        // 일정 줄을 FOR SHARE로 잡는다 → 일정·병원 지우기와 겹쳐도 지운 일정에 살아 있는 질문·메모가 남지 않는다
+        Visit visit = visitService.findMineForShare(userId, visitId);
         int sortOrder = req.sortOrder() != null ? req.sortOrder() : nextSortOrder(visitId);
         boolean fromChatbot = false;
         if (req.chatMessageId() != null) {

@@ -93,14 +93,20 @@ public class VisitService {
         Visit visit = findMine(userId, visitId);
         // 병원은 실제로 바꿀 때만 확인함. 화면이 원래 병원 id를 그대로 다시 보냈는데
         // 그 병원이 그사이 지워졌다고 수정 전체가 404로 실패하면 안 돼서
-        if (req.isCareSiteIdSent() && !Objects.equals(req.getCareSiteId(), visit.getCareSiteId())) {
+        boolean changesCareSite = req.isCareSiteIdSent() && !Objects.equals(req.getCareSiteId(), visit.getCareSiteId());
+        if (changesCareSite) {
             checkMyCareSite(userId, req.getCareSiteId());
-            visit.changeCareSite(req.getCareSiteId());
         } else if (visit.getCareSiteId() != null && req.isVisitAtSent()
                 && becomesUpcoming(visit.getVisitAt(), req.getVisitAt())) {
             // 지난 일정을 다가오는 일정(또는 날짜 미정)으로 옮길 때도 병원을 본다
             // 지운 병원의 다가오는 일정은 병원 지우기 때 같이 지워지므로(C-20), 지운 병원으로는 미래로 못 옮긴다
             checkMyCareSite(userId, visit.getCareSiteId());
+        }
+        // 병원 줄을 잡은 뒤, 값을 바꾸기 전에 일정 줄을 FOR UPDATE로 잠그고 다시 본다 (잠금 순서 care_sites → visits)
+        // 위에서 읽은 일정은 잠그지 않은 값이라, 그사이 병원 지우기가 이 일정을 지웠으면 여기서 404 (지운 일정을 되살리지 않게)
+        lockMine(userId, visitId);
+        if (changesCareSite) {
+            visit.changeCareSite(req.getCareSiteId());
         }
         if (req.isVisitAtSent()) {
             checkVisitAt(req.getVisitAt());
@@ -125,6 +131,19 @@ public class VisitService {
     // 내 것 + 삭제 안 된 것만. 없음·삭제됨·남의 것은 전부 404
     Visit findMine(Long userId, Long visitId) {
         return visitRepository.findByIdAndUserIdAndDeletedAtIsNull(visitId, userId)
+                .orElseThrow(() -> new CustomException(VisitErrorCode.VISIT_NOT_FOUND));
+    }
+
+    // findMine과 같은데 일정 줄을 FOR UPDATE로 잠근다 (일정 수정)
+    private Visit lockMine(Long userId, Long visitId) {
+        return visitRepository.findMineForUpdate(visitId, userId)
+                .orElseThrow(() -> new CustomException(VisitErrorCode.VISIT_NOT_FOUND));
+    }
+
+    // findMine과 같은데 일정 줄을 FOR SHARE로 잠근다 (질문·메모 추가)
+    // 일정·병원 지우기와 겹치면 지우기가 끝난 뒤 404, 추가가 먼저면 지우기가 새 질문·메모까지 지운다
+    Visit findMineForShare(Long userId, Long visitId) {
+        return visitRepository.findMineForShare(visitId, userId)
                 .orElseThrow(() -> new CustomException(VisitErrorCode.VISIT_NOT_FOUND));
     }
 
