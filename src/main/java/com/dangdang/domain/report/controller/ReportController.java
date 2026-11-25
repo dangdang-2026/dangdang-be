@@ -25,7 +25,8 @@ public class ReportController {
             summary = "[ 사용자 | 토큰 O | 신고 ]",
             description =
                     """
-                    **Parameters** targetType(POST·COMMENT), targetId, reason, detail(ETC일 때, 200자)
+                    **Parameters** targetType(POST·COMMENT), targetId, reason(MEDICAL_ADVICE · NUMBER_COMPARE · AD_SALES · PRIVACY · ABUSE · CRISIS · MISINFO · ETC), detail(ETC일 때, 200자)
+                    CRISIS(걱정되는 글)는 운영자 처리함 맨 위에 올라간다 (U-13b)
                     **Returns** reported=true. 같은 대상을 다시 신고해도 200. 내 글 REPORT_40001, 대상 없음 POST_40401·COMMENT_40401
                     """)
     @PostMapping

@@ -106,6 +106,36 @@ class AdminReportFlowTest extends ReminderTestBase {
     }
 
     @Test
+    void 위급_신고는_신고_수가_적고_오래돼도_처리함_맨_위() throws Exception {
+        String crisis = write(jisu, "그냥 사라지고 싶어요");
+        report(minji, "POST", crisis, "CRISIS");
+        clock.set(NOW.plusSeconds(60));
+        String many = write(jisu, "광고 글");
+        report(minji, "POST", many, "AD_SALES");
+        report(hana, "POST", many, "MISINFO");
+
+        mvc.perform(get("/api/admin/reports").cookie(admin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[*].targetId", contains(crisis, many)))   // 1건·더 오래됨이어도 먼저
+                .andExpect(jsonPath("$.data.items[0].reasons", contains("CRISIS")))
+                .andExpect(jsonPath("$.data.items[1].reasons", contains("AD_SALES", "MISINFO")));
+    }
+
+    @Test
+    void 위급_신고끼리는_신고_많은_순_같으면_최근_순() throws Exception {
+        String one = write(jisu, "위급 하나");
+        String two = write(jisu, "위급 둘");
+        report(minji, "POST", two, "CRISIS");
+        report(hana, "POST", two, "ABUSE");                              // 사유가 섞여도 CRISIS가 하나 있으면 위급
+        clock.set(NOW.plusSeconds(60));
+        report(minji, "POST", one, "CRISIS");
+
+        mvc.perform(get("/api/admin/reports").cookie(admin))
+                .andExpect(jsonPath("$.data.items[*].targetId", contains(two, one)))
+                .andExpect(jsonPath("$.data.items[0].reasons", contains("ABUSE", "CRISIS")));
+    }
+
+    @Test
     void 가리면_사용자에게_HIDDEN으로_보이고_처리함에서_빠진다() throws Exception {
         String a = write(jisu, "이 약 두 알 먹으면 괜찮아요");
         report(minji, "POST", a, "MEDICAL_ADVICE");
@@ -216,6 +246,8 @@ class AdminReportFlowTest extends ReminderTestBase {
                 .andExpect(jsonPath("$.errorCode").value("REPORT_40401"));
         String a = write(jisu, "글");
         postJson(admin, "/api/admin/reports/POST/" + a + "/hide", "{}").andExpect(status().isBadRequest());
+        postJson(minji, "/api/reports", "{\"targetType\":\"POST\",\"targetId\":\"" + a + "\",\"reason\":\"WHAT\"}")
+                .andExpect(status().isBadRequest());                          // 모르는 신고 사유
         mvc.perform(get("/api/admin/reports/PHOTO/1").cookie(admin)).andExpect(status().isBadRequest());
     }
 
