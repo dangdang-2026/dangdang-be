@@ -61,8 +61,9 @@ public class PostController {
             summary = "[ 사용자 | 토큰 O | 글 작성 ]",
             description =
                     """
-                    **Parameters** category, title(100자), content(5000자), isAnonymous(선택), poll(선택, 2~5개)
-                    **Returns** 저장된 글. 프로필 없음 COMMUNITY_40401, NEWS는 POST_40301
+                    **Parameters** category, title(100자), content(5000자), isAnonymous(선택), poll(선택, 2~5개),
+                    postedDespite(선택, 최대 5개, 안 보내도 됨. 같은 본문으로 30분 안에 올리기 전 확인에서 걸린 종류는 서버가 운영자 처리함에 넣음, 글은 바로 보임)
+                    **Returns** 저장된 글. 프로필 없음 COMMUNITY_40401, NEWS는 POST_40301, postedDespite 모양이 틀리면 GLOBAL_40001
                     """)
     @PostMapping
     public ResponseEntity<BaseResponse<PostDetailResponse>> create(

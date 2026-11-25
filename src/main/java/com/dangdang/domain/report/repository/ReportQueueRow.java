@@ -8,7 +8,9 @@ public interface ReportQueueRow {
 
     Long getTargetId();
 
-    long getReportCount();
+    long getReportCount();        // 사람 신고 수
+
+    long getSystemReportCount();  // 자동 신고 수 (올리기 전 안내를 보고도 올린 글)
 
     String getReasons();          // 사유 이름을 가나다순으로 쉼표로 이은 것 (예: "ABUSE,MEDICAL_ADVICE")
 

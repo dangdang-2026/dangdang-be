@@ -25,7 +25,9 @@ public record AdminReportDetailResponse(
         List<ActionLine> actions) {
 
     // 신고한 사람은 운영자에게도 보여 주지 않는다 (글쓴이에게 알려지지 않게 — 31번)
-    public record ReportLine(String reason, String detail, String status, Instant createdAt) {
+    public record ReportLine(String reason, String detail, String status,
+                             @Schema(description = "USER(사람 신고) · SYSTEM(올리기 전 안내를 보고도 올린 글, 자동)") String source,
+                             Instant createdAt) {
     }
 
     public record ActionLine(String action, String reason, String memo, Long adminId, Instant occurredAt) {

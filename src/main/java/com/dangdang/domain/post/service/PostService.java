@@ -21,12 +21,14 @@ import com.dangdang.domain.post.enums.PostAudience;
 import com.dangdang.domain.post.enums.PostCategory;
 import com.dangdang.domain.post.enums.PostSort;
 import com.dangdang.domain.post.exception.PostErrorCode;
+import com.dangdang.domain.post.infra.PrecheckKindStore;
 import com.dangdang.domain.post.repository.PollVoteRepository;
 import com.dangdang.domain.post.repository.PostDraftRepository;
 import com.dangdang.domain.post.repository.PostPopularQuery;
 import com.dangdang.domain.post.repository.PostReactionRepository;
 import com.dangdang.domain.post.repository.PostRepository;
 import com.dangdang.domain.post.repository.PostSpecifications;
+import com.dangdang.domain.report.service.SystemReportService;
 import com.dangdang.domain.user.enums.Role;
 import com.dangdang.global.common.IdCount;
 import com.dangdang.global.common.TimeCursor;
@@ -34,10 +36,13 @@ import com.dangdang.global.exception.CustomException;
 import com.dangdang.global.exception.GlobalErrorCode;
 import com.dangdang.global.security.AuthPrincipal;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -46,6 +51,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -63,6 +69,8 @@ public class PostService {
     private final PostReactionRepository reactionRepository;
     private final CommentRepository commentRepository;
     private final PollVoteRepository pollVoteRepository;
+    private final PrecheckKindStore precheckKindStore;
+    private final SystemReportService systemReportService;
     private final BlockService blockService;
     private final CommunityProfileService profileService;
     private final SanctionService sanctionService;
@@ -107,8 +115,30 @@ public class PostService {
         Post post = Post.of(profile, request.category(), request.title().trim(), request.content().trim(),
                 Boolean.TRUE.equals(request.isAnonymous()), request.poll(), clock.instant());
         postRepository.save(post);
+        queueForReview(principal.userId(), post.getId(), request);
         draftRepository.deleteByProfileId(profile.getId());   // 올렸으면 임시 글은 끝
         return toDetail(post, profile.getId(), post.getViewCount());
+    }
+
+    // U-15b 「검토 중일 수 있어요」: 안내를 보고도 올린 글은 운영자 처리함에 (글은 막지 않는다)
+    // 같은 사람이 같은 본문으로 30분 안에 올리기 전 확인을 했을 때 서버가 기억한 종류로 넣는다
+    // 앱이 보내는 postedDespite는 보지 않는다 (빼고 보내도 위급 글이 처리함에서 빠지지 않게)
+    // 글이 저장된 뒤 따로 넣어서, 자동 신고가 실패해도 글쓰기는 성공한다
+    private void queueForReview(Long userId, Long postId, PostCreateRequest request) {
+        Set<String> checked = precheckKindStore.find(userId, request.content());
+        if (checked.isEmpty()) {
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                try {
+                    systemReportService.queuePostForReview(postId, checked);
+                } catch (RuntimeException e) {   // 이미 커밋된 글쓰기가 500으로 보이지 않게
+                    log.warn("[자동 신고] 넣기 실패 - 글: {}, {}", postId, e.getClass().getSimpleName());
+                }
+            }
+        });
     }
 
     @Transactional
