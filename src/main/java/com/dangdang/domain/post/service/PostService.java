@@ -27,6 +27,8 @@ import com.dangdang.domain.post.repository.PostPopularQuery;
 import com.dangdang.domain.post.repository.PostReactionRepository;
 import com.dangdang.domain.post.repository.PostRepository;
 import com.dangdang.domain.post.repository.PostSpecifications;
+import com.dangdang.domain.report.enums.ReportReason;
+import com.dangdang.domain.report.repository.ReportRepository;
 import com.dangdang.domain.user.enums.Role;
 import com.dangdang.global.common.IdCount;
 import com.dangdang.global.common.TimeCursor;
@@ -41,9 +43,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.stream.Collectors;
 
 @Service
@@ -55,6 +59,7 @@ public class PostService {
     static final int POPULAR_MAX = 50;          // 인기 게시판은 한 번에 50개 (size 무시, 다음 페이지 없음)
     private static final List<PostCategory> LATEST_ONLY_CATEGORIES =
             List.of(PostCategory.MEAL, PostCategory.VISIT, PostCategory.NEWS);
+    private static final String REVIEW_DETAIL = "올리기 전 안내를 보고도 올림 (자동: %s)";
 
     private final PostRepository postRepository;
     private final PostPopularQuery popularQuery;
@@ -62,6 +67,7 @@ public class PostService {
     private final PostReactionRepository reactionRepository;
     private final CommentRepository commentRepository;
     private final PollVoteRepository pollVoteRepository;
+    private final ReportRepository reportRepository;
     private final BlockService blockService;
     private final CommunityProfileService profileService;
     private final SanctionService sanctionService;
@@ -103,8 +109,32 @@ public class PostService {
         Post post = Post.of(profile, request.category(), request.title().trim(), request.content().trim(),
                 Boolean.TRUE.equals(request.isAnonymous()), request.poll(), clock.instant());
         postRepository.save(post);
+        queueForReview(post.getId(), request.postedDespite());
         draftRepository.deleteByProfileId(profile.getId());   // 올렸으면 임시 글은 끝
         return toDetail(post, profile.getId(), post.getViewCount());
+    }
+
+    // U-15b 「검토 중일 수 있어요」 · N-06: 안내를 보고도 올린 글은 신고한 사람 없이(시스템) 운영자 처리함에 넣는다. 글은 막지 않는다
+    // 같은 사유로 묶이는 종류는 한 줄로 (예: MIND·URGENT_MEDICAL → CRISIS 한 줄, detail에 두 종류). 같은 종류를 두 번 보내도 한 번
+    private void queueForReview(Long postId, List<String> postedDespite) {
+        if (postedDespite == null || postedDespite.isEmpty()) {
+            return;
+        }
+        Map<ReportReason, Set<String>> kindsByReason = postedDespite.stream()
+                .collect(Collectors.groupingBy(PostService::reviewReasonOf, () -> new EnumMap<>(ReportReason.class),
+                        Collectors.toCollection(TreeSet::new)));
+        Instant now = clock.instant();
+        kindsByReason.forEach((reason, kinds) -> reportRepository.addSystemReport(
+                postId, reason.name(), REVIEW_DETAIL.formatted(String.join(", ", kinds)), now));
+    }
+
+    // 약·용량 → MEDICAL_ADVICE, 위급·마음·저혈당 → CRISIS(처리함 맨 위), 모르는 종류 → ETC (그래도 운영자는 본다)
+    private static ReportReason reviewReasonOf(String kind) {
+        return switch (kind) {
+            case "DOSE" -> ReportReason.MEDICAL_ADVICE;
+            case "URGENT_MEDICAL", "MIND", "LOW_GLUCOSE" -> ReportReason.CRISIS;
+            default -> ReportReason.ETC;
+        };
     }
 
     @Transactional

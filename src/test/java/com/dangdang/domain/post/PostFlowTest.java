@@ -45,7 +45,8 @@ class PostFlowTest {
     }
 
     @AfterEach
-    void clean() { // posts는 프로필이 지워져도 남으니(SET NULL) 먼저 지운다
+    void clean() { // posts·reports는 프로필이 지워져도 남으니(SET NULL) 먼저 지운다
+        jdbc.update("DELETE FROM reports");
         jdbc.update("DELETE FROM posts");
         jdbc.update("DELETE FROM users");
         redis.getConnectionFactory().getConnection().serverCommands().flushDb();
@@ -347,6 +348,56 @@ class PostFlowTest {
         mvc.perform(get(BASE + "/drafts").cookie(jisu))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.items.length()").value(0));
+    }
+
+    @Test
+    void 안내를_보고도_올린_글은_바로_보이고_신고한_사람_없이_처리함에_들어간다() throws Exception {
+        String body = mvc.perform(post(BASE).cookie(jisu).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"MIND\",\"title\":\"질문\",\"content\":\"인슐린 4단위\","
+                                + "\"postedDespite\":[\"DOSE\",\"MIND\",\"URGENT_MEDICAL\",\"DOSE\"]}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.postedDespite").doesNotExist())       // 응답엔 안 나간다
+                .andReturn().getResponse().getContentAsString();
+        Long postId = Long.valueOf(JsonPath.<String>read(body, "$.data.id"));
+
+        List<String> rows = jdbc.queryForList("SELECT reason || '|' || detail FROM reports "
+                + "WHERE reporter_id IS NULL AND target_type = 'POST' AND target_id = ? AND status = 'RECEIVED'", String.class, postId);
+        assertThat(rows).containsExactlyInAnyOrder(                           // 같은 사유는 한 줄, 같은 종류는 한 번
+                "MEDICAL_ADVICE|올리기 전 안내를 보고도 올림 (자동: DOSE)",
+                "CRISIS|올리기 전 안내를 보고도 올림 (자동: MIND, URGENT_MEDICAL)");
+        mvc.perform(get(BASE + "/" + postId).cookie(mina))                     // 글은 막지 않는다
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.visibility").value("VISIBLE"));
+    }
+
+    // 이 테스트에서 지수가 쓴 글(제목 t · 그냥 글)에 달린 신고
+    private static final String MY_POST_REPORTS = "SELECT %s FROM reports r JOIN posts p ON r.target_type = 'POST' "
+            + "AND p.id = r.target_id WHERE p.title IN ('t', '그냥 글')";
+
+    @Test
+    void 안내_종류가_없으면_처리함에_안_넣고_모르는_종류는_기타로_넣는다() throws Exception {
+        mvc.perform(post(BASE).cookie(jisu).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"MIND\",\"title\":\"t\",\"content\":\"c\",\"postedDespite\":[]}"))
+                .andExpect(status().isCreated());
+        write(jisu, "MIND", "그냥 글");
+        assertThat(jdbc.queryForObject(MY_POST_REPORTS.formatted("count(*)"), Integer.class)).isZero();
+
+        mvc.perform(post(BASE).cookie(jisu).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"category\":\"MIND\",\"title\":\"t\",\"content\":\"c\",\"postedDespite\":[\"NEW_KIND\"]}"))
+                .andExpect(status().isCreated());
+        assertThat(jdbc.queryForList(MY_POST_REPORTS.formatted("r.reason"), String.class)).containsExactly("ETC");
+    }
+
+    @Test
+    void 안내_종류_모양이_틀리면_400이고_글도_안_올라간다() throws Exception {
+        for (String kinds : List.of("[\"dose\"]", "[\"\"]", "[null]", "[\"" + "A".repeat(31) + "\"]",
+                "[\"DOSE\",\"MIND\",\"URGENT_MEDICAL\",\"LOW_GLUCOSE\",\"DOSE\"]")) {
+            mvc.perform(post(BASE).cookie(jisu).contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"category\":\"MIND\",\"title\":\"t\",\"content\":\"c\",\"postedDespite\":" + kinds + "}"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errorCode").value("GLOBAL_40001"));
+        }
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM posts WHERE title = 't'", Integer.class)).isZero();
     }
 
     @Test
