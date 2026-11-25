@@ -1,7 +1,11 @@
 package com.dangdang.domain.chat;
 
+import com.dangdang.domain.chat.entity.ChatMessage;
+import com.dangdang.domain.chat.enums.ChatKind;
 import com.dangdang.domain.chat.infra.ChatClient;
+import com.dangdang.domain.chat.repository.ChatMessageRepository;
 import com.dangdang.domain.chat.service.ChatService;
+import com.dangdang.domain.user.service.SensitiveConsentGuard;
 import com.dangdang.domain.user.service.SensitiveConsentWithdrawalService;
 import com.dangdang.support.ReminderTestBase;
 import jakarta.servlet.http.Cookie;
@@ -11,10 +15,17 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.client.ResourceAccessException;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
@@ -40,6 +51,9 @@ class ChatFlowTest extends ReminderTestBase {
     @MockitoBean ChatClient chatClient;   // 진짜 AI 서버 대신
     @Autowired SensitiveConsentWithdrawalService withdrawalService;
     @Autowired ChatService chatService;
+    @Autowired ChatMessageRepository chatMessageRepository;
+    @Autowired SensitiveConsentGuard sensitiveConsentGuard;
+    @Autowired TransactionTemplate transactionTemplate;
 
     Cookie jisu;
     Cookie minji;
@@ -96,16 +110,33 @@ class ChatFlowTest extends ReminderTestBase {
     // ── 건강정보 동의 (M-07b 철회 뒤 저장 막기) ──
 
     @Test
-    void 건강정보_동의가_없으면_위험_신호도_403이고_아무것도_안_남긴다() throws Exception {
+    void 건강정보_동의가_없으면_일반_질문은_403이고_아무것도_안_남긴다() throws Exception {
         agreeAll(jisu);
         jdbc.update("DELETE FROM consent_events WHERE user_id = ? AND consent_type = 'SENSITIVE'", jisuId);
 
-        ask(jisu, "피가 비쳐요")
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.errorCode").value("USER_40302"));
         ask(jisu, "공복 혈당은 언제 재요?")
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.errorCode").value("USER_40302"));
+        verify(chatClient, never()).ask(any(), any(), anyBoolean(), any());
+        assertThat(messageCount()).isZero();
+        assertThat(redis.opsForValue().get("ai:usage:CHAT:" + jisuId + ":2026-11-09")).isNull();
+    }
+
+    @Test
+    void 건강정보_동의가_없어도_위험_신호와_약_용량은_안내하되_기록에_안_남긴다() throws Exception {   // 재동의 필요 상태 (리뷰 #133)
+        jdbc.update("DELETE FROM consent_events WHERE user_id = ? AND consent_type = 'SENSITIVE'", jisuId);
+
+        ask(jisu, "피가 비쳐요")
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.question.content").value("피가 비쳐요"))
+                .andExpect(jsonPath("$.data.question.id").value(nullValue()))
+                .andExpect(jsonPath("$.data.answer.id").value(nullValue()))
+                .andExpect(jsonPath("$.data.answer.kind").value("RISK"))
+                .andExpect(jsonPath("$.data.answer.actions", contains("CALL_HOSPITAL", "CALL_119")));
+        ask(jisu, "인슐린 몇 단위 맞아야 해요?")
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.answer.kind").value("DOSE"))
+                .andExpect(jsonPath("$.data.answer.actions", contains("CALL_HOSPITAL")));
         verify(chatClient, never()).ask(any(), any(), anyBoolean(), any());
         assertThat(messageCount()).isZero();
         assertThat(redis.opsForValue().get("ai:usage:CHAT:" + jisuId + ":2026-11-09")).isNull();
@@ -135,6 +166,8 @@ class ChatFlowTest extends ReminderTestBase {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.errorCode").value("USER_40302"));
         assertThat(messageCount()).isZero();   // 질문은 철회가 지웠고, 답은 저장 안 함
+        // 답을 못 받았으니 오늘 횟수도 돌려준다 (리뷰 #133)
+        assertThat(redis.opsForValue().get("ai:usage:CHAT:" + jisuId + ":2026-11-09")).isEqualTo("0");
     }
 
     @Test
@@ -150,6 +183,55 @@ class ChatFlowTest extends ReminderTestBase {
                 .andExpect(jsonPath("$.data.answer.kind").value("UNKNOWN"))
                 .andExpect(jsonPath("$.data.answer.id").value(nullValue()));
         assertThat(messageCount()).isZero();
+    }
+
+    @Test
+    void 대화_지우기는_답_저장이_끝날_때까지_기다렸다가_같이_지운다() throws Exception {   // 리뷰 #133
+        ask(jisu, "피가 비쳐요");   // 질문·답 2줄
+        CountDownLatch locked = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            // 답 저장(saveAnswer)처럼: 건강정보 동의를 잠그고(FOR SHARE) 본 뒤 답을 남긴다
+            Future<?> saver = pool.submit(() -> transactionTemplate.executeWithoutResult(status -> {
+                sensitiveConsentGuard.require(jisuId);
+                locked.countDown();
+                try {
+                    release.await(10, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    throw new IllegalStateException(e);
+                }
+                chatMessageRepository.save(ChatMessage.answer(userRepository.getReferenceById(jisuId),
+                        ChatKind.UNKNOWN, "답", null, null, null, Instant.now()));
+            }));
+            assertThat(locked.await(10, TimeUnit.SECONDS)).isTrue();
+
+            Future<Integer> deleter = pool.submit(() -> chatService.deleteAll(jisuId));
+            assertThat(waitUntilSomeoneWaitsForLock()).isTrue();   // 저장이 끝날 때까지 지우기가 기다린다
+            assertThat(deleter.isDone()).isFalse();
+
+            release.countDown();
+            saver.get(10, TimeUnit.SECONDS);
+            assertThat(deleter.get(10, TimeUnit.SECONDS)).isEqualTo(3);   // 기다리는 사이 저장된 답까지 같이 지움
+            assertThat(messageCount()).isZero();                          // 답만 남지 않는다
+        } finally {
+            release.countDown();
+            pool.shutdownNow();
+        }
+    }
+
+    // 다른 연결이 줄 잠금을 기다리는 상태가 될 때까지 (최대 10초). 시간으로 짐작하지 않고 DB에 직접 물어본다
+    private boolean waitUntilSomeoneWaitsForLock() throws InterruptedException {
+        long deadline = System.currentTimeMillis() + 10_000;
+        while (System.currentTimeMillis() < deadline) {
+            Integer waiting = jdbc.queryForObject("SELECT count(*) FROM pg_stat_activity"
+                    + " WHERE datname = current_database() AND wait_event_type = 'Lock'", Integer.class);
+            if (waiting != null && waiting > 0) {
+                return true;
+            }
+            Thread.sleep(20);
+        }
+        return false;
     }
 
     @Test
