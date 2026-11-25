@@ -91,9 +91,6 @@ public interface MealRepository extends JpaRepository<Meal, Long> {
     @Query("update Meal m set m.updatedAt = :now where m.id = :mealId")
     void touch(Long mealId, Instant now);
 
-    // 이번 끼니 측정을 건너뛴 식사인지 (H-05) — 혈당을 고쳐 알림 연결을 풀 때 DISMISSED로 되돌리려고
-    boolean existsByIdAndMeasureSkippedAtIsNotNull(Long id);
-
     // 하나 찾기 (지운 것 포함) — 되돌리기 실패 이유(없음·안 지움·5분 지남)를 고르려고만 씀
     Optional<Meal> findByIdAndUserId(Long id, Long userId);
 

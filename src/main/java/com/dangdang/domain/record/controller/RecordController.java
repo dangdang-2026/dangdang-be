@@ -36,6 +36,7 @@ public class RecordController {
                     **Returns** 날짜별 days[]. 기록 없는 날도 events=[]로 들어감. events는 시각 오래된 순이고
                     type=READING이면 reading, type=MEAL이면 meal 칸만 들어감. modified는 사용자가 저장 후 고친 적이 있는지
                     (혈당은 값·시점·시각을 고쳤을 때만, 지우기·되돌리기·식사만 붙이기는 안 셈).
+                    고친 시각(editedAt)을 남기기 전에 고친 혈당은 modified=false·originalValue=null로 나옴 (예전 기록은 식사만 붙인 것과 진짜 고친 것을 가릴 수 없어서 비워 둠).
                     reading은 meterLimit(HI·LO)·targetValue·aboveTarget·belowLow(70 미만)·expectedAt(재야 할 시각)·timing·originalValue(처음 값)·originalMeterLimit(처음이 HI·LO였으면 그 글자)·editedAt도 줌.
                     meal.items는 먹은 음식 목록(추가한 순서, 지운 항목 빼고, 없으면 []). 날짜 형식이 틀리거나 from > to 거나 31일 넘으면 GLOBAL_40001
                     """)

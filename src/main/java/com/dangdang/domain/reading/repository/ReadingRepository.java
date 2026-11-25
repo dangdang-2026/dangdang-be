@@ -83,6 +83,10 @@ public interface ReadingRepository extends JpaRepository<Reading, Long> {
     boolean existsByUserIdAndMealIdAndReadingTypeAndDeletedAtIsNullAndMeasuredAtBefore(
             Long userId, Long mealId, ReadingType readingType, Instant startedAt);
 
+    // 이 식사에 붙은 살아 있는 식후 혈당 중 이 혈당을 뺀 것. 먼저 잰 순 (알림을 들고 있던 혈당을 옮기거나 지울 때 남은 혈당으로 다시 붙이려고)
+    List<Reading> findByMealIdAndReadingTypeAndDeletedAtIsNullAndIdNotOrderByMeasuredAtAscIdAsc(
+            Long mealId, ReadingType readingType, Long excludedId);
+
     // 기간 안 기록 개수·목표와 비교한 수·목표 밖 수 (from 이상 to 미만). 기록을 다 읽지 않고 DB에서 셈
     // 목표 판정은 ReadingEvaluator.aboveTarget과 같음 (기록마다 잴 때 적용 중이던 기준, 목표값 이상이면 밖)
     @Query("""

@@ -28,7 +28,9 @@ public record RecordEventResponse(
     // expectedAt = 재야 할 시각 (식후만, 모르면 null)
     public static RecordEventResponse from(Reading r, Instant expectedAt) {
         return new RecordEventResponse(RecordEventType.READING, r.getId(), r.getMeasuredAt(),
-                r.getEditedAt() != null,   // 사용자가 고친 적이 있는지 (지우기·되돌리기·식사만 붙이기는 안 셈)
+                // 사용자가 고친 적이 있는지 (지우기·되돌리기·식사만 붙이기는 안 셈)
+                // edited_at 칸이 생기기 전에 고친 혈당은 비워 둬서 false (V20261124_90 — 식사만 붙인 것과 가릴 수 없어서 일부러)
+                r.getEditedAt() != null,
                 new ReadingPayload(r.getValue(), r.getMeterLimit(), r.getReadingType(), r.getSlot(), r.getMealId(),
                         r.getCriteriaVersion().getId(), r.getScheduledAt(), r.isEnteredLate(),
                         ReadingEvaluator.targetOf(r), ReadingEvaluator.aboveTarget(r), ReadingEvaluator.belowLow(r),
