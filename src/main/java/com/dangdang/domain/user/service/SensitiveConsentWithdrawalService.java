@@ -42,8 +42,7 @@ public class SensitiveConsentWithdrawalService {
     // care_sites는 기준·식사 안내·진료·리포트가 가리키니 맨 끝
     private static final List<Step> STEPS = List.of(
             // 알림함: 건강 알림(NotificationType.health)만. 지금은 5종 모두 건강 알림이고, 건강이 아닌 종류가 생기면 남긴다
-            new Step("notifications", "DELETE FROM notifications WHERE user_id = ?"
-                    + " AND type IN (" + healthNotificationTypes() + ")"),
+            new Step("notifications", notificationsSql(Arrays.asList(NotificationType.values()))),
             new Step("reminders", "DELETE FROM reminders WHERE user_id = ?"),
             new Step("readings", "DELETE FROM readings WHERE user_id = ?"),
             new Step("insulin_logs", "DELETE FROM insulin_logs WHERE user_id = ?"),   // 인슐린 기록 (develop #⑦)
@@ -102,12 +101,14 @@ public class SensitiveConsentWithdrawalService {
         return consentService.getStatus(userId);   // completed=false → 프론트가 바로 A-01로
     }
 
-    // 'MEASURE', 'VISIT_BEFORE', ... — 정해진 enum 이름이라 SQL에 바로 넣어도 된다
-    private static String healthNotificationTypes() {
-        return Arrays.stream(NotificationType.values())
+    // 건강 알림만 지우는 SQL. 'MEASURE', 'VISIT_BEFORE', ... — 정해진 enum 이름이라 SQL에 바로 넣어도 된다
+    // 건강 알림 종류가 하나도 없으면 `type IN ()`이 SQL 문법 오류라 철회 전체가 실패한다 → 이때는 아무 줄도 안 지우게 (AND 1 = 0)
+    static String notificationsSql(List<NotificationType> types) {
+        String health = types.stream()
                 .filter(NotificationType::isHealth)
                 .map(type -> "'" + type.name() + "'")
                 .collect(Collectors.joining(", "));
+        return "DELETE FROM notifications WHERE user_id = ?" + (health.isEmpty() ? " AND 1 = 0" : " AND type IN (" + health + ")");
     }
 
     private boolean isLatestGranted(Long userId, ConsentType type) {
