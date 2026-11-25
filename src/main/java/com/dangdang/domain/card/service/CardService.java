@@ -143,6 +143,8 @@ public class CardService {
         // 이 카드를 건 소식(스플래시·커뮤니티 맨 위)도 같은 시각으로 끝낸다. findActive가 LIVE 카드만 보여 줘서
         // 화면엔 안 보이지만, 안 끝내면 줄이 열린 채 남아 카드가 다시 올라갈 때 옛 소식이 되살아난다.
         // 카드 줄을 잠근 같은 트랜잭션이라 내리기가 롤백되면 같이 롤백된다 (Redis·푸시 없음 → afterCommit 필요 없음)
+        // 엔티티 변경(card.withdraw 등)은 이 호출 전에 한다. 벌크 UPDATE가 영속성 컨텍스트를 비워서, 뒤에 card를
+        // 고치면 detached라 저장되지 않는다 (아래 응답 만들기처럼 읽기만은 괜찮다)
         announcementService.endAllForCard(cardId, now);
         return CardDetailResponse.of(card);
     }
