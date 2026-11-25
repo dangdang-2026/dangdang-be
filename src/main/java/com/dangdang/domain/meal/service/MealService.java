@@ -91,7 +91,8 @@ public class MealService {
         if (req.isEmpty()) {
             throw new CustomException(MealErrorCode.NOTHING_TO_UPDATE);
         }
-        // 줄을 잠가서 읽음 — 건너뛰기·지우기와 동시에 오면 앞 요청이 끝난 뒤의 상태(건너뜀·지움)를 보고 알림을 다시 걸지 않게
+        // 식사 줄을 잠그고 읽음 — 건너뛰기·지우기와 동시에 오면 앞 요청이 끝난 뒤의 상태(건너뜀·지움)를 보고 알림을 다시 걸지 않게.
+        // 혈당 쪽 저장·수정도 같은 줄을 잠그고 시작 시각을 봐서, 아래 "식후 혈당보다 늦게" 확인과 혈당 쪽 "식사 시작보다 앞" 확인이 동시에 둘 다 통과하지 않게 함
         Meal meal = findMineForUpdate(userId, mealId);
         boolean timingChanged = (req.mealSlot() != null && req.mealSlot() != meal.getMealSlot())
                 || (req.startedAt() != null && !req.startedAt().equals(meal.getStartedAt()));

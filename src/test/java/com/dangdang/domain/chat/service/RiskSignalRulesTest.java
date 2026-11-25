@@ -142,4 +142,64 @@ class RiskSignalRulesTest {
         assertThat(hit).isEqualTo(RiskSignalRules.match("저혈당 온 것 같아요", false).orElseThrow());
         assertThat(hit.text()).doesNotContain("태동", "분만실");
     }
+
+    // ── #143 리뷰 ──
+
+    @ParameterizedTest
+    @ValueSource(strings = {"머리를 망치로 때리는 것처럼 아파요", "머리를 망치로 때리는 것 같아요", "머리가 깨질 것 같아요"})
+    void 머리를_때리는_듯한_두통은_폭력이_아니라_위급(String text) {
+        assertThat(type(text)).isEqualTo(RiskSignalRules.Type.URGENT);
+    }
+
+    @Test
+    void 남편이_머리를_때리면_폭력() {
+        assertThat(type("남편이 머리를 때리는 것 같아요")).isEqualTo(RiskSignalRules.Type.SAFETY);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"갈색피가 비쳐요", "속옷에피가 비쳐요", "피가 조금 나와요"})
+    void 피_앞에_글자가_붙어도_출혈(String text) {
+        assertThat(type(text)).isEqualTo(RiskSignalRules.Type.URGENT);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"레시피가 나와 있어요", "커피가 나와요", "열이 나지는 않는데 기침해요", "피가 나지 않아요", "열이 40분째 안 떨어져서 걱정이에요"})
+    void 부정문과_숫자_뒤_시간은_위급이_아니다(String text) {
+        assertThat(type(text)).isNotEqualTo(RiskSignalRules.Type.URGENT);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"혈당 62mg 나왔어요", "혈당이 50대로 나와요", "혈당 수치가 60대예요"})
+    void mg만_쓰거나_혈당_바로_뒤_대도_저혈당(String text) {
+        assertThat(type(text)).isEqualTo(RiskSignalRules.Type.HYPO);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"약 2주 동안 두 번 쟀어요", "계약서 깜빡했어요", "요약 두 번 했어요", "약관 깜빡하고 안 읽었어요"})
+    void 대략_뜻의_약과_약이_아닌_말은_약_용량이_아니다(String text) {
+        assertThat(type(text)).isNull();
+    }
+
+    @Test
+    void 약_숫자_알은_약() {
+        assertThat(type("약 2알 깜빡하고 안 먹었어요")).isEqualTo(RiskSignalRules.Type.DOSE);
+    }
+
+    // ── ai 글 감지(app/moderation/rules.py) 평가에서 나온 폭력 말 — ai와 같은 문장, 같은 결과 ──
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "남편이 때려", "남편이 발로 때렸어", "남편한테 맞았어요", "신랑한테 또 맞았어", "누구한테 맞아서 멍이 들었어요",
+            "시어머니에게 맞고 있어요", "남자 친구한테 맞았어", "아기가 발로 차요. 남편이 때렸어요"})
+    void 사람이_때렸거나_사람한테_맞았으면_폭력(String text) {
+        assertThat(type(text)).isEqualTo(RiskSignalRules.Type.SAFETY);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "아기가 발로 뻥뻥 때려요", "애기가 발로 때려요", "뱃속에서 아기가 발로 때려요", "아기가 엄마 배를 발로 때려요",
+            "나쁜 버릇 때려잡고 싶어요", "회사 때려치우고 싶어", "인슐린 맞았어요", "오늘 주사 맞았어요"})
+    void 태동과_때려잡다_주사는_폭력이_아니다(String text) {
+        assertThat(type(text)).isNotEqualTo(RiskSignalRules.Type.SAFETY);
+    }
 }

@@ -102,6 +102,10 @@ public class PostpartumService {
         }
         Instant now = clock.instant();
         Pregnancy p = activeOrStart(userId, now);
+        // 임신성 당뇨 진단일보다 앞선 출산일은 막는다 (진단일 저장과 같은 규칙, 같은 날은 된다)
+        if (p.getDiagnosisDate() != null && deliveryDate.isBefore(p.getDiagnosisDate())) {
+            throw new CustomException(PregnancyErrorCode.DIAGNOSIS_AFTER_DELIVERY_DATE);
+        }
         p.deliver(deliveryDate, now);
         int paused = cancelScheduled(userId);
         log.info("[산후] 출산일 저장 - 사용자: {}, 멈춘 알림: {}", userId, paused);

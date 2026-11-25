@@ -7,6 +7,7 @@ import com.dangdang.domain.criteria.entity.CriteriaVersion;
 import com.dangdang.domain.criteria.enums.MeasureSlot;
 import com.dangdang.domain.criteria.repository.CriteriaVersionRepository;
 import com.dangdang.domain.pregnancy.entity.Pregnancy;
+import com.dangdang.domain.pregnancy.enums.PregnancyState;
 import com.dangdang.domain.pregnancy.repository.PregnancyRepository;
 import com.dangdang.domain.reading.entity.Reading;
 import com.dangdang.domain.reading.enums.ReadingType;
@@ -307,7 +308,7 @@ public class VisitReportService {
                 slotCounts(rows, missed),
                 rows,
                 missed.stream()
-                        .map(m -> new VisitReportResponse.MissedCell(KoreanTime.dateOf(m.getScheduledAt()), m.getSlot()))
+                        .map(m -> new VisitReportResponse.MissedCell(KoreanTime.dateOf(m.cellAt()), m.getSlot()))
                         .toList(),
                 visit == null ? null : visitQuestionRepository.countByVisitIdAndDeletedAtIsNull(visit.getId()));
     }
@@ -329,13 +330,12 @@ public class VisitReportService {
     }
 
     // 빈칸 = 기간 안 놓친 측정 알림 (혈당 통계 「놓친 측정」과 같은 기준, 모든 잴 때, 지운 식사의 알림은 뺌)
+    // 식사 알림은 식사한 날로 기간·날짜를 정함 (자정 넘은 식후 알림도 식사한 날 칸, 기간 마지막 날 밤 식사의 알림도 들어감)
     // 알림 시각에서 MISSED_GRACE가 안 지난 알림은 아직 잴 시간이 있어서 안 셈
     private List<MissedReminder> missedReminders(Long userId, LocalDate from, LocalDate to) {
-        Instant rangeEnd = KoreanTime.endOfDay(to);
         Instant graceEnd = clock.instant().minus(ReadingStatsService.MISSED_GRACE);
-        Instant end = rangeEnd.isBefore(graceEnd) ? rangeEnd : graceEnd;
         return reminderRepository.findMissed(userId, ReadingStatsService.MISSED_STATUSES,
-                KoreanTime.startOfDay(from), end);
+                KoreanTime.startOfDay(from), KoreanTime.endOfDay(to), graceEnd);
     }
 
     // 잴 때별 목표 밖 / 측정 / 빈칸. 하루 순서(공복 → 아침·점심·저녁 식후 → 자기 전), 잴 때를 안 고른 기록은 맨 뒤
@@ -387,10 +387,12 @@ public class VisitReportService {
     // 임신 주수 (예정일 기준 280일에서 거꾸로 셈, 내 정보 API와 같은 방식)
     // 지금 진행 중인 임신이 아니라 리포트 기간과 겹치는 임신으로 셈 (출산 뒤 다음 임신 중에 옛 리포트를 열어도 그때 주수)
     // 겹치는 임신이 여럿이면 최근 것. 예정일이 없거나 겹치는 임신이 없으면 null
+    // 그 임신이 다른 상황(PAUSED)이면 내 정보 API처럼 주수를 숨긴다 (더 옛 임신으로 넘어가지도 않음)
     private VisitReportResponse.PregnancyWeeks pregnancyWeeks(Long userId, LocalDate from, LocalDate to) {
         return pregnancyRepository.findAllByUserIdOrderByIdDesc(userId).stream()
                 .filter(p -> p.getDueDate() != null && overlaps(p, from, to))
                 .findFirst()
+                .filter(p -> p.getState() != PregnancyState.PAUSED)
                 .map(p -> new VisitReportResponse.PregnancyWeeks(weekOn(p, from), weekOn(p, to)))
                 .orElse(null);
     }

@@ -17,7 +17,14 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 
+import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.time.Instant;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static com.dangdang.support.TestConsents.grantSensitive;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -298,6 +305,80 @@ class VisitFlowTest {
     @Test
     void 로그인하지_않으면_401() throws Exception {
         mvc.perform(get("/api/visits")).andExpect(status().isUnauthorized());
+    }
+
+    // ---------- 병원 지우기와 겹칠 때 (PR #146 리뷰) ----------
+
+    @Test
+    void 병원을_지우는_중에_다가오는_일정_날짜를_바꾸면_404이고_일정은_지워진_채로_남는다() throws Exception {
+        long id = createAndGetId(access, "{\"careSiteId\":" + careSiteId + ",\"visitAt\":\"2099-12-03T10:30:00+09:00\"}");
+
+        int status = whileDeletingCareSite(id,
+                () -> update(access, id, "{\"visitAt\":\"2099-12-17T14:00:00+09:00\"}").andReturn().getResponse().getStatus());
+
+        assertThat(status).isEqualTo(404);
+        assertThat(jdbc.queryForObject("SELECT deleted_at IS NOT NULL FROM visits WHERE id = ?", Boolean.class, id)).isTrue();
+        assertThat(jdbc.queryForObject("SELECT visit_at::date::text FROM visits WHERE id = ?", String.class, id))
+                .isEqualTo("2099-12-03");   // 수정은 반영되지 않는다
+    }
+
+    @Test
+    void 병원을_지우는_중에_질문이나_메모를_더하면_404이고_살아_있는_질문_메모가_안_남는다() throws Exception {
+        long id = createAndGetId(access, "{\"careSiteId\":" + careSiteId + ",\"visitAt\":\"2099-12-03T10:30:00+09:00\"}");
+        int questionStatus = whileDeletingCareSite(id, () -> mvc.perform(post("/api/visits/" + id + "/questions").cookie(access)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"content\":\"약 바꿔도 되나요\"}"))
+                .andReturn().getResponse().getStatus());
+        assertThat(questionStatus).isEqualTo(404);
+
+        long id2 = createAndGetId(access, "{\"careSiteId\":" + createCareSite(access) + ",\"visitAt\":\"2099-12-03T10:30:00+09:00\"}");
+        int noteStatus = whileDeletingCareSite(id2, () -> mvc.perform(post("/api/visits/" + id2 + "/notes").cookie(access)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"content\":\"공복 기록 가져가기\"}"))
+                .andReturn().getResponse().getStatus());
+        assertThat(noteStatus).isEqualTo(404);
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM visit_questions WHERE deleted_at IS NULL", Integer.class)).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM visit_notes WHERE deleted_at IS NULL", Integer.class)).isZero();
+    }
+
+    // 병원 지우기(CareSiteService.delete)가 하는 것처럼 다른 연결에서 병원 줄 → 일정 줄을 잡고 지움 표시까지 한 채로 멈춰 두고
+    // 그동안 요청을 보낸다. 요청이 잠금을 기다리기 시작하면 지우기를 커밋하고 요청 결과(HTTP 상태)를 돌려준다
+    private int whileDeletingCareSite(long visitId, Callable<Integer> request) throws Exception {
+        long site = jdbc.queryForObject("SELECT care_site_id FROM visits WHERE id = ?", Long.class, visitId);
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try (Connection deleting = jdbc.getDataSource().getConnection()) {
+            deleting.setAutoCommit(false);
+            try (PreparedStatement lock = deleting.prepareStatement("SELECT id FROM care_sites WHERE id = ? FOR UPDATE");
+                 PreparedStatement mark = deleting.prepareStatement("UPDATE care_sites SET deleted_at = now() WHERE id = ?");
+                 PreparedStatement visits = deleting.prepareStatement(
+                         "UPDATE visits SET deleted_at = now() WHERE care_site_id = ? AND deleted_at IS NULL")) {
+                lock.setLong(1, site);
+                lock.executeQuery();
+                mark.setLong(1, site);
+                mark.executeUpdate();
+                visits.setLong(1, site);
+                visits.executeUpdate();
+            }
+            Future<Integer> result = pool.submit(request);
+            waitUntilSomeoneWaitsForLock();   // 요청이 일정 줄 잠금에서 기다리는 중
+            deleting.commit();
+            return result.get(10, TimeUnit.SECONDS);
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    // 다른 연결이 잠금을 기다리기 시작할 때까지 (시간으로 재지 않고 DB 상태를 본다, CareSiteFlowTest와 같음)
+    private void waitUntilSomeoneWaitsForLock() throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (System.nanoTime() < deadline) {
+            Integer waiting = jdbc.queryForObject("SELECT count(*) FROM pg_stat_activity"
+                    + " WHERE datname = current_database() AND wait_event_type = 'Lock'", Integer.class);
+            if (waiting != null && waiting > 0) {
+                return;
+            }
+            Thread.sleep(20);
+        }
+        throw new AssertionError("요청이 일정 줄 잠금을 기다리지 않았어요");
     }
 
     // ---------- 도우미 ----------

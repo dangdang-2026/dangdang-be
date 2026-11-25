@@ -18,7 +18,7 @@ public record MeResponse(
         @Schema(description = "가입 방식", example = "EMAIL") AuthProvider authProvider,
         @Schema(description = "필수 동의를 지금 문서 버전으로 마쳤는지 (false면 A-01로 — 건강정보 철회·문서 버전 올림 포함)", example = "true") boolean consentCompleted,
         @Schema(description = "이름 바꿀 때 그대로 보낼 수정 버전 (BIGINT 문자열)", example = "0") String version,
-        @Schema(description = "출산 예정일 (안 적었으면 null)", example = "2026-12-20") LocalDate dueDate,
+        @Schema(description = "출산 예정일 (안 적었거나 다른 상황(PAUSED)이면 null)", example = "2026-12-20") LocalDate dueDate,
         @Schema(description = "임신 상태 PREGNANT·HOSPITALIZED·PAUSED(다른 상황 · 주수 숨김)·POSTPARTUM (임신 정보가 없으면 null)", example = "PREGNANT")
         PregnancyState pregnancyState,
         @Schema(description = "오늘 임신 주수 (예정일이 없거나 다른 상황(PAUSED)이면 null)") PregnancyWeek pregnancyWeek,
@@ -55,9 +55,10 @@ public record MeResponse(
     }
 
     public static MeResponse from(User user, boolean consentCompleted, Pregnancy pregnancy, LocalDate today) {
-        LocalDate dueDate = pregnancy == null ? null : pregnancy.getDueDate();
-        // 다른 상황(PAUSED)이면 주수를 서버에서도 주지 않는다 — 상황을 짐작할 수 없게 (E-03b 「임신 주수 숨김」)
+        // 다른 상황(PAUSED)이면 주수도 예정일도 주지 않는다 — 예정일만 내려가도 앱이 주수를 다시 셀 수 있어서 (E-03b 「임신 주수 숨김」)
+        // 저장된 예정일은 그대로라 「다시 켜기」로 임신 중이 되면 다시 내려간다
         boolean paused = pregnancy != null && pregnancy.getState() == PregnancyState.PAUSED;
+        LocalDate dueDate = pregnancy == null || paused ? null : pregnancy.getDueDate();
         return new MeResponse(
                 user.getId(), user.getEmail(), user.getDisplayName(), user.getAuthProvider(), consentCompleted,
                 String.valueOf(user.getRowVersion()),

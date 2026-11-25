@@ -126,6 +126,18 @@ class VisitMemoMaskerTest {
         assertThat(mask("한빛병원")).isEqualTo("[병원]");
     }
 
+    @Test
+    void 이름이_메모에_흔한_말이면_안_가린다() {   // 닉네임 「혈당」을 가리면 「공복 혈당 95」를 AI가 못 읽는다
+        known("하나", "혈당");
+        assertThat(mask("공복 혈당 95, 하나 더 물어보기")).isEqualTo("공복 혈당 95, 하나 더 물어보기");
+    }
+
+    @Test
+    void 영어_이름은_낱말_안에서는_안_가린다() {
+        known("지수", "Amy");
+        assertThat(mask("amylase 수치, Amy 맘")).isEqualTo("amylase 수치, [이름] 맘");
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {
             "010-1234-5678", "01012345678", "010 1234 5678", "010.1234.5678", "02-123-4567", "031-123-4567",

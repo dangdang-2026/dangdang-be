@@ -60,6 +60,22 @@ class ReminderRenotifyTest extends ReminderTestBase {
         assertThat(renotified()).isTrue();
     }
 
+    // 13:00 보냄 → 13:05 식사를 지움 → 13:10 지운 식사에 재알림이 가면 안 됨
+    @Test
+    void 보낸_뒤_식사를_지우면_재알림을_안_보낸다() {
+        Long mealId = jdbc.queryForObject(
+                "INSERT INTO meals (user_id, meal_slot, started_at) VALUES (?, 'LUNCH', ?) RETURNING id",
+                Long.class, jisuId, Timestamp.from(NOW.minus(Duration.ofHours(1))));
+        jdbc.update("UPDATE reminders SET meal_id = ? WHERE id = ?", mealId, id);
+        jdbc.update("UPDATE meals SET deleted_at = ? WHERE id = ?", Timestamp.from(NOW.plus(Duration.ofMinutes(5))), mealId);
+
+        runAt(TEN);
+
+        assertThat(fakeSender.sent).isEmpty();
+        assertThat(renotified()).isFalse();
+        assertThat(statusOf(id)).isEqualTo("SENT");
+    }
+
     @Test
     void 재알림은_한_번뿐이다() {
         runAt(TEN);

@@ -13,6 +13,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -34,6 +35,16 @@ public class VisitMemoMasker {
     // 성 한 글자(「김지수」)나 뒤에 붙는 말(「지수님」「지수가」)은 그대로 가린다. 세 글자 이상은 늘 가린다
     private static final int SHORT_LENGTH = 2;
     private static final String NOT_INSIDE_WORD = "(?<![가-힣]{2})";
+    // 영문은 낱말 경계를 본다 — 「Amy」가 「amylase」 안에서 가려지지 않게
+    private static final String NO_LATIN_BEFORE = "(?<![A-Za-z])";
+    private static final String NO_LATIN_AFTER = "(?![A-Za-z])";
+    // 이름·닉네임이 진료 메모에 흔한 말과 같으면 안 가린다 — 닉네임 「혈당」이면 「공복 혈당 95」가 「공복 [이름] 95」가 돼 AI가 못 읽는다
+    private static final Set<String> COMMON_WORDS = Set.of(
+            "혈당", "공복", "식전", "식후", "아침", "점심", "저녁", "간식", "야식", "취침", "하나",
+            "당뇨", "임신", "산모", "아기", "태아", "엄마", "아빠", "남편", "병원", "의사", "선생님", "간호사",
+            "진료", "검사", "수치", "기준", "정상", "체중", "몸무게", "혈압", "소변", "단백", "단백질", "케톤",
+            "인슐린", "주사", "식단", "운동", "산책", "탄수", "탄수화물", "과일", "우유", "오늘", "내일", "어제",
+            "다음", "초음파", "태동", "주수", "당화혈색소");
     // 전화번호: 0으로 시작하는 9~11자리(010-1234-5678 · 01012345678 · 02-123-4567 · 010 1234 5678 · 010.1234.5678 · +82 10-1234-5678)
     // 또는 대표번호(1588-1234, 가운데 구분 글자가 있어야). 앞뒤에 숫자가 붙으면 안 봄
     // → 혈당(95)·날짜(11/27)·주수(32주)와 안 겹친다
@@ -58,7 +69,7 @@ public class VisitMemoMasker {
         // 긴 말부터 — 「지수산부인과」가 먼저 [병원]이 돼야 이름 「지수」만 바뀌어 「[이름]산부인과」가 되는 일이 없다
         String words = tags.keySet().stream()
                 .sorted(Comparator.comparingInt((String word) -> key(word).length()).reversed())
-                .map(word -> (key(word).length() <= SHORT_LENGTH ? NOT_INSIDE_WORD : "") + spaceInsensitive(word))
+                .map(VisitMemoMasker::wordPattern)
                 .collect(Collectors.joining("|"));
         // 전화번호와 말을 한 번에 훑는다 — 바꿔 넣은 자리표시([병원] 등)를 다른 말이 다시 바꾸는 일이 없게
         Pattern pattern = Pattern.compile("(" + PHONE_NUMBER + ")" + (words.isEmpty() ? "" : "|" + words),
@@ -67,15 +78,28 @@ public class VisitMemoMasker {
                 m.group(1) != null ? PHONE : tagByKey.getOrDefault(key(m.group()), NAME)));
     }
 
-    // 비었거나 한 글자면 안 넣는다. 띄어쓰기는 하나로 모아 둔다
+    // 비었거나 한 글자거나 흔한 말이면 안 넣는다. 띄어쓰기는 하나로 모아 둔다
     private static void add(Map<String, String> tags, String word, String tag) {
         if (word == null) {
             return;
         }
         String w = word.strip().replaceAll("\\s+", " ");
-        if (key(w).length() >= MIN_LENGTH) {
+        if (key(w).length() >= MIN_LENGTH && !COMMON_WORDS.contains(key(w))) {
             tags.put(w, tag);
         }
+    }
+
+    private static String wordPattern(String word) {
+        String before = key(word).length() <= SHORT_LENGTH ? NOT_INSIDE_WORD : "";
+        if (isLatin(word.charAt(0))) {
+            before += NO_LATIN_BEFORE;
+        }
+        String after = isLatin(word.charAt(word.length() - 1)) ? NO_LATIN_AFTER : "";
+        return before + spaceInsensitive(word) + after;
+    }
+
+    private static boolean isLatin(char c) {
+        return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
     }
 
     // 띄어 쓴 곳은 붙여 써도 같은 말로 본다 (등록은 「한빛 산부인과」, 메모는 「한빛산부인과」)
