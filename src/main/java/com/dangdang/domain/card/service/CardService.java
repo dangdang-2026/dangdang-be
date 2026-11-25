@@ -1,5 +1,6 @@
 package com.dangdang.domain.card.service;
 
+import com.dangdang.domain.announcement.service.AnnouncementService;
 import com.dangdang.domain.card.dto.request.CardCorrectRequest;
 import com.dangdang.domain.card.dto.request.CardCreateRequest;
 import com.dangdang.domain.card.dto.request.CardReviewRequest;
@@ -17,6 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
 import java.util.Set;
 
@@ -28,6 +30,7 @@ public class CardService {
     private final ContentCardRepository contentCardRepository;
     private final CardSaveRepository cardSaveRepository;
     private final CardReactionRepository cardReactionRepository;
+    private final AnnouncementService announcementService;
     private final Clock clock;
 
     @Transactional(readOnly = true)
@@ -135,7 +138,12 @@ public class CardService {
         if (card.getStatus() == CardStatus.DRAFT || card.getStatus() == CardStatus.WITHDRAWN) {
             throw new CustomException(CardErrorCode.WRONG_STATUS);
         }
-        card.withdraw(clock.instant());   // 이 카드를 가리키는 소식 카드는 AnnouncementRepository.findActive가 알아서 뺀다
+        Instant now = clock.instant();
+        card.withdraw(now);
+        // 이 카드를 건 소식(스플래시·커뮤니티 맨 위)도 같은 시각으로 끝낸다. findActive가 LIVE 카드만 보여 줘서
+        // 화면엔 안 보이지만, 안 끝내면 줄이 열린 채 남아 카드가 다시 올라갈 때 옛 소식이 되살아난다.
+        // 카드 줄을 잠근 같은 트랜잭션이라 내리기가 롤백되면 같이 롤백된다 (Redis·푸시 없음 → afterCommit 필요 없음)
+        announcementService.endAllForCard(cardId, now);
         return CardDetailResponse.of(card);
     }
 

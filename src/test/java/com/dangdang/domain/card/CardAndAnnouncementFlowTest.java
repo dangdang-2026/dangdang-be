@@ -314,4 +314,52 @@ class CardAndAnnouncementFlowTest extends ReminderTestBase {
         }
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM card_saves WHERE card_id = ?", Integer.class, id)).isZero();
     }
+
+    private Integer announce(String json) throws Exception {
+        String res = postJson(admin, "/api/admin/announcements", json).andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return JsonPath.read(res, "$.data.id");
+    }
+
+    private Instant activeTo(Integer announcementId) {
+        java.sql.Timestamp t = jdbc.queryForObject("SELECT active_to FROM announcements WHERE id = ?",
+                java.sql.Timestamp.class, announcementId);
+        return t == null ? null : t.toInstant();
+    }
+
+    @Test
+    void 카드를_내리면_걸어_둔_소식도_끝나고_다른_카드_소식은_그대로() throws Exception {
+        int id = publishedCard();
+        int other = publishedCard();
+        Integer open = announce("{\"slot\":\"SPLASH\",\"kind\":\"NEWS\",\"title\":\"카드 소식\",\"contentCardId\":" + id + "}");
+        Integer later = announce("{\"slot\":\"COMMUNITY\",\"kind\":\"NEWS\",\"title\":\"내일부터\","
+                + "\"contentCardId\":" + id + ",\"activeFrom\":\"2026-11-10T00:00:00Z\"}");
+        Integer ended = announce("{\"slot\":\"SPLASH\",\"kind\":\"NEWS\",\"title\":\"벌써 끝남\",\"contentCardId\":" + id + "}");
+        Instant endedAt = NOW.minus(Duration.ofHours(1));
+        jdbc.update("UPDATE announcements SET active_from = ?, active_to = ? WHERE id = ?",
+                java.sql.Timestamp.from(NOW.minus(Duration.ofHours(2))), java.sql.Timestamp.from(endedAt), ended);
+        Integer otherCard = announce("{\"slot\":\"SPLASH\",\"kind\":\"NEWS\",\"title\":\"다른 카드\",\"contentCardId\":" + other + "}");
+
+        mvc.perform(post("/api/admin/cards/" + id + "/withdraw").cookie(admin)).andExpect(status().isOk());
+
+        assertThat(activeTo(open)).isEqualTo(NOW);                                         // 지금 끝남 (앱 시계)
+        assertThat(activeTo(later)).isEqualTo(Instant.parse("2026-11-10T00:00:00Z"));    // 시작 전이면 끝 = 시작
+        assertThat(activeTo(ended)).isEqualTo(endedAt);                                   // 이미 끝난 건 그대로
+        assertThat(activeTo(otherCard)).isNull();                                         // 다른 카드 소식은 안 건드림
+        mvc.perform(get("/api/announcements").param("slot", "SPLASH").cookie(jisu))
+                .andExpect(jsonPath("$.data.length()").value(1))
+                .andExpect(jsonPath("$.data[0].title").value("다른 카드"));
+    }
+
+    @Test
+    void 카드를_내린_뒤_DB로_다시_올려도_옛_소식은_안_뜬다() throws Exception {   // 나중의 「다시 올리기」 전에 미리 막기
+        int id = publishedCard();
+        announce("{\"slot\":\"SPLASH\",\"kind\":\"NEWS\",\"title\":\"카드 소식\",\"contentCardId\":" + id + "}");
+        mvc.perform(post("/api/admin/cards/" + id + "/withdraw").cookie(admin)).andExpect(status().isOk());
+
+        clock.set(NOW.plusSeconds(60));
+        jdbc.update("UPDATE content_cards SET status = 'PUBLISHED' WHERE id = ?", id);   // 「다시 올리기」 흉내
+        mvc.perform(get("/api/announcements").param("slot", "SPLASH").cookie(jisu))
+                .andExpect(jsonPath("$.data.length()").value(0));
+    }
 }
