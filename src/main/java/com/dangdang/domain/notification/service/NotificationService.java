@@ -4,10 +4,12 @@ import com.dangdang.domain.notification.dto.response.NotificationPageResponse;
 import com.dangdang.domain.notification.dto.response.NotificationReadResponse;
 import com.dangdang.domain.notification.dto.response.NotificationResponse;
 import com.dangdang.domain.notification.entity.Notification;
+import com.dangdang.domain.notification.event.NotificationCreatedEvent;
 import com.dangdang.domain.notification.exception.NotificationErrorCode;
 import com.dangdang.domain.notification.repository.NotificationRepository;
 import com.dangdang.global.exception.CustomException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Slice;
 import org.springframework.data.domain.Sort;
@@ -22,6 +24,15 @@ public class NotificationService {
 
     private final NotificationRepository notificationRepository;
     private final Clock clock;
+    private final ApplicationEventPublisher eventPublisher;
+
+    // 알림함에 한 줄 남기고, 앱이 열려 있으면 바로 배너로 띄우도록 알린다 (보내는 건 커밋 뒤)
+    @Transactional
+    public Notification record(Notification notification) {
+        Notification saved = notificationRepository.save(notification);
+        eventPublisher.publishEvent(new NotificationCreatedEvent(saved.getUser().getId(), NotificationResponse.from(saved)));
+        return saved;
+    }
 
     // 최신이 위로. 잠금화면 숨김과 상관없이 본문을 그대로 준다 (앱 안은 로그인 상태)
     @Transactional(readOnly = true)

@@ -1,10 +1,14 @@
 package com.dangdang.domain.record.service;
 
+import com.dangdang.domain.insulin.entity.InsulinLog;
+import com.dangdang.domain.insulin.repository.InsulinLogRepository;
 import com.dangdang.domain.meal.dto.response.MealItemSummaryResponse;
 import com.dangdang.domain.meal.entity.Meal;
 import com.dangdang.domain.meal.repository.MealRepository;
 import com.dangdang.domain.meal.service.MealItemService;
+import com.dangdang.domain.reading.entity.Reading;
 import com.dangdang.domain.reading.repository.ReadingRepository;
+import com.dangdang.domain.reading.service.ExpectedTimeResolver;
 import com.dangdang.domain.record.dto.response.CalendarResponse;
 import com.dangdang.domain.record.dto.response.RecordEventResponse;
 import com.dangdang.domain.record.dto.response.RecordsResponse;
@@ -34,7 +38,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-// 기록 탭 조회 (혈당·식사를 날짜별로 모아 보기, 한 달 달력). 날짜는 전부 한국 기준
+// 기록 탭 조회 (혈당·식사·인슐린을 날짜별로 모아 보기, 한 달 달력). 날짜는 전부 한국 기준
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -43,7 +47,7 @@ public class RecordService {
     // 한 번에 볼 수 있는 최대 기간 (주간 보기·한 달 보기까지 넉넉히)
     private static final int MAX_RANGE_DAYS = 31;
 
-    // 같은 시각이면 종류(MEAL → READING) → id 순으로 줄 세움 (부를 때마다 순서가 안 바뀌게)
+    // 같은 시각이면 종류(MEAL → READING → INSULIN) → id 순으로 줄 세움 (부를 때마다 순서가 안 바뀌게)
     private static final Comparator<RecordEventResponse> EVENT_ORDER =
             Comparator.comparing(RecordEventResponse::occurredAt)
                     .thenComparing(RecordEventResponse::type)
@@ -52,8 +56,10 @@ public class RecordService {
     private final ReadingRepository readingRepository;
     private final MealRepository mealRepository;
     private final MealItemService mealItemService;
+    private final InsulinLogRepository insulinLogRepository;
     private final UserRepository userRepository;
     private final VisitRepository visitRepository;
+    private final ExpectedTimeResolver expectedTimeResolver;
     private final Clock clock;
 
     // 기록 통합 조회. from·to 둘 다 포함, 기록 없는 날도 days에 빈 events로 들어감
@@ -72,10 +78,18 @@ public class RecordService {
         Map<Long, List<MealItemSummaryResponse>> itemsByMeal =
                 mealItemService.itemsByMeal(meals.stream().map(Meal::getId).toList());
 
-        // 혈당·식사를 한 줄로 합친 뒤 한국 날짜별로 나눔
-        Map<LocalDate, List<RecordEventResponse>> byDate = Stream.concat(
-                        readingRepository.findAllInRange(userId, start, end).stream().map(RecordEventResponse::from),
-                        meals.stream().map(m -> RecordEventResponse.from(m, itemsByMeal.getOrDefault(m.getId(), List.of()))))
+        // 혈당을 먼저 읽고, 식후 혈당의 재야 할 시각을 한 번에 구함 (기간 밖 식사에 붙은 혈당은 resolver가 식사를 찾아 줌)
+        List<Reading> readings = readingRepository.findAllInRange(userId, start, end);
+        Map<Long, Instant> expectedAt = expectedTimeResolver.expectedAtByReading(userId, readings, meals);
+
+        List<InsulinLog> insulinLogs = insulinLogRepository.findAllInRange(userId, start, end);
+
+        // 혈당·식사·인슐린을 한 줄로 합친 뒤 한국 날짜별로 나눔 (concat은 두 개만 합쳐서 Stream.of + flatMap)
+        Map<LocalDate, List<RecordEventResponse>> byDate = Stream.of(
+                        readings.stream().map(r -> RecordEventResponse.from(r, expectedAt.get(r.getId()))),
+                        meals.stream().map(m -> RecordEventResponse.from(m, itemsByMeal.getOrDefault(m.getId(), List.of()))),
+                        insulinLogs.stream().map(RecordEventResponse::from))
+                .flatMap(s -> s)
                 .sorted(EVENT_ORDER)
                 .collect(Collectors.groupingBy(e -> KoreanTime.dateOf(e.occurredAt())));
 
@@ -106,6 +120,7 @@ public class RecordService {
         Set<LocalDate> recordedDates = new HashSet<>();
         readingRepository.findMeasuredAtsInRange(userId, start, end).forEach(at -> recordedDates.add(KoreanTime.dateOf(at)));
         mealRepository.findStartedAtsInRange(userId, start, end).forEach(at -> recordedDates.add(KoreanTime.dateOf(at)));
+        insulinLogRepository.findTakenAtsInRange(userId, start, end).forEach(at -> recordedDates.add(KoreanTime.dateOf(at)));
 
         // 그 달에 진료 일정이 있는 날짜들 (기록 상태와 따로 봄: 미래 날짜도 진료일이면 표시)
         Set<LocalDate> visitDates = new HashSet<>();
@@ -134,11 +149,12 @@ public class RecordService {
         return CalendarDayStatus.EMPTY;
     }
 
-    // 혈당·식사 중 가장 먼저 남긴 기록의 한국 날짜. 둘 다 없으면 null
+    // 혈당·식사·인슐린 중 가장 먼저 남긴 기록의 한국 날짜. 셋 다 없으면 null
     private LocalDate firstRecordDate(Long userId) {
         Instant firstReading = readingRepository.findFirstMeasuredAt(userId);
         Instant firstMeal = mealRepository.findFirstStartedAt(userId);
-        Instant first = Stream.of(firstReading, firstMeal)
+        Instant firstInsulin = insulinLogRepository.findFirstTakenAt(userId);
+        Instant first = Stream.of(firstReading, firstMeal, firstInsulin)
                 .filter(at -> at != null)
                 .min(Comparator.naturalOrder())
                 .orElse(null);

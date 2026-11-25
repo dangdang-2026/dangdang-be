@@ -22,7 +22,7 @@ public record VisitReportPageResponse(
             Long careSiteId,         // 진료용은 지금 진료 일정의 병원, 기간 직접은 저장한 병원 (없으면 null)
             String careSiteName,     // 병원 이름 (병원이 없거나 지웠으면 null)
             LocalDate visitDate,     // 진료용이면 진료 날짜 (날짜 미정이면 null), 기간 직접이면 null
-            Summary summary,         // 카드의 「내 기준 안 82% · 측정 52번」. 조회할 때 다시 계산 (기간이 null이면 null)
+            Summary summary,         // 카드의 「목표 밖 4번 · 측정 49번」. 조회할 때 다시 계산 (기간이 null이면 null)
             Instant createdAt) {     // 저장한 시각
     }
 

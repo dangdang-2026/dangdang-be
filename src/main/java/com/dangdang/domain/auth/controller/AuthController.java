@@ -1,6 +1,7 @@
 package com.dangdang.domain.auth.controller;
 
 import com.dangdang.domain.auth.dto.request.LoginRequest;
+import com.dangdang.domain.auth.dto.response.EmailCodeSendResponse;
 import com.dangdang.domain.auth.dto.response.TokenResponse;
 import com.dangdang.domain.auth.service.*;
 import com.dangdang.global.security.jwt.JwtCookieWriter;
@@ -15,6 +16,7 @@ import com.dangdang.domain.auth.dto.response.SignupResponse;
 import com.dangdang.domain.auth.dto.request.EmailAvailabilityRequest;
 import com.dangdang.domain.auth.dto.response.EmailAvailabilityResponse;
 import com.dangdang.domain.auth.dto.request.KakaoLoginRequest;
+import com.dangdang.domain.auth.dto.request.KakaoSignupRequest;
 import com.dangdang.domain.auth.dto.response.KakaoLoginResponse;
 import com.dangdang.domain.auth.dto.request.PasswordResetConfirmRequest;
 import com.dangdang.domain.auth.dto.request.PasswordResetMailRequest;
@@ -64,13 +66,15 @@ public class AuthController {
             description =
                     """
                     **Parameters** email: 인증번호를 받을 이메일
-                    **Returns** 성공 시 data 없음. 이미 가입된 이메일이면 AUTH_40901, 하루 5번 넘으면 AUTH_42901
+                    **Returns** remainingSends(오늘 더 받을 수 있는 횟수), expiresInSeconds(600), resendAfterSeconds(60).
+                    이미 가입된 이메일 AUTH_40901, 60초 안에 다시 AUTH_42904 + data.retryAfterSeconds(하루 횟수엔 안 셈),
+                    하루 5번 넘으면 AUTH_42901, 메일 발송 실패 AUTH_50202(오늘 횟수는 하루 2번까지 돌려줌, 60초 대기는 그대로)
                     """)
     @PostMapping("/email/code")
-    public ResponseEntity<BaseResponse<Void>> sendCode(
+    public ResponseEntity<BaseResponse<EmailCodeSendResponse>> sendCode(
             @Valid @RequestBody EmailCodeRequest request) {
-        emailVerificationService.sendCode(request.email());
-        return ResponseEntity.ok(BaseResponse.success(200, "인증번호 발송에 성공했습니다.", null));
+        return ResponseEntity.ok(BaseResponse.success(200, "인증번호 발송에 성공했습니다.",
+                emailVerificationService.sendCode(request.email())));
     }
 
     @Operation(
@@ -78,7 +82,8 @@ public class AuthController {
             description =
                     """
                     **Parameters** email, code(6자리)
-                    **Returns** 성공 시 data 없음. 틀리면 AUTH_40002, 만료·5번 틀림이면 AUTH_40001
+                    **Returns** 성공 시 data 없음 (같은 번호로 다시 불러도 200, 다른 번호면 AUTH_40001).
+                    틀리면 AUTH_40002 + data.remainingAttempts, 5번 틀리면 AUTH_40010, 10분 지나면 AUTH_40001
                     """)
     @PostMapping("/email/verify")
     public ResponseEntity<BaseResponse<Void>> verify(
@@ -107,7 +112,9 @@ public class AuthController {
             description =
                     """
                     **Parameters** email, password
-                    **Returns (쿠키)** ACCESS_TOKEN, REFRESH_TOKEN. 틀리면 AUTH_40004(남은 횟수), 5번 틀리면 AUTH_42902(5분 잠금), 카카오 계정이면 AUTH_40005
+                    **Returns (쿠키)** ACCESS_TOKEN, REFRESH_TOKEN.
+                    틀리면 AUTH_40004 + data.remainingAttempts, 잠기면 AUTH_42902 + data.retryAfterSeconds.
+                    없는 이메일·카카오 계정도 AUTH_40004 (같은 문구·같은 횟수 — 가입 여부를 알려 주지 않음)
                     """)
     @PostMapping("/login")
     public ResponseEntity<BaseResponse<Void>> login(@Valid @RequestBody LoginRequest request) {
@@ -122,17 +129,39 @@ public class AuthController {
             description =
                     """
                     **Parameters** code(카카오가 준 인가 코드), redirectUri(코드를 받을 때 쓴 주소)
-                    **Returns (쿠키)** ACCESS_TOKEN, REFRESH_TOKEN + newUser(처음 가입이면 true).
-                    코드가 틀렸거나 이미 썼으면 AUTH_40006, 허용 안 된 주소면 AUTH_40007,
-                    같은 이메일의 이메일 계정이 있으면 AUTH_40902, 카카오 장애면 AUTH_50201
+                    **Returns** result
+                    - LOGGED_IN: 쿠키 ACCESS_TOKEN·REFRESH_TOKEN (카카오로 가입했거나 카카오를 연결한 계정)
+                    - NEEDS_SIGNUP: 계정을 아직 안 만듦 + kakaoToken(10분) → K-08
+                    - EMAIL_ACCOUNT_EXISTS: 같은 이메일 계정 있음 + kakaoToken · email · maskedEmail → K-07
+                    코드가 틀렸거나 이미 썼으면 AUTH_40006, 허용 안 된 주소면 AUTH_40007, 카카오 장애면 AUTH_50201
                     """)
     @PostMapping("/kakao")
     public ResponseEntity<BaseResponse<KakaoLoginResponse>> kakaoLogin(
             @Valid @RequestBody KakaoLoginRequest request) {
         KakaoLoginService.Result result = kakaoLoginService.login(request.code(), request.redirectUri());
-        return ResponseEntity.ok()
-                .headers(tokenCookies(result.tokens()))
-                .body(BaseResponse.success(200, "카카오 로그인에 성공했습니다.", new KakaoLoginResponse(result.newUser())));
+        ResponseEntity.BodyBuilder ok = ResponseEntity.ok();
+        if (result.tokens() != null) {
+            ok.headers(tokenCookies(result.tokens()));
+        }
+        return ok.body(BaseResponse.success(200, "카카오 확인에 성공했습니다.", KakaoLoginResponse.from(result)));
+    }
+
+    @Operation(
+            summary = "[ 사용자 | 토큰 X | 카카오로 가입 (K-08) ]",
+            description =
+                    """
+                    **Parameters** kakaoToken(카카오 로그인 응답, 한 번만)
+                    **Returns (쿠키)** 201 + ACCESS_TOKEN·REFRESH_TOKEN → 동의 화면 A-01로.
+                    토큰이 없거나 10분 지났거나 이미 썼으면 AUTH_40011, 카카오에 인증된 이메일이 없으면 AUTH_40012,
+                    같은 이메일 계정이 있으면 AUTH_40902, 이 카카오가 이미 다른 계정에 붙었으면 AUTH_40903.
+                    가입에 성공할 때만 토큰을 쓴다 — 400·409로 막히면 같은 토큰으로 이메일 로그인 뒤 /api/me/kakao 연결 가능
+                    """)
+    @PostMapping("/kakao/signup")
+    public ResponseEntity<BaseResponse<Void>> kakaoSignup(@Valid @RequestBody KakaoSignupRequest request) {
+        TokenResponse tokens = kakaoLoginService.signup(request.kakaoToken());
+        return ResponseEntity.status(201)
+                .headers(tokenCookies(tokens))
+                .body(BaseResponse.success(201, "카카오로 가입했습니다.", null));
     }
 
     @Operation(
@@ -142,6 +171,7 @@ public class AuthController {
                     **Parameters** email
                     **Returns** 가입 여부와 관계없이 항상 200 (계정이 있는지 알려 주지 않음). 링크는 30분, 한 번만.
                     같은 이메일로 하루 5번 넘으면 AUTH_42903
+                    60초 안에 다시 보내면 AUTH_42904 + data.retryAfterSeconds (없는 이메일도 같음, 하루 횟수엔 안 셈). 메일은 따로 보내서 실패해도 200 (계정이 있는지 드러나지 않게)
                     """)
     @PostMapping("/password/reset/request")
     public ResponseEntity<BaseResponse<Void>> sendResetLink(

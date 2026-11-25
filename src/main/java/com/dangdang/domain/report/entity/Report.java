@@ -2,6 +2,7 @@ package com.dangdang.domain.report.entity;
 
 import com.dangdang.domain.community.entity.CommunityProfile;
 import com.dangdang.domain.report.enums.ReportReason;
+import com.dangdang.domain.report.enums.ReportSource;
 import com.dangdang.domain.report.enums.ReportStatus;
 import com.dangdang.domain.report.enums.ReportTargetType;
 import jakarta.persistence.*;
@@ -38,6 +39,10 @@ public class Report {
 
     @Column(length = 200)
     private String detail;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 10)
+    private ReportSource source;      // 넣는 건 ReportRepository의 native INSERT만 (USER는 DB 기본값)
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 10)

@@ -1,5 +1,7 @@
 package com.dangdang.domain.my;
 
+import com.dangdang.domain.auth.infra.kakao.KakaoClient;
+import com.dangdang.domain.auth.infra.kakao.KakaoUser;
 import com.dangdang.support.ReminderTestBase;
 import com.jayway.jsonpath.JsonPath;
 import jakarta.servlet.http.Cookie;
@@ -7,10 +9,12 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.ResultActions;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.nullValue;
+import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -22,6 +26,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 // 마이: 내 음식 (M-13·M-17·M-18) · 내 식사 안내 (M-15) · 식사 기록 설정 (M-20) · 탈퇴 (M-08)
 class MyPageFlowTest extends ReminderTestBase {
+
+    @MockitoBean KakaoClient kakaoClient;   // 진짜 카카오 서버 대신
+
+    static final String REDIRECT = "http://localhost:5173/auth/kakao/callback";   // application.yaml redirect-uris 첫 줄
 
     Cookie jisu;
     Cookie minji;
@@ -200,11 +208,13 @@ class MyPageFlowTest extends ReminderTestBase {
         Long site = jdbc.queryForObject("INSERT INTO care_sites (user_id, name, department) VALUES (?, '지수 병원', 'OBGYN') RETURNING id",
                 Long.class, jisuId);
         json(put("/api/me/meal-plan"), jisu, "{\"careSiteId\":" + site + ",\"mealGuide\":\"안내\"}")
-                .andExpect(jsonPath("$.data.careSiteId").value(site));
+                .andExpect(jsonPath("$.data.careSiteId").value(site))
+                .andExpect(jsonPath("$.data.careSiteName").value("지수 병원"));
         mvc.perform(delete("/api/care-sites/" + site).cookie(jisu)).andExpect(status().isOk());   // soft delete
         mvc.perform(get("/api/me/meal-plan").cookie(jisu))
                 .andExpect(jsonPath("$.data.mealGuide").value("안내"))
-                .andExpect(jsonPath("$.data.careSiteId").doesNotExist());
+                .andExpect(jsonPath("$.data.careSiteId").doesNotExist())
+                .andExpect(jsonPath("$.data.careSiteName").value("지수 병원"));   // C-20 「받은 곳은 그대로」
     }
 
     // ── 식사 기록 설정 (M-20) ──
@@ -309,9 +319,34 @@ class MyPageFlowTest extends ReminderTestBase {
     }
 
     @Test
-    void 카카오_가입자는_비밀번호_없이_탈퇴() throws Exception {
+    void 카카오_가입자는_카카오로_다시_확인해야_탈퇴() throws Exception {
         jdbc.update("UPDATE users SET auth_provider = 'KAKAO', provider_subject = '12345', password_hash = NULL WHERE id = ?", jisuId);
-        json(post("/api/me/withdrawal"), jisu, "{}").andExpect(status().isOk());
+        given(kakaoClient.fetchUser("ok-code", REDIRECT)).willReturn(new KakaoUser("12345", null, "지수"));
+
+        json(post("/api/me/withdrawal"), jisu, "{}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("USER_40004"));
+        json(post("/api/me/withdrawal"), jisu, "{\"kakaoCode\":\"ok-code\",\"redirectUri\":\"\"}")   // 빈 주소도 다시 확인 (리뷰 #128)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("USER_40004"));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM users WHERE id = ?", Integer.class, jisuId)).isOne();
+
+        json(post("/api/me/withdrawal"), jisu, "{\"kakaoCode\":\"ok-code\",\"redirectUri\":\"" + REDIRECT + "\"}")
+                .andExpect(status().isOk());
         assertThat(jdbc.queryForObject("SELECT count(*) FROM users WHERE id = ?", Integer.class, jisuId)).isZero();
+    }
+
+    @Test
+    void 다른_카카오_계정이나_허용_안_된_주소면_탈퇴_안_됨() throws Exception {
+        jdbc.update("UPDATE users SET auth_provider = 'KAKAO', provider_subject = '12345', password_hash = NULL WHERE id = ?", jisuId);
+        given(kakaoClient.fetchUser("other-code", REDIRECT)).willReturn(new KakaoUser("99999", null, "남"));
+
+        json(post("/api/me/withdrawal"), jisu, "{\"kakaoCode\":\"other-code\",\"redirectUri\":\"" + REDIRECT + "\"}")
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("USER_40301"));
+        json(post("/api/me/withdrawal"), jisu, "{\"kakaoCode\":\"ok-code\",\"redirectUri\":\"https://evil.example/cb\"}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("AUTH_40007"));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM users WHERE id = ?", Integer.class, jisuId)).isOne();
     }
 }

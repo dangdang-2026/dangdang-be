@@ -3,7 +3,7 @@ package com.dangdang.domain.reminder.service;
 import com.dangdang.domain.meal.entity.Meal;
 import com.dangdang.domain.meal.repository.MealRepository;
 import com.dangdang.domain.notification.entity.Notification;
-import com.dangdang.domain.notification.repository.NotificationRepository;
+import com.dangdang.domain.notification.service.NotificationService;
 import com.dangdang.domain.reminder.entity.Reminder;
 import com.dangdang.domain.reminder.repository.ReminderRepository;
 import lombok.RequiredArgsConstructor;
@@ -18,7 +18,7 @@ import java.time.Instant;
 public class ReminderDeliveryRecorder {
 
     private final ReminderRepository reminderRepository;
-    private final NotificationRepository notificationRepository;
+    private final NotificationService notificationService;
     private final MealRepository mealRepository;
 
     // 보내기 직전 「내가 보낸다」 표시 — false면 다른 서버가 보내는 중이거나 이미 끝난 알림
@@ -38,31 +38,36 @@ public class ReminderDeliveryRecorder {
         reminderRepository.release(reminderId);
     }
 
+    // 줄을 잠가서 읽고, 실제로 SENT로 바꿨을 때만 알림함에 남김
+    // (푸시를 보내는 사이 혈당을 쟀거나 끼니를 건너뛰었으면 그 상태를 지키고 알림함 줄도 안 만듦)
     @Transactional
     public void recordSent(Long reminderId, Instant now) {
-        Reminder reminder = reminderRepository.findById(reminderId).orElseThrow();
-        reminder.markSent(now);
-        saveInbox(reminder,false, now);
+        Reminder reminder = reminderRepository.findByIdForUpdate(reminderId).orElseThrow();
+        if (reminder.markSent(now)) {
+            saveInbox(reminder, false, now);
+        }
     }
 
     // 받을 기기가 없을 때 — 푸시는 못 보냈어도 알림함에서는 보이게 남긴다
     @Transactional
     public void recordNoDevice(Long reminderId, Instant now) {
-        Reminder reminder = reminderRepository.findById(reminderId).orElseThrow();
-        reminder.markSkipped();
-        saveInbox(reminder, false, now);
+        Reminder reminder = reminderRepository.findByIdForUpdate(reminderId).orElseThrow();
+        if (reminder.markSkipped()) {   // recordSent와 같은 이유로 실제로 바꿨을 때만
+            saveInbox(reminder, false, now);
+        }
     }
 
     // 측정 알림을 끈 사람 — 알림함에도 남기지 않는다
     @Transactional
     public void recordTurnedOff(Long reminderId) {
-        reminderRepository.findById(reminderId).orElseThrow().markSkipped();
+        reminderRepository.findByIdForUpdate(reminderId).orElseThrow().markSkipped();
     }
 
     // 재알림은 1회만 — 보내지 못했어도 다시 시도하지 않는다. 진짜 보낸 때만 알림함에 남긴다
     @Transactional
     public void recordRenotified(Long reminderId, Instant now, boolean delivered) {
-        Reminder reminder = reminderRepository.findById(reminderId).orElseThrow();
+        // 줄을 잠가서 읽음 — 옛 상태로 줄 전체를 덮어 그사이 바뀐 DISMISSED·DONE을 되돌리지 않게
+        Reminder reminder = reminderRepository.findByIdForUpdate(reminderId).orElseThrow();
         reminder.markRenotified();
         if (delivered) {
             saveInbox(reminder, true, now);
@@ -74,7 +79,7 @@ public class ReminderDeliveryRecorder {
     private void saveInbox(Reminder reminder, boolean renotify, Instant now) {
         Instant mealStartedAt = mealStartedAt(reminder);
         String title = renotify ? ReminderMessages.RENOTIFY_TITLE : ReminderMessages.inboxTitle(reminder, mealStartedAt);
-        notificationRepository.save(Notification.measure(reminder.getUser(), reminder.getId(),
+        notificationService.record(Notification.measure(reminder.getUser(), reminder.getId(),
                 title, ReminderMessages.inboxBody(mealStartedAt),
                 ReminderMessages.deepLink(reminder), now));
     }

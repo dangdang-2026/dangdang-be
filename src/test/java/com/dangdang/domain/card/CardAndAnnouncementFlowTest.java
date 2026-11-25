@@ -113,7 +113,7 @@ class CardAndAnnouncementFlowTest extends ReminderTestBase {
     void 정정하면_정정_문구와_고친_내용() throws Exception {
         int id = publishedCard();
         postJson(admin, "/api/admin/cards/" + id + "/correct",
-                "{\"note\":\"1장 문장을 원문대로 고쳤어요.\",\"body\":[{\"title\":\"1장\",\"text\":\"고친 문장\"}]}")
+                "{\"summary\":\"1장을 고쳤어요\",\"note\":\"1장 문장을 원문대로 고쳤어요.\",\"body\":[{\"title\":\"1장\",\"text\":\"고친 문장\"}]}")
                 .andExpect(status().isOk());
 
         mvc.perform(get("/api/cards/" + id).cookie(jisu))
@@ -288,7 +288,7 @@ class CardAndAnnouncementFlowTest extends ReminderTestBase {
     void 내린_카드는_정정_문구도_안_보이고_저장_취소는_동시에_두_번_해도_200() throws Exception {
         int id = publishedCard();
         mvc.perform(put("/api/cards/" + id + "/save").cookie(jisu)).andExpect(status().isOk());
-        postJson(admin, "/api/admin/cards/" + id + "/correct", "{\"note\":\"1장 문장을 원문대로 고쳤어요.\"}")
+        postJson(admin, "/api/admin/cards/" + id + "/correct", "{\"summary\":\"1장을 고쳤어요\",\"note\":\"1장 문장을 원문대로 고쳤어요.\"}")
                 .andExpect(status().isOk());
         mvc.perform(post("/api/admin/cards/" + id + "/withdraw").cookie(admin)).andExpect(status().isOk());
         mvc.perform(get("/api/cards/" + id).cookie(jisu))

@@ -23,7 +23,9 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.YearMonth;
+import java.util.List;
 
+import static com.dangdang.support.TestConsents.grantSensitive;
 import static org.hamcrest.Matchers.hasSize;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -55,7 +57,8 @@ class RecordFlowTest {
     }
 
     private Cookie signupAndLogin(String email) throws Exception {
-        userRepository.save(User.ofEmail(email, "테스트", passwordEncoder.encode("abcd1234"), Instant.now()));
+        grantSensitive(jdbc,
+                userRepository.save(User.ofEmail(email, "테스트", passwordEncoder.encode("abcd1234"), Instant.now())));
         return mvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"" + email + "\",\"password\":\"abcd1234\"}"))
@@ -118,8 +121,41 @@ class RecordFlowTest {
                 .andExpect(jsonPath("$.data.criteria").value((Object) null))
                 .andExpect(jsonPath("$.data.meals", hasSize(0)))
                 .andExpect(jsonPath("$.data.readings", hasSize(0)))
+                .andExpect(jsonPath("$.data.insulinLogs", hasSize(0)))
                 .andExpect(jsonPath("$.data.nextReminder").value((Object) null))
                 .andExpect(jsonPath("$.data.pushReady").value(false));
+    }
+
+    @Test
+    void 오늘_인슐린_기록만_맞은_시각_순으로_온다() throws Exception {
+        // 오늘 0시 1분·2분과 어젯밤으로 만듦. 0시 3분 전에 돌면 0시 2분이 아직 미래라 등록이 400 → 건너뜀
+        assumeTrue(LocalTime.now(ClockConfig.KST).isAfter(LocalTime.of(0, 3)), "오늘 00:02 기록을 만들려면 00:03 이후여야 함");
+        long first = createInsulin(access, "MEAL", "4", kst(today(), 0, 1));
+        long second = createInsulin(access, "BEDTIME", "10.5", kst(today(), 0, 2));
+        createInsulin(access, "MEAL", "6", kst(today().minusDays(1), 23, 59));     // 어젯밤 → 안 나옴
+        long deleted = createInsulin(access, "MEAL", "3", kst(today(), 0, 1));
+        jdbc.update("UPDATE insulin_logs SET deleted_at = now() WHERE id = ?", deleted);   // 지운 기록 → 안 나옴
+        createInsulin(other, "MEAL", "8", kst(today(), 0, 1));                      // 남의 기록 → 안 나옴
+
+        mvc.perform(get("/api/today").cookie(access))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.insulinLogs", hasSize(2)))
+                .andExpect(jsonPath("$.data.insulinLogs[0].insulinLogId").value(first))
+                .andExpect(jsonPath("$.data.insulinLogs[0].insulinType").value("MEAL"))
+                .andExpect(jsonPath("$.data.insulinLogs[0].units").value(4.0))
+                .andExpect(jsonPath("$.data.insulinLogs[1].insulinLogId").value(second))
+                .andExpect(jsonPath("$.data.insulinLogs[1].units").value(10.5));
+    }
+
+    // 식사 때(MEAL)는 끼니가 필수라 아침 식사로 채움
+    private long createInsulin(Cookie who, String type, String units, Instant takenAt) throws Exception {
+        String slot = "MEAL".equals(type) ? ",\"mealSlot\":\"BREAKFAST\"" : "";
+        String body = mvc.perform(post("/api/insulin-logs").cookie(who).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"insulinType\":\"" + type + "\"" + slot + ",\"units\":" + units
+                                + ",\"takenAt\":\"" + takenAt + "\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return ((Number) JsonPath.read(body, "$.data.insulinLogId")).longValue();
     }
 
     @Test
@@ -283,6 +319,20 @@ class RecordFlowTest {
     }
 
     @Test
+    void 인슐린도_한국_날짜로_나뉜다_23시59분은_그날_0시는_다음_날() throws Exception {
+        LocalDate day = today().minusDays(3);
+        long lateNight = createInsulin(access, "BEDTIME", "10", kst(day, 23, 59));
+        long midnight = createInsulin(access, "BEDTIME", "11", kst(day.plusDays(1), 0, 0));   // UTC로는 전날 15:00
+
+        mvc.perform(get("/api/records").cookie(access)
+                        .param("from", day.toString()).param("to", day.plusDays(1).toString()))
+                .andExpect(jsonPath("$.data.days[0].events", hasSize(1)))
+                .andExpect(jsonPath("$.data.days[0].events[0].id").value(lateNight))
+                .andExpect(jsonPath("$.data.days[1].events", hasSize(1)))
+                .andExpect(jsonPath("$.data.days[1].events[0].id").value(midnight));
+    }
+
+    @Test
     void 고친_기록은_modified_지운_기록은_안_나온다() throws Exception {
         LocalDate day = today().minusDays(1);
         long edited = createReading(access, 100, "FASTING", kst(day, 7, 0), null);
@@ -297,6 +347,123 @@ class RecordFlowTest {
                 .andExpect(jsonPath("$.data.days[0].events", hasSize(1)))
                 .andExpect(jsonPath("$.data.days[0].events[0].id").value(edited))
                 .andExpect(jsonPath("$.data.days[0].events[0].modified").value(true));
+    }
+
+    @Test
+    void 기록_목록에_목표_판정과_재야_할_시각이_같이_온다() throws Exception {
+        createCriteria(access, 60, 95, 140);
+        LocalDate day = today().minusDays(1);
+        createReading(access, 68, "FASTING", kst(day, 7, 0), null);              // 70 미만, 95 안 넘음
+        long lunch = createMeal(access, "LUNCH", kst(day, 12, 0));               // 재야 할 시각 = 13:00
+        createReading(access, 152, "POST_MEAL", kst(day, 13, 20), lunch);       // 20분 늦게, 140 넘음
+
+        mvc.perform(get("/api/records").cookie(access)
+                        .param("from", day.toString()).param("to", day.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.days[0].events[0].reading.belowLow").value(true))
+                .andExpect(jsonPath("$.data.days[0].events[0].reading.aboveTarget").value(false))
+                .andExpect(jsonPath("$.data.days[0].events[0].reading.targetValue").value(95))
+                .andExpect(jsonPath("$.data.days[0].events[0].reading.expectedAt").value((Object) null))
+                .andExpect(jsonPath("$.data.days[0].events[0].reading.meterLimit").value((Object) null))
+                .andExpect(jsonPath("$.data.days[0].events[2].reading.aboveTarget").value(true))
+                .andExpect(jsonPath("$.data.days[0].events[2].reading.belowLow").value(false))
+                .andExpect(jsonPath("$.data.days[0].events[2].reading.targetValue").value(140))
+                .andExpect(jsonPath("$.data.days[0].events[2].reading.expectedAt").value(kst(day, 13, 0).toString()))
+                .andExpect(jsonPath("$.data.days[0].events[2].reading.timing").value("LATE"));
+    }
+
+    @Test
+    void 재야_할_시각은_식사_날짜에_적용_중이던_기준으로_구한다() throws Exception {
+        LocalDate day1 = today().minusDays(3);
+        LocalDate day2 = today().minusDays(1);
+        for (String body : List.of(
+                "{\"postMealMinutes\":60,\"effectiveFrom\":\"" + day1.minusDays(1) + "\"}",
+                "{\"postMealMinutes\":90,\"effectiveFrom\":\"" + day2 + "\"}",
+                "{\"postMealMinutes\":120,\"effectiveFrom\":\"" + day2 + "\"}")) {   // 같은 적용일이면 나중 것(id 큰 것)
+            mvc.perform(post("/api/criteria-versions").cookie(access).contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andExpect(status().isCreated());
+        }
+        long meal1 = createMeal(access, "LUNCH", kst(day1, 12, 0));
+        createReading(access, 130, "POST_MEAL", kst(day1, 13, 0), meal1);
+        long meal2 = createMeal(access, "LUNCH", kst(day2, 12, 0));
+        createReading(access, 130, "POST_MEAL", kst(day2, 14, 0), meal2);
+
+        mvc.perform(get("/api/records").cookie(access).param("from", day1.toString()).param("to", day2.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.days[0].events[1].reading.expectedAt").value(kst(day1, 13, 0).toString()))
+                .andExpect(jsonPath("$.data.days[2].events[1].reading.expectedAt").value(kst(day2, 14, 0).toString()));
+    }
+
+    @Test
+    void 값을_고치면_처음_값과_고친_시각이_남고_식사만_붙이면_수정으로_안_센다() throws Exception {
+        LocalDate day = today().minusDays(1);
+        long id = createReading(access, 128, "POST_MEAL", kst(day, 13, 12), null);
+        long lunch = createMeal(access, "LUNCH", kst(day, 12, 0));
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mealId\":" + lunch + "}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.editedAt").value((Object) null));
+
+        mvc.perform(get("/api/records").cookie(access).param("from", day.toString()).param("to", day.toString()))
+                .andExpect(jsonPath("$.data.days[0].events[1].id").value(id))
+                .andExpect(jsonPath("$.data.days[0].events[1].modified").value(false));
+
+        for (int v : new int[]{130, 124}) {   // 두 번 고쳐도 처음 값은 128
+            mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"value\":" + v + "}"))
+                    .andExpect(status().isOk());
+        }
+        mvc.perform(get("/api/records").cookie(access).param("from", day.toString()).param("to", day.toString()))
+                .andExpect(jsonPath("$.data.days[0].events[1].modified").value(true))
+                .andExpect(jsonPath("$.data.days[0].events[1].reading.value").value(124))
+                .andExpect(jsonPath("$.data.days[0].events[1].reading.originalValue").value(128))
+                .andExpect(jsonPath("$.data.days[0].events[1].reading.editedAt").isNotEmpty());
+    }
+
+    @Test
+    void 인슐린도_섞여_나오고_같은_시각이면_식사_혈당_인슐린_순() throws Exception {
+        LocalDate day = today().minusDays(2);
+        long insulinId = createInsulin(access, "MEAL", "6", kst(day, 18, 0));
+        long readingId = createReading(access, 120, "OTHER", kst(day, 18, 0), null);
+        long mealId = createMeal(access, "DINNER", kst(day, 18, 0));
+        long bedtimeId = createInsulin(access, "BEDTIME", "10.5", kst(day, 22, 0));
+        long deleted = createInsulin(access, "MEAL", "3", kst(day, 12, 0));
+        mvc.perform(delete("/api/insulin-logs/" + deleted).cookie(access)).andExpect(status().isOk());   // 지운 기록 → 안 나옴
+        createInsulin(other, "MEAL", "8", kst(day, 18, 0));                                              // 남의 기록 → 안 나옴
+
+        mvc.perform(get("/api/records").cookie(access)
+                        .param("from", day.toString()).param("to", day.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.days[0].events", hasSize(4)))
+                .andExpect(jsonPath("$.data.days[0].events[0].id").value(mealId))
+                .andExpect(jsonPath("$.data.days[0].events[1].id").value(readingId))
+                .andExpect(jsonPath("$.data.days[0].events[2].type").value("INSULIN"))
+                .andExpect(jsonPath("$.data.days[0].events[2].id").value(insulinId))
+                .andExpect(jsonPath("$.data.days[0].events[2].modified").value(false))
+                .andExpect(jsonPath("$.data.days[0].events[2].insulin.insulinType").value("MEAL"))
+                .andExpect(jsonPath("$.data.days[0].events[2].insulin.mealSlot").value("BREAKFAST"))
+                .andExpect(jsonPath("$.data.days[0].events[2].insulin.units").value(6.0))
+                .andExpect(jsonPath("$.data.days[0].events[2].reading").doesNotExist())
+                .andExpect(jsonPath("$.data.days[0].events[2].meal").doesNotExist())
+                .andExpect(jsonPath("$.data.days[0].events[3].id").value(bedtimeId))
+                .andExpect(jsonPath("$.data.days[0].events[3].insulin.insulinType").value("BEDTIME"))
+                .andExpect(jsonPath("$.data.days[0].events[3].insulin.mealSlot").value((Object) null))   // 키는 남고 값만 null
+                .andExpect(jsonPath("$.data.days[0].events[3].insulin.units").value(10.5));
+    }
+
+    @Test
+    void 인슐린을_고치면_modified_true() throws Exception {
+        LocalDate day = today().minusDays(1);
+        long id = createInsulin(access, "MEAL", "6", kst(day, 8, 0));
+        mvc.perform(patch("/api/insulin-logs/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"units\":7}"))
+                .andExpect(status().isOk());
+
+        mvc.perform(get("/api/records").cookie(access)
+                        .param("from", day.toString()).param("to", day.toString()))
+                .andExpect(jsonPath("$.data.days[0].events[0].type").value("INSULIN"))
+                .andExpect(jsonPath("$.data.days[0].events[0].modified").value(true))
+                .andExpect(jsonPath("$.data.days[0].events[0].insulin.units").value(7.0));
     }
 
     @Test
@@ -427,6 +594,24 @@ class RecordFlowTest {
                 .andExpect(jsonPath("$.data.hasPrevMonth").value(false));   // 첫 기록이 있는 달이 맨 처음
         mvc.perform(get("/api/records/calendar").cookie(access).param("month", month.plusMonths(1).toString()))
                 .andExpect(jsonPath("$.data.hasPrevMonth").value(true));
+    }
+
+    @Test
+    void 인슐린만_적은_날도_RECORDED이고_첫_기록일이_된다() throws Exception {
+        signedUpDaysAgo("jisu@x.com", 40);
+        LocalDate day = today().minusDays(10);
+        LocalDate deletedDay = today().minusDays(12);
+        createInsulin(access, "BEDTIME", "10", kst(day, 22, 0));   // 인슐린만 적은 날
+        long deleted = createInsulin(access, "MEAL", "6", kst(deletedDay, 8, 0));
+        mvc.perform(delete("/api/insulin-logs/" + deleted).cookie(access)).andExpect(status().isOk());   // 지운 기록은 안 셈
+        createInsulin(other, "MEAL", "6", kst(today().minusDays(20), 8, 0));                             // 남의 기록도 안 셈
+
+        mvc.perform(get("/api/records/calendar").cookie(access).param("month", YearMonth.from(day).toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.days[" + (day.getDayOfMonth() - 1) + "].status").value("RECORDED"))
+                .andExpect(jsonPath("$.data.firstRecordDate").value(day.toString()));
+        mvc.perform(get("/api/records/calendar").cookie(access).param("month", YearMonth.from(deletedDay).toString()))
+                .andExpect(jsonPath("$.data.days[" + (deletedDay.getDayOfMonth() - 1) + "].status").value("EMPTY"));
     }
 
     @Test

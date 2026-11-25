@@ -5,6 +5,7 @@ import com.dangdang.domain.post.entity.Post;
 import com.dangdang.domain.post.enums.PostCategory;
 
 import java.time.Instant;
+import java.util.Map;
 
 public record PostDetailResponse(
         String id,
@@ -24,8 +25,9 @@ public record PostDetailResponse(
         PollResponse poll) {
 
     public static PostDetailResponse of(Post post, Long myProfileId, int viewCount, long reactionCount,
-                                        long commentCount, boolean reacted, PollResponse poll) {
-        AuthorResponse author = AuthorResponse.of(post.getProfile(), post.isAnonymous(), myProfileId);
+                                        long commentCount, boolean reacted, PollResponse poll,
+                                        Map<Long, String> badges) {
+        AuthorResponse author = AuthorResponse.of(post.getProfile(), post.isAnonymous(), myProfileId, badges);
         return new PostDetailResponse(
                 String.valueOf(post.getId()), post.getCategory(), post.getTitle(), post.getContent(), author,
                 post.getCreatedAt(), post.getUpdatedAt(), viewCount, reactionCount, commentCount, reacted,

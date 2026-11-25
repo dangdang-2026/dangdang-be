@@ -29,7 +29,8 @@ public class DueDateController {
             description =
                     """
                     **Parameters** dueDate(yyyy-MM-dd, 필수)
-                    **Returns** dueDate. 진행 중인 임신이 없으면 새로 만들고, 있으면 그 줄을 고친다. 형식이 틀리면 GLOBAL_40001
+                    **Returns** dueDate. 진행 중인 임신이 없으면 새로 만들고, 있으면 그 줄을 고친다. 형식이 틀리면 GLOBAL_40001,
+                    진단일보다 앞이면 PREGNANCY_40004, 건강정보 동의 없음 USER_40302
                     """)
     @PatchMapping
     public ResponseEntity<BaseResponse<DueDateResponse>> save(

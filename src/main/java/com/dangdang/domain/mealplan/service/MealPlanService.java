@@ -7,6 +7,7 @@ import com.dangdang.domain.mealplan.entity.MealPlan;
 import com.dangdang.domain.mealplan.repository.MealPlanRepository;
 import com.dangdang.domain.user.exception.UserErrorCode;
 import com.dangdang.domain.user.repository.UserRepository;
+import com.dangdang.domain.user.service.SensitiveConsentGuard;
 import com.dangdang.global.exception.CustomException;
 import com.dangdang.global.exception.GlobalErrorCode;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +25,7 @@ public class MealPlanService {
     private final CareSiteRepository careSiteRepository;
     private final UserRepository userRepository;
     private final Clock clock;
+    private final SensitiveConsentGuard sensitiveConsentGuard;
 
     // 없으면 null → 화면은 「내 식사 안내 보기」 줄을 숨긴다
     @Transactional(readOnly = true)
@@ -33,6 +35,7 @@ public class MealPlanService {
 
     @Transactional
     public MealPlanResponse save(Long userId, MealPlanRequest req) {
+        sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403
         if (req.careSiteId() != null
                 && careSiteRepository.findByIdAndUserIdAndDeletedAtIsNull(req.careSiteId(), userId).isEmpty()) {
             throw new CustomException(GlobalErrorCode.INVALID_INPUT);   // 남의 병원·지운 병원
@@ -43,7 +46,7 @@ public class MealPlanService {
         mealPlanRepository.upsert(userId, req.careSiteId(), req.receivedOn(),
                 strip(req.mealGuide()), strip(req.snackGuide()), clock.instant());
         MealPlan plan = mealPlanRepository.findByUserId(userId).orElseThrow();
-        return MealPlanResponse.from(plan, plan.getCareSiteId());
+        return toResponse(userId, plan);
     }
 
     @Transactional
@@ -51,14 +54,15 @@ public class MealPlanService {
         mealPlanRepository.findByUserId(userId).ifPresent(mealPlanRepository::delete);
     }
 
-    // 병원은 soft delete라 DB의 ON DELETE SET NULL이 안 돈다 → 지운 병원이면 번호를 숨긴다 (화면이 404 안 나게)
+    // 병원은 soft delete라 DB의 ON DELETE SET NULL이 안 돈다
+    // → 지운 병원이면 번호는 숨기고(화면이 404 안 나게) 이름은 남긴다 (C-20 「‘받은 곳’은 그대로 남아요」)
     private MealPlanResponse toResponse(Long userId, MealPlan p) {
-        Long careSiteId = p.getCareSiteId();
-        if (careSiteId != null
-                && careSiteRepository.findByIdAndUserIdAndDeletedAtIsNull(careSiteId, userId).isEmpty()) {
-            careSiteId = null;
+        if (p.getCareSiteId() == null) {
+            return MealPlanResponse.from(p, null, null);
         }
-        return MealPlanResponse.from(p, careSiteId);
+        return careSiteRepository.findByIdAndUserId(p.getCareSiteId(), userId)
+                .map(site -> MealPlanResponse.from(p, site.getDeletedAt() == null ? site.getId() : null, site.getName()))
+                .orElseGet(() -> MealPlanResponse.from(p, null, null));
     }
 
     private static String strip(String s) {

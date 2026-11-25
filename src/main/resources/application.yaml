@@ -5,6 +5,10 @@ spring:
     timeout-per-shutdown-phase: 30s              # ★ 블루그린: 끌 때 하던 요청을 최대 30초까지 마저 처리 (compose stop_grace_period 40s보다 짧게)
   config:
     import: optional:file:.env[.properties]
+  task:
+    scheduling:
+      pool:
+        size: 2                                  # @Scheduled 스레드 (기본 1) — 알림 스케줄러가 오래 걸려도 SSE ping(25초)이 밀려 끊기지 않게
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/dangdang}
     username: ${DB_USER:dangdang}
@@ -106,3 +110,4 @@ kakao:
     - https://dang-dang.vercel.app/auth/kakao/callback
 hira:
   service-key: ${HIRA_SERVICE_KEY:}             # 공공데이터포털 심평원 병원정보서비스 일반 인증키 (병원 검색용)
+  sync-enabled: ${HIRA_SYNC_ENABLED:false}      # 병원 목록 DB 적재(처음 한 번 + 매주 일 04:30). 서버만 true

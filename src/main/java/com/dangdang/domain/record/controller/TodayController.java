@@ -26,7 +26,8 @@ public class TodayController {
             description =
                     """
                     **Parameters** 없음 (오늘 = 한국 시각 00:00 ~ 다음 날 00:00)
-                    **Returns** date, criteria(지금 병원 기준, 없으면 null), meals(오늘 식사, 각 식사에 items 포함), readings(오늘 혈당 + timing·aboveTarget),
+                    **Returns** date, criteria(지금 병원 기준, 없으면 null), meals(오늘 식사, 각 식사에 items 포함), readings(오늘 혈당 + meterLimit·timing·aboveTarget·targetValue·belowLow(70 미만)·expectedAt),
+                    insulinLogs(오늘 인슐린 기록 {insulinLogId, insulinType, mealSlot, units, takenAt, editedAt, createdAt, updatedAt}, 맞은 시각 순, 없으면 []),
                     nextReminder(다음 측정 알림, 없으면 null), pushReady(살아 있는 푸시 구독 여부).
                     timing은 예정 시각 ±15분 기준 EARLY·ON_TIME·LATE, 예정 시각을 모르면 null. aboveTarget은 목표가 없으면 null
                     """)

@@ -22,15 +22,15 @@ public class AiPostCheckClient implements PostCheckClient {
 
     // 실패하면 RestClientException이 그대로 나간다 → 서비스가 받아서 "검사 못 함"으로 처리
     @Override
-    public Result check(String title, String content) {
+    public Result check(String title, String content, boolean allowLlm) {
         return restClient.post()
                 .uri("/internal/post-check")
                 .header("X-Internal-Token", properties.internalToken())
                 .contentType(MediaType.APPLICATION_JSON)
-                .body(new Body(title == null ? "" : title, content))
+                .body(new Body(title == null ? "" : title, content, allowLlm))
                 .retrieve()
                 .body(Result.class);
     }
 
-    private record Body(String title, String content) {}
+    private record Body(String title, String content, boolean allowLlm) {}
 }

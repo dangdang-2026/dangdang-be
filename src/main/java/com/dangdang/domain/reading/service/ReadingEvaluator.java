@@ -8,12 +8,16 @@ import com.dangdang.domain.reading.enums.ReadingType;
 import java.time.Duration;
 import java.time.Instant;
 
-// 혈당 기록 하나를 보고 "제때 쟀는지 · 목표를 넘었는지" 계산함 (DB에 저장하지 않고 응답 만들 때마다 계산)
+// 혈당 기록 하나를 보고 "제때 쟀는지 · 목표를 넘었는지 · 70 미만인지" 계산함 (DB에 저장하지 않고 응답 만들 때마다 계산)
 // 색·평가 문구는 화면 몫이라 여기선 사실만 돌려줌
 public final class ReadingEvaluator {
 
     // 예정 시각에서 이만큼 안쪽이면 제때
     private static final Duration ON_TIME_RANGE = Duration.ofMinutes(15);
+    // 이 값 미만이면 「70 미만」(낮게 잼). 진료 리포트(VisitReportService)·통계와 같은 기준
+    public static final int LOW_VALUE = 70;
+    // 이 값 이상이면 「200 이상」. 진료 리포트 「70 미만 없음 · 200 이상 없음」의 짝
+    public static final int HIGH_VALUE = 200;
 
     private ReadingEvaluator() {
     }
@@ -51,15 +55,30 @@ public final class ReadingEvaluator {
         return ReadingTiming.ON_TIME;
     }
 
-    // 잴 때 적용 중이던 병원 목표를 넘었는지. 목표는 "미만"이라 목표값과 같아도 넘은 것으로 봄
-    // 목표가 없거나 공복·식후가 아닌 혈당이면 null (비교할 기준이 없음)
-    public static Boolean aboveTarget(Reading reading) {
+    // 잴 때 적용 중이던 병원 목표 (공복이면 공복 목표, 식후면 식후 목표). 기타이거나 목표가 없으면 null
+    public static Integer targetOf(Reading reading) {
         CriteriaVersion criteria = reading.getCriteriaVersion();
-        Integer target = switch (reading.getReadingType()) {
+        return switch (reading.getReadingType()) {
             case FASTING -> criteria.getFastingTarget();
             case POST_MEAL -> criteria.getPostMealTarget();
             case OTHER -> null;
         };
+    }
+
+    // 잴 때 적용 중이던 병원 목표를 넘었는지. 목표는 "미만"이라 목표값과 같아도 넘은 것으로 봄
+    // 목표가 없거나 공복·식후가 아닌 혈당이면 null (비교할 기준이 없음)
+    public static Boolean aboveTarget(Reading reading) {
+        Integer target = targetOf(reading);
         return target == null ? null : reading.getValue() >= target;
+    }
+
+    // 70 미만인지. 목표가 없어도, 기타 혈당이어도 늘 판단함 (저혈당은 시점과 상관없이 위험 신호)
+    public static boolean belowLow(Reading reading) {
+        return reading.getValue() < LOW_VALUE;
+    }
+
+    // 200 이상인지. 70 미만과 짝으로 목표·시점과 상관없이 늘 판단함 (HI는 600이라 여기 들어감)
+    public static boolean aboveHigh(Reading reading) {
+        return reading.getValue() >= HIGH_VALUE;
     }
 }

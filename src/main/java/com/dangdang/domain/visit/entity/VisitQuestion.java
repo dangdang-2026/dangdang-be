@@ -47,6 +47,13 @@ public class VisitQuestion extends BaseTimeEntity {
         return q;
     }
 
+    // 당당이 대화(Q-04 물어볼 말 정리)에서 가져온 질문 — 서버가 대화 번호를 확인한 뒤에만 만든다
+    public static VisitQuestion ofChatbot(Visit visit, String content, int sortOrder) {
+        VisitQuestion q = ofUser(visit, content, sortOrder);
+        q.source = QuestionSource.CHATBOT;
+        return q;
+    }
+
     // 삭제 (soft delete). 이미 지웠으면 처음 지운 시각을 그대로 둠 (여러 번 지워도 같은 결과)
     // DB(TIMESTAMPTZ)는 마이크로초까지만 저장해서 미리 맞춤 → 첫 응답과 다시 지울 때 응답의 시각이 똑같음
     public void delete(Instant now) {

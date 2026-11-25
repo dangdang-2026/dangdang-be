@@ -9,7 +9,17 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.ResultActions;
 
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.nullValue;
@@ -20,11 +30,11 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-// 입원·출산·산후 검사·졸업 (E-03~E-12). 고정 시계: 한국 2026-11-09 13:00
+// 입원·다른 상황·출산·되돌리기·산후 검사·졸업 (E-03~E-12). 고정 시계: 한국 2026-11-09 13:00
 class PostpartumFlowTest extends ReminderTestBase {
 
-    static final Instant KST_0859_NOV9 = Instant.parse("2026-11-08T23:59:00Z");
-    static final Instant KST_0900_NOV9 = Instant.parse("2026-11-09T00:00:00Z");
+    static final Instant KST_1859_NOV9 = Instant.parse("2026-11-09T09:59:00Z");
+    static final Instant KST_1900_NOV9 = Instant.parse("2026-11-09T10:00:00Z");
 
     @Autowired ReminderScheduler scheduler;
 
@@ -97,6 +107,138 @@ class PostpartumFlowTest extends ReminderTestBase {
                 .andExpect(jsonPath("$.errorCode").value("PREGNANCY_40901"));
     }
 
+    // ── 다른 상황 (E-03 · E-03b) ──
+
+    @Test
+    void 다른_상황이면_알림만_멈추고_다시_켜면_임신_중() throws Exception {
+        Long before = reminderAt(jisuId, NOW.plusSeconds(600));
+
+        patchJson(jisu, "/api/me/measurement-pause", "{\"paused\":true}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.state").value("PAUSED"))
+                .andExpect(jsonPath("$.data.pausedReminders").value(1));
+        assertThat(statusOf(before)).isEqualTo("CANCELED");
+        Long after = reminderAt(jisuId, NOW);          // 멈춘 동안 식사를 적어 생긴 알림
+        scheduler.run();
+        assertThat(statusOf(after)).isEqualTo("SKIPPED");
+        assertThat(fakeSender.sent).isEmpty();
+        mvc.perform(get("/api/me").cookie(jisu)).andExpect(jsonPath("$.data.pregnancyState").value("PAUSED"));
+
+        patchJson(jisu, "/api/me/measurement-pause", "{\"paused\":true}")   // 두 번 눌러도 그대로
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.state").value("PAUSED"));
+        patchJson(jisu, "/api/me/measurement-pause", "{\"paused\":false}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.state").value("PREGNANT"));
+        Long resumed = reminderAt(jisuId, NOW);
+        scheduler.run();
+        assertThat(statusOf(resumed)).isEqualTo("SENT");
+    }
+
+    @Test
+    void 입원_중에도_멈출_수_있고_멈춘_상태가_아니면_다시_켜기_409() throws Exception {
+        patchJson(jisu, "/api/me/measurement-pause", "{\"paused\":false}")   // 임신 정보 없음
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.errorCode").value("PREGNANCY_40901"));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM pregnancies", Integer.class)).isZero();
+
+        patchJson(jisu, "/api/me/hospitalization", "{\"hospitalized\":true}").andExpect(status().isOk());
+        patchJson(jisu, "/api/me/measurement-pause", "{\"paused\":true}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.state").value("PAUSED"));
+        assertThat(jdbc.queryForObject("SELECT hospitalized_at IS NULL FROM pregnancies WHERE user_id = ?",
+                Boolean.class, jisuId)).isTrue();
+        patchJson(jisu, "/api/me/hospitalization", "{\"hospitalized\":false}")   // 입원 중이 아님
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void 멈춘_상태에서도_출산일을_적을_수_있고_산후엔_멈추기_409() throws Exception {
+        patchJson(jisu, "/api/me/measurement-pause", "{\"paused\":true}").andExpect(status().isOk());
+        deliver(jisu, "2026-11-08");
+        assertThat(pregnancyState()).isEqualTo("POSTPARTUM");
+
+        patchJson(jisu, "/api/me/measurement-pause", "{\"paused\":true}")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.errorCode").value("PREGNANCY_40901"));
+        patchJson(jisu, "/api/me/measurement-pause", "{\"paused\":false}").andExpect(status().isConflict());
+    }
+
+    @Test
+    void 다른_상황이면_졸업이_안_되고_졸업_뒤엔_멈추기_409() throws Exception {
+        patchJson(minji, "/api/me/measurement-pause", "{\"paused\":true}").andExpect(status().isOk());
+        mvc.perform(post("/api/me/graduation").cookie(minji))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.errorCode").value("PREGNANCY_40901"));
+
+        deliver(jisu, "2026-11-08");
+        mvc.perform(post("/api/me/graduation").cookie(jisu)).andExpect(status().isOk());
+        patchJson(jisu, "/api/me/measurement-pause", "{\"paused\":true}")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.errorCode").value("PREGNANCY_40902"));
+        patchJson(jisu, "/api/me/measurement-pause", "{\"paused\":false}")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.errorCode").value("PREGNANCY_40902"));
+    }
+
+    @Test
+    void 건강정보_동의가_없으면_멈추기와_되돌리기_403() throws Exception {
+        deliver(jisu, "2026-11-08");
+        jdbc.update("DELETE FROM consent_events WHERE user_id = ?", jisuId);
+        patchJson(jisu, "/api/me/measurement-pause", "{\"paused\":true}").andExpect(status().isForbidden());
+        mvc.perform(delete("/api/me/delivery-date").cookie(jisu)).andExpect(status().isForbidden());
+        assertThat(pregnancyState()).isEqualTo("POSTPARTUM");
+    }
+
+    @Test
+    void 임신_정보가_없을_때_멈추기가_동시에_와도_한_줄만_생긴다() throws Exception {
+        List<Integer> statuses = new ArrayList<>();
+        // 테스트가 사람 줄을 먼저 잠가 둠 → 두 요청이 같은 잠금 앞에서 기다리다 차례로 들어간다 (순서가 운에 달리지 않게)
+        try (Connection lock = jdbc.getDataSource().getConnection()) {
+            lock.setAutoCommit(false);
+            try (PreparedStatement ps = lock.prepareStatement("SELECT id FROM users WHERE id = ? FOR UPDATE")) {
+                ps.setLong(1, jisuId);
+                ps.executeQuery();
+            }
+            ExecutorService pool = Executors.newFixedThreadPool(2);
+            CountDownLatch start = new CountDownLatch(1);
+            List<Future<Integer>> results = new ArrayList<>();
+            for (int i = 0; i < 2; i++) {
+                results.add(pool.submit(() -> {
+                    start.await();
+                    return patchJson(jisu, "/api/me/measurement-pause", "{\"paused\":true}")
+                            .andReturn().getResponse().getStatus();
+                }));
+            }
+            start.countDown();
+            waitUntilLockWaiters(2);
+            lock.rollback();
+            for (Future<Integer> result : results) {
+                statuses.add(result.get(10, TimeUnit.SECONDS));
+            }
+            pool.shutdown();
+        }
+        assertThat(statuses).containsExactly(200, 200);   // ux_pregnancies_active에 걸려 500이 나지 않는다
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM pregnancies WHERE user_id = ?", Integer.class, jisuId))
+                .isEqualTo(1);
+        assertThat(pregnancyState()).isEqualTo("PAUSED");
+    }
+
+    // 이 DB에서 잠금을 기다리는 연결이 n개가 될 때까지 (최대 10초)
+    private void waitUntilLockWaiters(int n) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (System.nanoTime() < deadline) {
+            Integer waiting = jdbc.queryForObject(
+                    "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
+                    Integer.class);
+            if (waiting != null && waiting >= n) {
+                return;
+            }
+            Thread.sleep(50);
+        }
+        throw new AssertionError("두 요청이 잠금을 기다리는 상태가 되지 않았어요");
+    }
+
     // ── 출산 (E-06) ──
 
     @Test
@@ -123,6 +265,33 @@ class PostpartumFlowTest extends ReminderTestBase {
     void 산후에는_입원_버튼이_409() throws Exception {
         deliver(jisu, "2026-11-08");
         patchJson(jisu, "/api/me/hospitalization", "{\"hospitalized\":true}").andExpect(status().isConflict());
+    }
+
+    // ── 출산 되돌리기 (E-06 · E-07) ──
+
+    @Test
+    void 출산을_되돌리면_임신_중이고_출산일과_다시_물어볼_날이_지워진다() throws Exception {
+        deliver(jisu, "2026-11-08");
+        postJson(jisu, "/api/me/remind-later", "{\"remindOn\":\"2026-11-20\"}").andExpect(status().isOk());
+        Long testId = addTest(jisu, "당화혈색소", "2026-12-02");
+
+        mvc.perform(delete("/api/me/delivery-date").cookie(jisu))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.state").value("PREGNANT"))
+                .andExpect(jsonPath("$.data.deliveryDate").value(nullValue()))
+                .andExpect(jsonPath("$.data.pausedReminders").value(0));
+        assertThat(jdbc.queryForObject("SELECT delivery_date IS NULL AND postpartum_ask_on IS NULL"
+                + " FROM pregnancies WHERE user_id = ?", Boolean.class, jisuId)).isTrue();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM postpartum_tests WHERE id = ?", Integer.class, testId))
+                .isEqualTo(1);                                    // 검사 일정은 그대로
+
+        Long reminder = reminderAt(jisuId, NOW);                 // 다시 임신 중 → 측정 알림이 간다
+        scheduler.run();
+        assertThat(statusOf(reminder)).isEqualTo("SENT");
+
+        mvc.perform(delete("/api/me/delivery-date").cookie(jisu))   // 이미 임신 중
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.errorCode").value("PREGNANCY_40901"));
     }
 
     // ── 산후 홈 · 다시 물어보기 (E-07 · E-09 · E-10) ──
@@ -212,33 +381,144 @@ class PostpartumFlowTest extends ReminderTestBase {
                 .andExpect(status().isBadRequest());
     }
 
-    // ── 검사 알림 (전날·당일, 오전 9시부터) ──
+    // ── 검사 장소 (E-08 · E-10) ──
 
     @Test
-    void 전날_알림은_오전_9시부터_한_번만() throws Exception {
+    void 검사_장소를_적고_바꾸고_빈_글이면_지운다() throws Exception {
         deliver(jisu, "2026-11-01");
-        addTest(jisu, "75g 경구 당부하 검사", "2026-11-10");     // 내일
+        String body = postJson(jisu, "/api/postpartum/tests",
+                        "{\"name\":\"산후 혈당 검사\",\"testDate\":\"2026-12-02\",\"placeName\":\" ○○산부인과 \"}")
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.placeName").value("○○산부인과"))
+                .andReturn().getResponse().getContentAsString();
+        Long id = Long.valueOf(body.replaceAll(".*\"id\":(\\d+).*", "$1"));
+        mvc.perform(get("/api/postpartum").cookie(jisu))
+                .andExpect(jsonPath("$.data.upcomingTests[0].placeName").value("○○산부인과"));
 
-        clock.set(KST_0859_NOV9);
+        patchJson(jisu, "/api/postpartum/tests/" + id, "{\"placeName\":\"△△내분비내과\"}")
+                .andExpect(jsonPath("$.data.placeName").value("△△내분비내과"));
+        patchJson(jisu, "/api/postpartum/tests/" + id, "{\"name\":\"다음 검진\"}")
+                .andExpect(jsonPath("$.data.placeName").value("△△내분비내과"));   // 안 보내면 그대로
+        patchJson(jisu, "/api/postpartum/tests/" + id, "{\"placeName\":\"\"}")
+                .andExpect(jsonPath("$.data.placeName").value(nullValue()));      // 빈 글 = 지우기
+        postJson(jisu, "/api/postpartum/tests", "{\"name\":\"검사\",\"testDate\":\"2026-12-02\",\"placeName\":\""
+                + "가".repeat(51) + "\"}").andExpect(status().isBadRequest());
+        addTest(jisu, "장소 없는 검사", "2026-12-03");
+        mvc.perform(get("/api/postpartum/tests").cookie(jisu))
+                .andExpect(jsonPath("$.data[1].placeName").value(nullValue()));
+    }
+
+    // ── 검사 알림 (전날 저녁 7~10시 · 당일 아침 7시부터, 한국 시간) ──
+
+    @Test
+    void 전날_알림은_저녁_7시부터_한_번만_준비_사항도_같이() throws Exception {
+        deliver(jisu, "2026-11-01");
+        postJson(jisu, "/api/postpartum/tests",
+                        "{\"name\":\"75g 경구 당부하 검사\",\"testDate\":\"2026-11-10\",\"placeName\":\"○○산부인과\"}")
+                .andExpect(status().isCreated());                // 내일
+
+        scheduler.run();                                         // 13:00 → 아직
+        clock.set(KST_1859_NOV9);
         scheduler.run();
         assertThat(fakeSender.sent).isEmpty();
 
-        clock.set(KST_0900_NOV9);
+        clock.set(KST_1900_NOV9);
         scheduler.run();
         scheduler.run();
         assertThat(fakeSender.sent).hasSize(1);
         assertThat(fakeSender.sent.get(0).body()).isEqualTo("확인할 일이 있어요");   // 잠금화면 가리기 기본 켬
-        assertThat(jdbc.queryForObject("SELECT title FROM notifications WHERE type = 'POSTPARTUM'", String.class))
-                .isEqualTo("내일 75g 경구 당부하 검사 검사가 있어요");
+        String title = jdbc.queryForObject("SELECT title FROM notifications WHERE type = 'POSTPARTUM'", String.class);
+        assertThat(title).isEqualTo("11월 10일(화) 75g 경구 당부하 검사가 있어요. 병원에서 들은 준비 사항(금식 등)도 확인해 주세요");
+        assertThat(title).doesNotContain("○○산부인과");          // 장소는 알림에 안 넣는다
     }
 
     @Test
-    void 당일_알림() throws Exception {
+    void 가리기를_끄면_푸시는_내일_알림함은_날짜() throws Exception {
+        deliver(jisu, "2026-11-01");
+        addTest(jisu, "당화혈색소", "2026-11-10");
+        patchJson(jisu, "/api/me/notification-preferences", "{\"hideContent\":false}").andExpect(status().isOk());
+        clock.set(KST_1900_NOV9);
+        scheduler.run();
+        assertThat(fakeSender.sent).hasSize(1);
+        assertThat(fakeSender.sent.get(0).body())
+                .isEqualTo("내일 당화혈색소 검사가 있어요. 병원에서 들은 준비 사항(금식 등)도 확인해 주세요");
+    }
+
+    @Test
+    void 전날_알림은_밤_10시가_지나면_건너뛴다() throws Exception {
+        deliver(jisu, "2026-11-01");
+        addTest(jisu, "당화혈색소", "2026-11-10");
+        clock.set(Instant.parse("2026-11-09T13:00:00Z"));        // 한국 22:00
+        scheduler.run();
+        assertThat(fakeSender.sent).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT day_before_sent_at IS NULL FROM postpartum_tests", Boolean.class))
+                .isTrue();
+    }
+
+    @Test
+    void 당일_알림은_아침_7시부터_알림함은_날짜로() throws Exception {
+        clock.set(Instant.parse("2026-11-08T21:00:00Z"));        // 한국 11/9 06:00
         deliver(jisu, "2026-11-01");
         addTest(jisu, "당화혈색소", "2026-11-09");                // 오늘
-        scheduler.run();                                         // 13:00
+        clock.set(Instant.parse("2026-11-08T21:59:00Z"));        // 한국 06:59
+        scheduler.run();
+        assertThat(fakeSender.sent).isEmpty();
+
+        clock.set(Instant.parse("2026-11-08T22:00:00Z"));        // 한국 07:00
+        scheduler.run();
+        assertThat(fakeSender.sent).hasSize(1);
         assertThat(jdbc.queryForObject("SELECT title FROM notifications WHERE type = 'POSTPARTUM'", String.class))
-                .isEqualTo("오늘 당화혈색소 검사가 있어요");
+                .isEqualTo("11월 9일(월) 당화혈색소 검사가 있어요");
+    }
+
+    @Test
+    void 당일_알림도_밤_10시가_지나면_안_가고_지난_날짜_검사는_알림이_없다() throws Exception {
+        deliver(jisu, "2026-11-01");
+        clock.set(Instant.parse("2026-11-09T13:00:00Z"));        // 한국 11/9 22:00
+        addTest(jisu, "당화혈색소", "2026-11-09");                // 오늘 (검사 끝나고 적음)
+        addTest(jisu, "지난 검사", "2026-11-05");                 // 지난 날짜
+        scheduler.run();
+        assertThat(fakeSender.sent).isEmpty();
+
+        clock.set(Instant.parse("2026-11-09T22:00:00Z"));        // 한국 11/10 07:00 — 다음 날에도 지난 검사는 안 감
+        scheduler.run();
+        assertThat(fakeSender.sent).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM notifications WHERE type = 'POSTPARTUM'", Integer.class))
+                .isZero();
+    }
+
+    @Test
+    void 이름이_검사로_끝나면_검사를_또_붙이지_않는다() throws Exception {
+        deliver(jisu, "2026-11-01");
+        addTest(jisu, "당화혈색소 검사", "2026-11-09");
+        scheduler.run();
+        assertThat(jdbc.queryForObject("SELECT title FROM notifications WHERE type = 'POSTPARTUM'", String.class))
+                .isEqualTo("11월 9일(월) 당화혈색소 검사가 있어요");
+    }
+
+    @Test
+    void 출산을_되돌리면_검사_알림이_안_가고_다시_산후가_되면_간다() throws Exception {
+        deliver(jisu, "2026-11-01");
+        addTest(jisu, "당화혈색소", "2026-11-09");
+        mvc.perform(delete("/api/me/delivery-date").cookie(jisu)).andExpect(status().isOk());
+
+        scheduler.run();
+        assertThat(fakeSender.sent).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT same_day_sent_at IS NULL FROM postpartum_tests", Boolean.class))
+                .isTrue();                                       // 처리하지 않고 남겨 둠
+
+        deliver(jisu, "2026-11-01");
+        scheduler.run();
+        assertThat(fakeSender.sent).hasSize(1);
+    }
+
+    @Test
+    void 졸업한_뒤에도_산후_검사_알림은_간다() throws Exception {
+        deliver(jisu, "2026-11-01");
+        addTest(jisu, "당화혈색소", "2026-11-09");
+        mvc.perform(post("/api/me/graduation").cookie(jisu)).andExpect(status().isOk());
+        scheduler.run();
+        assertThat(fakeSender.sent).hasSize(1);
     }
 
     @Test
@@ -280,7 +560,8 @@ class PostpartumFlowTest extends ReminderTestBase {
         assertThat(fakeSender.sent).hasSize(1);
 
         patchJson(jisu, "/api/postpartum/tests/" + id, "{\"testDate\":\"2026-11-10\"}");
-        scheduler.run();                                         // 이번엔 내일 검사 → 전날 알림
+        clock.set(KST_1900_NOV9);
+        scheduler.run();                                         // 이번엔 내일 검사 → 전날 저녁 알림
         assertThat(fakeSender.sent).hasSize(2);
     }
 
@@ -306,6 +587,20 @@ class PostpartumFlowTest extends ReminderTestBase {
         Long reminder = reminderAt(jisuId, NOW);                 // 졸업한 사람에겐 측정 알림이 안 간다
         scheduler.run();
         assertThat(statusOf(reminder)).isEqualTo("SKIPPED");
+    }
+
+    @Test
+    void 함께한_날은_가입한_한국_날짜가_1일째() throws Exception {
+        // 한국 8/6 23:30 가입 (UTC로는 8/6 14:30) → 오늘 11/9 13:00까지 96일째. 가입 시각을 고정해 실제 시계와 상관없게
+        jdbc.update("UPDATE users SET created_at = ? WHERE id = ?",
+                Timestamp.from(Instant.parse("2026-08-06T14:30:00Z")), jisuId);
+        deliver(jisu, "2026-11-08");
+
+        mvc.perform(post("/api/me/graduation").cookie(jisu))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.message").value("임신 중 관리를 마쳤어요."))
+                .andExpect(jsonPath("$.data.daysTogether").value(96))
+                .andExpect(jsonPath("$.data.weeksTogether").value(13));
     }
 
     @Test

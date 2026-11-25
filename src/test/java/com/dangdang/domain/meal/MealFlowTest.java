@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+import static com.dangdang.support.TestConsents.grantSensitive;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -55,7 +56,8 @@ class MealFlowTest {
     }
 
     private Cookie signupAndLogin(String email) throws Exception {
-        userRepository.save(User.ofEmail(email, "테스트", passwordEncoder.encode("abcd1234"), Instant.now()));
+        grantSensitive(jdbc,
+                userRepository.save(User.ofEmail(email, "테스트", passwordEncoder.encode("abcd1234"), Instant.now())));
         return mvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"" + email + "\",\"password\":\"abcd1234\"}"))
@@ -416,6 +418,27 @@ class MealFlowTest {
         mvc.perform(delete("/api/meals/" + id).cookie(access)).andExpect(status().isOk());
 
         assertThat(remindersOf(id)).extracting(r -> r.get("status")).containsExactly("CANCELED");
+    }
+
+    // ---------- 식사 시작과 식후 혈당 (MEAL_40008) ----------
+
+    @Test
+    void 붙은_식후_혈당보다_늦게_시작하도록_고치면_400이고_그_전까지는_된다() throws Exception {
+        LocalDate day = today().minusDays(1);
+        long id = create("LUNCH", kst(day, 12, 0));
+        mvc.perform(post("/api/readings").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"value\":140,\"measuredAt\":\"" + kst(day, 13, 0)
+                                + "\",\"readingType\":\"POST_MEAL\",\"mealId\":" + id + "}"))
+                .andExpect(status().isCreated());
+
+        mvc.perform(patch("/api/meals/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"startedAt\":\"" + kst(day, 13, 30) + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("MEAL_40008"));
+        mvc.perform(patch("/api/meals/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"startedAt\":\"" + kst(day, 12, 30) + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.startedAt").value(kst(day, 12, 30).toString()));
     }
 
     // ---------- 인증 ----------

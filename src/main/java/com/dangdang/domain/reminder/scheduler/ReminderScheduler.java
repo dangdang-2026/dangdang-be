@@ -3,7 +3,9 @@ package com.dangdang.domain.reminder.scheduler;
 import com.dangdang.domain.postpartum.service.PostpartumTestNotifier;
 import com.dangdang.domain.reminder.service.DailyReminderPlanner;
 import com.dangdang.domain.reminder.service.ReminderDispatchService;
+import com.dangdang.domain.visit.service.VisitReminderNotifier;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -11,6 +13,7 @@ import org.springframework.stereotype.Component;
 import java.util.concurrent.TimeUnit;
 
 // 서버가 여러 대여도 한 바퀴는 한 대만 돈다 (ShedLock — SchedulingConfig)
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class ReminderScheduler {
@@ -20,6 +23,7 @@ public class ReminderScheduler {
     private final ReminderDispatchService reminderDispatchService;
     private final DailyReminderPlanner dailyReminderPlanner;
     private final PostpartumTestNotifier postpartumTestNotifier;
+    private final VisitReminderNotifier visitReminderNotifier;
 
     // 앞 바퀴가 끝나고 30초 뒤에 다음 바퀴 (겹치지 않는다). 테스트는 이 메서드를 직접 부른다
     // 잠금: 다른 서버가 돌고 있으면 이번 바퀴는 건너뛴다. 최소 20초는 잡고 있어서 다른 서버가 바로 또 돌지 않고,
@@ -27,9 +31,19 @@ public class ReminderScheduler {
     @Scheduled(initialDelay = 30, fixedDelay = 30, timeUnit = TimeUnit.SECONDS)
     @SchedulerLock(name = LOCK_NAME, lockAtLeastFor = "PT20S", lockAtMostFor = "PT5M")
     public void run() {
-        dailyReminderPlanner.planDue();          //공복과 자기 전 알림을 먼저 만들어야 같은 바퀴에 바로 보낸다
-        reminderDispatchService.dispatchDue();
-        reminderDispatchService.renotifyDue();
-        postpartumTestNotifier.notifyDue();      // 산후 검사 전날,당일 알림 (오전 9시부터)
+        runSafely("측정 알림 계획", dailyReminderPlanner::planDue);   //공복과 자기 전 알림을 먼저 만들어야 같은 바퀴에 바로 보낸다
+        runSafely("측정 알림 보내기", reminderDispatchService::dispatchDue);
+        runSafely("측정 다시 알림", reminderDispatchService::renotifyDue);
+        runSafely("산후 검사 알림", postpartumTestNotifier::notifyDue);   // 산후 검사 전날 저녁(한국 7~10시)·당일 아침(7시부터) 알림
+        runSafely("진료 알림", visitReminderNotifier::notifyDue);         // 진료 전날(저녁 7~10시),당일(아침 7시~밤 10시) 알림
+    }
+
+    // 한 작업이 실패해도 같은 바퀴의 다음 작업은 돌게 함 (앞에서 에러가 나면 뒤 알림이 전부 멈추지 않게)
+    private void runSafely(String name, Runnable task) {
+        try {
+            task.run();
+        } catch (Exception e) {
+            log.error("[스케줄러] {} 실패: {}", name, e.getClass().getSimpleName(), e);
+        }
     }
 }

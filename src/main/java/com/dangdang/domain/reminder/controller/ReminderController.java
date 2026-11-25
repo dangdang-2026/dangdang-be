@@ -51,7 +51,7 @@ public class ReminderController {
             description =
                     """
                     **Parameters** id (알림 번호)
-                    **Returns** id, status, openedAt. 남의 알림 REMINDER_40401, 열 수 없는 상태 REMINDER_40901
+                    **Returns** id, status, openedAt. 이미 열었거나(OPENED) 잰(DONE) 알림, 이번 끼니를 건너뛴(DISMISSED) 알림은 그대로 200. 남의 알림 REMINDER_40401, 그 밖에 열 수 없는 상태 REMINDER_40901
                     """)
     @PostMapping("/{id}/open")
     public ResponseEntity<BaseResponse<ReminderOpenResponse>> open(

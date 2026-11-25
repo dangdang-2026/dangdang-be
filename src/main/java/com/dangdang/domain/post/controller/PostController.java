@@ -36,8 +36,9 @@ public class PostController {
             description =
                     """
                     **Parameters** category, q, cursor, size(1~100, 기본 20) · sort(LATEST 기본 · POPULAR) · audience(ALL · PREGNANT · POSTPARTUM)
-                    · period(POPULAR일 때만: REALTIME 기본 24시간 · WEEK 7일 · MONTH 30일)
+                    · period(POPULAR일 때만: REALTIME 기본 24시간 · WEEK 7일 · MONTH 30일 · ALL 기간 없이, 검색 결과 인기순이라 q가 없거나 한 글자면 400 GLOBAL_40001. sort=LATEST에 ALL이면 400 GLOBAL_40001)
                     **Returns** items, nextCursor, hasNext. POPULAR는 공감+댓글 많은 순 50개(size 무시), 다음 페이지 없음(nextCursor null)
+                    items[].author.weekBadge 「임신 27주」·「산후 3개월」(배지 켠 사람의 이름 글만). POPULAR일 때만 items[].bestComment(없으면 null)
                     식단(MEAL)·진료 후기(VISIT)·당당 소식(NEWS)에 POPULAR면 400 POST_40002 (최신순만). 모르는 값은 sort와 상관없이 400 GLOBAL_40001
                     """)
     @GetMapping
@@ -60,8 +61,9 @@ public class PostController {
             summary = "[ 사용자 | 토큰 O | 글 작성 ]",
             description =
                     """
-                    **Parameters** category, title(100자), content(5000자), isAnonymous(선택), poll(선택, 2~5개)
-                    **Returns** 저장된 글. 프로필 없음 COMMUNITY_40401, NEWS는 POST_40301
+                    **Parameters** category, title(100자), content(5000자), isAnonymous(선택), poll(선택, 2~5개),
+                    postedDespite(선택, 최대 5개, 안 보내도 됨. 같은 본문으로 30분 안에 올리기 전 확인에서 걸린 종류는 서버가 운영자 처리함에 넣음, 글은 바로 보임)
+                    **Returns** 저장된 글. 프로필 없음 COMMUNITY_40401, NEWS는 POST_40301, postedDespite 모양이 틀리면 GLOBAL_40001
                     """)
     @PostMapping
     public ResponseEntity<BaseResponse<PostDetailResponse>> create(

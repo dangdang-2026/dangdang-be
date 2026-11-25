@@ -29,6 +29,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 
+import static com.dangdang.support.TestConsents.grantSensitive;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.nullValue;
@@ -38,6 +39,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -133,8 +135,52 @@ class VisitNoteOrganizeFlowTest {
                 .andExpect(jsonPath("$.data.aiExtract.measureSlots.value").value(contains("FASTING", "LUNCH_AFTER")))
                 .andExpect(jsonPath("$.data.aiExtract.measureSlots.status").value("FOUND"))
                 .andExpect(jsonPath("$.data.aiExtract.fastingTarget.status").value("CHECK_NEEDED"))
-                .andExpect(jsonPath("$.data.aiExtract.postMealTarget.status").value("FOUND"))
+                .andExpect(jsonPath("$.data.aiExtract.postMealTarget.value").value(140))
+                .andExpect(jsonPath("$.data.aiExtract.postMealTarget.status").value("CHECK_NEEDED"))   // 근거는 맞지만 식후 시점이 없어서 (짝)
                 .andExpect(jsonPath("$.data.aiExtract.nextVisitDate.status").value("CHECK_NEEDED"));
+    }
+
+    @Test
+    void 식후_시점과_목표는_짝이라_하나만_찾으면_둘_다_확인_필요() throws Exception {
+        given(organizeClient.organize(anyString(), any(), any())).willReturn(new VisitNoteExtract(
+                null, null,
+                new Field<>(140, "공복은 95 미만, 식후는 140 미만으로 보자고 하셨어요.", ExtractStatus.FOUND),   // 목표만
+                null, null, false, "visit-note-v1"));
+
+        organize(access, visitId, noteId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.aiExtract.postMealTarget.value").value(140))
+                .andExpect(jsonPath("$.data.aiExtract.postMealTarget.status").value("CHECK_NEEDED"))
+                .andExpect(jsonPath("$.data.aiExtract.postMealMinutes").value(nullValue()));
+    }
+
+    @Test
+    void 식후_시점과_목표를_둘_다_찾으면_그대로_하나라도_확인_필요면_둘_다_확인_필요() throws Exception {
+        String memo = "식후 1시간에 재고 식후는 120 미만으로 보자고 하셨어요.";
+        long note = createNote(access, visitId, memo);
+        given(organizeClient.organize(anyString(), any(), any())).willReturn(new VisitNoteExtract(
+                null, null,
+                new Field<>(120, "식후는 120 미만으로 보자고 하셨어요.", ExtractStatus.FOUND),
+                new Field<>(60, "식후 1시간에 재고", ExtractStatus.FOUND),
+                null, false, "visit-note-v1"));
+
+        organize(access, visitId, note)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.aiExtract.postMealTarget.status").value("FOUND"))
+                .andExpect(jsonPath("$.data.aiExtract.postMealMinutes.value").value(60))
+                .andExpect(jsonPath("$.data.aiExtract.postMealMinutes.status").value("FOUND"));
+
+        given(organizeClient.organize(anyString(), any(), any())).willReturn(new VisitNoteExtract(
+                null, null,
+                new Field<>(120, "식후는 120 미만으로 보자고 하셨어요.", ExtractStatus.FOUND),
+                new Field<>(60, "식후 1시간에 재고", ExtractStatus.CHECK_NEEDED),   // AI가 확신 못 함
+                null, false, "visit-note-v1"));
+
+        organize(access, visitId, note)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.aiExtract.postMealTarget.value").value(120))
+                .andExpect(jsonPath("$.data.aiExtract.postMealTarget.status").value("CHECK_NEEDED"))
+                .andExpect(jsonPath("$.data.aiExtract.postMealMinutes.status").value("CHECK_NEEDED"));
     }
 
     @Test
@@ -189,6 +235,17 @@ class VisitNoteOrganizeFlowTest {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.errorCode").value("AI_40301"));
         verify(organizeClient, never()).organize(any(), any(), any());
+    }
+
+    @Test
+    void 건강정보_동의가_없으면_403이고_메모를_AI로_보내지_않는다() throws Exception {
+        jdbc.update("DELETE FROM consent_events WHERE user_id = ? AND consent_type = 'SENSITIVE'", userId);
+
+        organize(access, visitId, noteId)
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("USER_40302"));
+        verify(organizeClient, never()).organize(any(), any(), any());
+        assertThat(redis.opsForValue().get(usageKey())).isNull();   // 오늘 횟수도 안 씀
     }
 
     @Test
@@ -351,6 +408,65 @@ class VisitNoteOrganizeFlowTest {
         verify(organizeClient, never()).organize(any(), any(), any());
     }
 
+    // ---------- AI로 보내기 전 이름 가리기 (C-11) ----------
+
+    @Test
+    void AI에는_내_이름과_병원_이름과_전화번호를_가려서_보내고_메모_원문은_그대로() throws Exception {
+        careSite(access, "한빛산부인과");
+        long note = createNote(access, visitId, "테스트님 한빛산부인과 진료. 공복 95 미만. 문의 010-1234-5678");
+        given(organizeClient.organize(anyString(), any(), any())).willReturn(EXTRACT);
+
+        organize(access, visitId, note).andExpect(status().isOk());
+
+        verify(organizeClient).organize(anyString(),
+                eq("[이름]님 [병원] 진료. 공복 95 미만. 문의 [전화번호]"), any());   // signupAndLogin의 이름이 「테스트」
+        assertThat(jdbc.queryForObject("SELECT content FROM visit_notes WHERE id = ?", String.class, note))
+                .isEqualTo("테스트님 한빛산부인과 진료. 공복 95 미만. 문의 010-1234-5678");
+    }
+
+    @Test
+    void 길이는_원문으로_재서_가린_글이_길어져도_3000자_메모는_보낸다() throws Exception {
+        long note = createNote(access, visitId, "테스트 ".repeat(750).strip());   // 2999자, 가리면 [이름]이라 더 길어짐
+        given(organizeClient.organize(anyString(), any(), any())).willReturn(EXTRACT);
+
+        organize(access, visitId, note).andExpect(status().isOk());
+        verify(organizeClient).organize(anyString(), eq(("[이름] ".repeat(750)).strip()), any());
+    }
+
+    @Test
+    void 지운_병원_이름도_가린다() throws Exception {   // 지우기 전에 쓴 메모에 이름이 남아 있을 수 있음
+        long site = careSite(access, "한빛산부인과");
+        mvc.perform(delete("/api/care-sites/" + site).cookie(access)).andExpect(status().isOk());
+        long note = createNote(access, visitId, "한빛산부인과 진료");
+        given(organizeClient.organize(anyString(), any(), any())).willReturn(EXTRACT);
+
+        organize(access, visitId, note).andExpect(status().isOk());
+        verify(organizeClient).organize(anyString(), eq("[병원] 진료"), any());
+    }
+
+    @Test
+    void 가린_글에서_옮긴_근거도_메모에_있는_것으로_본다() throws Exception {
+        careSite(access, "한빛산부인과");
+        long note = createNote(access, visitId, "한빛산부인과에서 공복은 95 미만이래요.");
+        given(organizeClient.organize(anyString(), any(), any())).willReturn(new VisitNoteExtract(
+                null, new Field<>(95, "[병원]에서 공복은 95 미만이래요.", ExtractStatus.FOUND),
+                null, null, null, false, "visit-note-v1"));
+
+        organize(access, visitId, note)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.aiExtract.fastingTarget.status").value("FOUND"));
+    }
+
+    @Test
+    void 남의_병원_이름은_안_가린다() throws Exception {
+        careSite(other, "한빛산부인과");
+        long note = createNote(access, visitId, "한빛산부인과 진료");
+        given(organizeClient.organize(anyString(), any(), any())).willReturn(EXTRACT);
+
+        organize(access, visitId, note).andExpect(status().isOk());
+        verify(organizeClient).organize(anyString(), eq("한빛산부인과 진료"), any());
+    }
+
     // ---------- 도우미 ----------
 
     private String usageKey() {
@@ -363,7 +479,8 @@ class VisitNoteOrganizeFlowTest {
     }
 
     private Cookie signupAndLogin(String email) throws Exception {
-        userRepository.save(User.ofEmail(email, "테스트", passwordEncoder.encode("abcd1234"), Instant.now()));
+        grantSensitive(jdbc,
+                userRepository.save(User.ofEmail(email, "테스트", passwordEncoder.encode("abcd1234"), Instant.now())));
         return mvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"" + email + "\",\"password\":\"abcd1234\"}"))
@@ -382,6 +499,14 @@ class VisitNoteOrganizeFlowTest {
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         return ((Number) JsonPath.read(body, "$.data.visitId")).longValue();
+    }
+
+    private long careSite(Cookie who, String name) throws Exception {
+        String body = mvc.perform(post("/api/care-sites").cookie(who).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"" + name + "\",\"department\":\"OBGYN\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return ((Number) JsonPath.read(body, "$.data.careSiteId")).longValue();
     }
 
     private long createNote(Cookie who, long visit, String content) throws Exception {

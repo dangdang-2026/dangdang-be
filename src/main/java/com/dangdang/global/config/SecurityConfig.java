@@ -3,6 +3,7 @@ package com.dangdang.global.config;
 import com.dangdang.domain.auth.exception.AuthErrorCode;
 import com.dangdang.global.filter.JwtAuthenticationFilter;
 import com.dangdang.global.security.AuthErrorWriter;
+import jakarta.servlet.DispatcherType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -35,6 +36,7 @@ public class SecurityConfig {
                         .authenticationEntryPoint((req, res, ex) -> authErrorWriter.write(res, AuthErrorCode.LOGIN_REQUIRED)) // 401
                         .accessDeniedHandler((req, res, ex) -> authErrorWriter.write(res, AuthErrorCode.ACCESS_DENIED))) // 403
                 .authorizeHttpRequests(auth -> auth
+                        .dispatcherTypeMatchers(DispatcherType.ASYNC).permitAll() // SSE 가 끝날 때의 비동기 디스패치 — 첫 요청에서 이미 인증함
                         .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
                         .requestMatchers("/actuator/health/**", "/error").permitAll()
                         .requestMatchers("/api/auth/**").permitAll() // 가입·로그인·재발급·로그아웃
