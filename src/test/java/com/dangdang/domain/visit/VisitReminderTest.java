@@ -58,7 +58,7 @@ class VisitReminderTest extends ReminderTestBase {
 
         Map<String, Object> row = jdbc.queryForMap("SELECT * FROM notifications");
         assertThat(row.get("type")).isEqualTo("VISIT_BEFORE");
-        assertThat(row.get("title")).isEqualTo("내일 진료가 있어요");
+        assertThat(row.get("title")).isEqualTo("11월 10일(화) 진료가 있어요");   // 알림함은 「내일」 대신 날짜
         assertThat(row.get("body")).isEqualTo("당당산부인과 · 오전 10:00");
         assertThat(row.get("deep_link")).isEqualTo("/visits/" + visitId);
     }
@@ -78,7 +78,7 @@ class VisitReminderTest extends ReminderTestBase {
         notifier.notifyDue();
         assertThat(fakeSender.sent).hasSize(1);
         assertThat(types()).containsExactly("VISIT_TODAY");
-        assertThat(jdbc.queryForObject("SELECT title FROM notifications", String.class)).isEqualTo("오늘 진료가 있어요");
+        assertThat(jdbc.queryForObject("SELECT title FROM notifications", String.class)).isEqualTo("11월 10일(화) 진료가 있어요");
     }
 
     @Test
@@ -160,7 +160,57 @@ class VisitReminderTest extends ReminderTestBase {
                 .containsExactly("당당산부인과 · 오전 10:00", "오전 9:00");
     }
 
+    @Test
+    void 미리보기를_켠_사람도_푸시엔_병원_이름_없이_내일_오늘과_시각만() throws Exception {
+        jdbc.update("INSERT INTO notification_preferences (user_id, hide_preview) VALUES (?, false)", jisuId);
+        createVisit(jisu, "2026-11-10T10:00:00+09:00", careSiteId);
+
+        clock.set(KST_1900_NOV9);
+        notifier.notifyDue();
+
+        assertThat(fakeSender.sent).hasSize(1);
+        assertThat(fakeSender.sent.get(0).body()).isEqualTo("내일 진료가 있어요 · 오전 10:00");
+        assertThat(jdbc.queryForObject("SELECT body FROM notifications", String.class))
+                .isEqualTo("당당산부인과 · 오전 10:00");   // 알림함에는 병원 이름까지
+    }
+
+    @Test
+    void 병원을_지우면_그_병원의_내일_일정엔_전날_알림이_안_간다() throws Exception {
+        createVisit(jisu, "2026-11-10T10:00:00+09:00", careSiteId);
+        mvc.perform(delete("/api/care-sites/" + careSiteId).cookie(jisu)).andExpect(status().isOk());
+
+        clock.set(KST_1900_NOV9);
+        notifier.notifyDue();
+
+        assertThat(fakeSender.sent).isEmpty();
+        assertThat(inboxCount()).isZero();
+    }
+
+    @Test
+    void 당일_알림을_보낸_뒤_내일로_옮기면_전날_당일을_다시_보내고_지난_날로_옮기면_안_보낸다() throws Exception {
+        long visitId = createVisit(jisu, "2026-11-09T15:00:00+09:00", null);
+        notifier.notifyDue();   // 11/9 13:00 → 당일 알림
+        assertThat(types()).containsExactly("VISIT_TODAY");
+
+        patchVisitAt(visitId, "2026-11-10T10:00:00+09:00");   // 내일로 옮김 → 보낸 기록 비움
+        clock.set(KST_1900_NOV9);
+        notifier.notifyDue();
+        clock.set(KST_0700_NOV10);
+        notifier.notifyDue();
+        assertThat(types()).containsExactly("VISIT_TODAY", "VISIT_BEFORE", "VISIT_TODAY");
+
+        patchVisitAt(visitId, "2026-11-09T15:00:00+09:00");   // 이미 지난 날로 옮김 → 비워도 지난 일정이라 안 보냄
+        notifier.notifyDue();
+        assertThat(types()).hasSize(3);
+    }
+
     // ---------- 도우미 ----------
+
+    private void patchVisitAt(long visitId, String visitAt) throws Exception {
+        mvc.perform(patch("/api/visits/" + visitId).cookie(jisu).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"visitAt\":\"" + visitAt + "\"}"))
+                .andExpect(status().isOk());
+    }
 
     private List<String> types() {
         return jdbc.queryForList("SELECT type FROM notifications ORDER BY id", String.class);

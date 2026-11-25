@@ -26,6 +26,7 @@ import java.util.Locale;
 public class VisitReminderRecorder {
 
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("a h:mm", Locale.KOREAN);   // 「오전 10:00」
+    private static final DateTimeFormatter MONTH_DAY = DateTimeFormatter.ofPattern("M월 d일(E)", Locale.KOREAN);   // 「11월 10일(화)」
 
     private final VisitRepository visitRepository;
     private final UserRepository userRepository;
@@ -57,17 +58,22 @@ public class VisitReminderRecorder {
             return null;
         }
         NotificationType type = dayBefore ? NotificationType.VISIT_BEFORE : NotificationType.VISIT_TODAY;
-        String title = (dayBefore ? "내일" : "오늘") + " 진료가 있어요";
-        String body = body(visit, userId);
+        String at = visit.getVisitAt().atZone(ClockConfig.KST).format(TIME);
         String deepLink = "/visits/" + visitId;
-        notificationService.record(Notification.visit(visit.getUser(), type, title, body, deepLink, now));
-        // 병원 이름·시각은 내용(body)에만 → 미리보기 숨김이면 PushSendService가 가림
-        return new PushMessage("당당", title + " · " + body, deepLink, null);
+        // 알림함은 보관되니까 「내일·오늘」 대신 진료 날짜 (H-15 「보관된 알림은 절대 날짜」, 산후 검사 알림과 같음)
+        notificationService.record(Notification.visit(visit.getUser(), type, inboxTitle(visit), body(visit, userId, at),
+                deepLink, now));
+        // 푸시는 받는 순간 보니까 「내일·오늘」. 잠금화면에 병원 이름이 뜨지 않게 시각까지만 (산후 검사 알림과 같은 기준)
+        return new PushMessage("당당", (dayBefore ? "내일" : "오늘") + " 진료가 있어요 · " + at, deepLink, null);
     }
 
-    // 「당당산부인과 · 오전 10:00」 (병원이 없거나 지운 병원이면 시각만)
-    private String body(Visit visit, Long userId) {
-        String at = visit.getVisitAt().atZone(ClockConfig.KST).format(TIME);
+    // 「11월 10일(화) 진료가 있어요」
+    static String inboxTitle(Visit visit) {
+        return visit.getVisitAt().atZone(ClockConfig.KST).format(MONTH_DAY) + " 진료가 있어요";
+    }
+
+    // 알림함 내용 「당당산부인과 · 오전 10:00」 (병원이 없거나 지운 병원이면 시각만)
+    private String body(Visit visit, Long userId, String at) {
         if (visit.getCareSiteId() == null) {
             return at;
         }
