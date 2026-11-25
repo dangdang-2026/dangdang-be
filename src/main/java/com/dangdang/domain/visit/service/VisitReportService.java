@@ -307,7 +307,7 @@ public class VisitReportService {
                 slotCounts(rows, missed),
                 rows,
                 missed.stream()
-                        .map(m -> new VisitReportResponse.MissedCell(KoreanTime.dateOf(m.getScheduledAt()), m.getSlot()))
+                        .map(m -> new VisitReportResponse.MissedCell(KoreanTime.dateOf(m.cellAt()), m.getSlot()))
                         .toList(),
                 visit == null ? null : visitQuestionRepository.countByVisitIdAndDeletedAtIsNull(visit.getId()));
     }
@@ -329,13 +329,12 @@ public class VisitReportService {
     }
 
     // 빈칸 = 기간 안 놓친 측정 알림 (혈당 통계 「놓친 측정」과 같은 기준, 모든 잴 때, 지운 식사의 알림은 뺌)
+    // 식사 알림은 식사한 날로 기간·날짜를 정함 (자정 넘은 식후 알림도 식사한 날 칸, 기간 마지막 날 밤 식사의 알림도 들어감)
     // 알림 시각에서 MISSED_GRACE가 안 지난 알림은 아직 잴 시간이 있어서 안 셈
     private List<MissedReminder> missedReminders(Long userId, LocalDate from, LocalDate to) {
-        Instant rangeEnd = KoreanTime.endOfDay(to);
         Instant graceEnd = clock.instant().minus(ReadingStatsService.MISSED_GRACE);
-        Instant end = rangeEnd.isBefore(graceEnd) ? rangeEnd : graceEnd;
         return reminderRepository.findMissed(userId, ReadingStatsService.MISSED_STATUSES,
-                KoreanTime.startOfDay(from), end);
+                KoreanTime.startOfDay(from), KoreanTime.endOfDay(to), graceEnd);
     }
 
     // 잴 때별 목표 밖 / 측정 / 빈칸. 하루 순서(공복 → 아침·점심·저녁 식후 → 자기 전), 잴 때를 안 고른 기록은 맨 뒤

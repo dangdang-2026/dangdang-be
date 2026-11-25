@@ -448,6 +448,24 @@ class VisitReportFlowTest {
     }
 
     @Test
+    void 자정을_넘긴_식후_알림의_빈칸은_식사한_날로_센다() throws Exception {
+        createVisit(access, "2026-10-01T09:00:00+09:00");   // 기간 10/1~10/13
+        long jisu = userId("jisu@x.com");
+        long lastNight = meal(jisu, "2026-10-13T23:30:00+09:00");     // 기간 마지막 날 밤 식사, 알림은 다음 날 0:30
+        jdbc.update("INSERT INTO reminders (user_id, meal_id, slot, scheduled_at, status) VALUES (?, ?, 'DINNER_AFTER', ?, 'SENT')",
+                jisu, lastNight, at("2026-10-14T00:30:00+09:00"));
+        long beforePeriod = meal(jisu, "2026-09-30T23:30:00+09:00");   // 기간 전날 밤 식사 → 알림이 10/1이어도 안 셈
+        jdbc.update("INSERT INTO reminders (user_id, meal_id, slot, scheduled_at, status) VALUES (?, ?, 'DINNER_AFTER', ?, 'SENT')",
+                jisu, beforePeriod, at("2026-10-01T00:30:00+09:00"));
+
+        report(access, visitId)
+                .andExpect(jsonPath("$.data.summary.missed").value(1))
+                .andExpect(jsonPath("$.data.missedCells", hasSize(1)))
+                .andExpect(jsonPath("$.data.missedCells[0].date").value("2026-10-13"))
+                .andExpect(jsonPath("$.data.missedCells[0].slot").value("DINNER_AFTER"));
+    }
+
+    @Test
     void 식후_혈당을_재야_할_시각보다_늦게_재면_리포트에_LATE() throws Exception {
         criteria(access, "{\"postMealMinutes\":60,\"measureSlots\":[\"LUNCH_AFTER\"],\"effectiveFrom\":\"2026-10-01\"}");
         long jisu = userId("jisu@x.com");
