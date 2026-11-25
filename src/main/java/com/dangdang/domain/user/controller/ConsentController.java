@@ -30,6 +30,7 @@ public class ConsentController {
                     **Parameters** items: [{type, granted}] — 바꿀 항목만 보내도 된다 (A-01은 5개, 사진 AI 동의는 AI_PHOTO 하나, U-04 「확인했어요」는 COMMUNITY_AI_CHECK 하나)
                     **Returns** completed(필수 4개를 지금 문서 버전으로 동의했는지), 항목별 최신 상태. 필수 항목을 false로 보내면 USER_40001
                     건강정보(SENSITIVE) 철회는 POST /api/me/consents/sensitive/withdraw
+                    광고성 정보(MARKETING) 동의가 실제로 바뀌면(안 받음↔받음) 알림함에 type=MARKETING 한 줄이 생기고 앱 안 배너도 간다 (처음 「안 받음」 저장은 안 남김)
                     """)
     @PostMapping
     public ResponseEntity<BaseResponse<ConsentResponse>> save(

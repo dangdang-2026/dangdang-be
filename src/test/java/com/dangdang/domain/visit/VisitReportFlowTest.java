@@ -522,6 +522,21 @@ class VisitReportFlowTest {
     }
 
     @Test
+    void 다른_상황이면_리포트에도_주수를_넣지_않는다() throws Exception {
+        createVisit(access, "2026-10-01T09:00:00+09:00");   // 기간 10/1~10/13
+        long jisu = userId("jisu@x.com");
+        // 옛 임신도 기간과 겹치지만, 가장 최근 임신이 다른 상황이면 옛 임신 주수로 넘어가지 않고 비운다
+        jdbc.update("INSERT INTO pregnancies (user_id, due_date, delivery_date, state, created_at, updated_at)"
+                + " VALUES (?, '2026-10-20', '2026-10-12', 'ENDED', now(), now())", jisu);
+        jdbc.update("INSERT INTO pregnancies (user_id, due_date, state, created_at, updated_at)"
+                + " VALUES (?, '2026-12-20', 'PAUSED', now(), now())", jisu);
+
+        report(access, visitId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.pregnancyWeeks").value(nullValue()));
+    }
+
+    @Test
     void 기간이_출산을_넘으면_출산_뒤_날짜의_주수는_비운다() throws Exception {
         jdbc.update("INSERT INTO pregnancies (user_id, due_date, delivery_date, state, created_at, updated_at)"
                 + " VALUES (?, '2026-10-20', '2026-10-05', 'POSTPARTUM', now(), now())", userId("jisu@x.com"));

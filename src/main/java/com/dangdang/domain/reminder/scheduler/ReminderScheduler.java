@@ -30,6 +30,6 @@ public class ReminderScheduler {
         dailyReminderPlanner.planDue();          //공복과 자기 전 알림을 먼저 만들어야 같은 바퀴에 바로 보낸다
         reminderDispatchService.dispatchDue();
         reminderDispatchService.renotifyDue();
-        postpartumTestNotifier.notifyDue();      // 산후 검사 전날,당일 알림 (오전 9시부터)
+        postpartumTestNotifier.notifyDue();      // 산후 검사 전날 저녁(한국 7~10시)·당일 아침(7시부터) 알림
     }
 }

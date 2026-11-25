@@ -18,6 +18,8 @@ class SensitiveConsentWithdrawalSqlTest {
         assertThat(sql).startsWith("DELETE FROM notifications WHERE user_id = ? AND type IN (");
         Arrays.stream(NotificationType.values()).filter(NotificationType::isHealth)
                 .forEach(type -> assertThat(sql).contains("'" + type.name() + "'"));
+        Arrays.stream(NotificationType.values()).filter(type -> !type.isHealth())   // 광고 동의 결과(MARKETING)는 남긴다
+                .forEach(type -> assertThat(sql).doesNotContain("'" + type.name() + "'"));
     }
 
     @Test

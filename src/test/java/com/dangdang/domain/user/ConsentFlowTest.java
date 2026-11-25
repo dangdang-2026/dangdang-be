@@ -17,6 +17,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -125,5 +126,41 @@ class ConsentFlowTest {
     void 토큰_없이_동의하면_401() throws Exception {
         mvc.perform(post("/api/me/consents").contentType(MediaType.APPLICATION_JSON).content(A01))
                 .andExpect(status().isUnauthorized());
+    }
+
+    // ── 광고성 정보 동의·거부 결과 알림함 (N-09b) ──
+
+    private void consents(String json) throws Exception {
+        mvc.perform(post("/api/me/consents").cookie(access).contentType(MediaType.APPLICATION_JSON).content(json))
+                .andExpect(status().isOk());
+    }
+
+    private int marketingInbox() {
+        return jdbc.queryForObject("SELECT count(*) FROM notifications WHERE type = 'MARKETING'", Integer.class);
+    }
+
+    @Test
+    void 처음에_광고를_안_받는다고_하면_알림함에_안_남는다() throws Exception {
+        consents(A01);                                     // MARKETING false
+        assertThat(marketingInbox()).isZero();
+    }
+
+    @Test
+    void 광고_동의와_거부가_바뀔_때마다_알림함에_한_줄() throws Exception {
+        consents(A01);
+        consents("{\"items\":[{\"type\":\"MARKETING\",\"granted\":true}]}");
+        consents("{\"items\":[{\"type\":\"MARKETING\",\"granted\":true}]}");   // 그대로 → 안 남김
+        consents("{\"items\":[{\"type\":\"AI_PHOTO\",\"granted\":true}]}");    // 광고와 상관없는 항목 → 안 남김
+        consents("{\"items\":[{\"type\":\"MARKETING\",\"granted\":false}]}");
+        assertThat(jdbc.queryForList("SELECT title FROM notifications WHERE type = 'MARKETING' ORDER BY id", String.class))
+                .containsExactly("광고성 정보 수신에 동의했어요", "광고성 정보 수신을 거부했어요");
+        assertThat(jdbc.queryForList("SELECT body FROM notifications WHERE type = 'MARKETING'", String.class))
+                .allMatch(body -> body.matches("\\d{4}년 \\d{1,2}월 \\d{1,2}일 · 보낸 곳 당당"));
+        assertThat(jdbc.queryForList("SELECT deep_link FROM notifications WHERE type = 'MARKETING'", String.class))
+                .containsOnly("/my/notifications");   // 광고성 정보 받기 토글이 있는 알림 설정 화면
+
+        mvc.perform(get("/api/notifications").cookie(access))
+                .andExpect(jsonPath("$.data.items[0].type").value("MARKETING"))
+                .andExpect(jsonPath("$.data.items[0].title").value("광고성 정보 수신을 거부했어요"));
     }
 }
