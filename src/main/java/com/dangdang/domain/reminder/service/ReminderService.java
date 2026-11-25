@@ -29,6 +29,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -181,6 +182,16 @@ public class ReminderService {
     @Transactional
     public void releaseForDeletedReading(Long readingId) {
         reminderRepository.findByReadingId(readingId).ifPresent(r -> detach(r, readingId));
+    }
+
+    // 기간 지우기로 혈당을 여러 개 지웠을 때: releaseForDeletedReading의 여러 개 버전
+    // 지운 식사의 알림이면 취소, 아니면 남은 식후 혈당으로 다시 붙이거나 혈당이 없었다면의 상태로 (detach 규칙 그대로)
+    @Transactional
+    public void releaseForDeletedReadings(Collection<Long> readingIds) {
+        if (readingIds.isEmpty()) {
+            return;             // 빈 IN 목록은 SQL 오류라 건너뜀
+        }
+        reminderRepository.findByReadingIdIn(readingIds).forEach(r -> detach(r, r.getReadingId()));
     }
 
     // 알림에서 이 혈당을 뗌

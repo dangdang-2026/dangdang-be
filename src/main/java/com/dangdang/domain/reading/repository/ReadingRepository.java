@@ -131,15 +131,33 @@ public interface ReadingRepository extends JpaRepository<Reading, Long> {
             """)
     int restore(Long id, Long userId, Instant since);
 
-    // 기간 지우기 (M-07): 기간 안 살아 있는 내 혈당을 한 번에 지운 것으로. 지운 줄 수
-    // row_version도 올린다 — 그사이 같은 기록을 고치던 요청이 옛 버전으로 deleted_at을 되살리지 않고 409(READING_40903)가 되게
-    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    // 기간 지우기 (M-07): 기간 안 살아 있는 내 혈당 id
     @Query("""
-            update Reading r set r.deletedAt = :now, r.rowVersion = r.rowVersion + 1
+            select r.id from Reading r
             where r.user.id = :userId
               and r.deletedAt is null
               and r.measuredAt >= :from
               and r.measuredAt < :to
             """)
-    int softDeleteInRange(Long userId, Instant from, Instant to, Instant now);
+    List<Long> findIdsInRange(Long userId, Instant from, Instant to);
+
+    // 기간 지우기 (M-07): 이 식사들에 붙은 살아 있는 내 혈당 id (식사와 같이 지워서 식사-식후 혈당 짝이 갈라지지 않게)
+    @Query("""
+            select r.id from Reading r
+            where r.user.id = :userId
+              and r.deletedAt is null
+              and r.mealId in :mealIds
+            """)
+    List<Long> findIdsByMealIds(Long userId, Collection<Long> mealIds);
+
+    // 이 혈당들을 한 번에 지운 것으로. 그사이 하나씩 지운 건 deleted_at 조건으로 빠짐 → 지운 줄 수가 정확
+    // row_version도 올린다 — 그사이 같은 기록을 고치던 요청이 옛 버전으로 deleted_at을 되살리지 않고 409(READING_40903)가 되게
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update Reading r set r.deletedAt = :now, r.rowVersion = r.rowVersion + 1
+            where r.id in :ids
+              and r.user.id = :userId
+              and r.deletedAt is null
+            """)
+    int softDeleteAll(Collection<Long> ids, Long userId, Instant now);
 }
