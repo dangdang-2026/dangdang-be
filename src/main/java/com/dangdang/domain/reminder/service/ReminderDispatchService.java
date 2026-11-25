@@ -62,6 +62,11 @@ public class ReminderDispatchService {
                 if (!recorder.claimRenotify(reminder.getId(), now, now.plus(CLAIM_FOR))) {
                     continue;
                 }
+                // 첫 알림 뒤 입원·다른 상황·출산·졸업으로 바뀌었으면 재알림도 안 보내고 닫는다 (첫 알림과 같은 규칙)
+                if (!measurementPause.allowsMeasurement(reminder.getUser().getId())) {
+                    recorder.recordRenotified(reminder.getId(), now, false);
+                    continue;
+                }
                 PushDeliveryResponse result = pushSendService.sendToUser(
                         reminder.getUser().getId(), ReminderMessages.renotify(reminder));
                 recorder.recordRenotified(reminder.getId(), now, result.sentCount() > 0);

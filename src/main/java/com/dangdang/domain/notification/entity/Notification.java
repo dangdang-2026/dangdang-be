@@ -80,6 +80,18 @@ public class Notification {
         return n;
     }
 
+    // 광고성 정보 수신 동의·거부 결과 (N-09b, 정보통신망법 제50조 제8항: 전송자·날짜·처리 결과)
+    public static Notification marketing(User user, String title, String body, String deepLink, Instant sentAt) {
+        Notification n = new Notification();
+        n.user = user;
+        n.type = NotificationType.MARKETING;
+        n.title = title;
+        n.body = body;
+        n.deepLink = deepLink;
+        n.sentAt = sentAt;
+        return n;
+    }
+
     // 처음 읽은 시각만 남긴다
     public void markRead(Instant now) {
         if (this.readAt == null) {

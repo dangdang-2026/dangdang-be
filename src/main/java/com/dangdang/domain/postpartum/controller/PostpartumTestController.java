@@ -28,9 +28,12 @@ public class PostpartumTestController {
 
     @Operation(summary = "[ 사용자 | 토큰 O | 산후 검사 일정 등록 ]",
             description = """
-                    **Parameters** name(40자), testDate, remindDayBefore·remindSameDay(안 보내면 true)
-                    **Returns** 저장한 일정. 산후(출산일 저장)가 아니면 409 POSTPARTUM_40901
-                    알림은 한국 오전 9시부터 — 전날 「내일 ○○ 검사가 있어요」, 당일 「오늘 ○○ 검사가 있어요」 (진료·검사 알림을 끄면 안 감)
+                    **Parameters** name(40자), testDate, placeName(검사 장소 50자, 없어도 됨), remindDayBefore·remindSameDay(안 보내면 true)
+                    **Returns** 저장한 일정(placeName 포함). 산후(출산일 저장)가 아니면 409 POSTPARTUM_40901
+                    알림(한국 시간) — 전날 저녁 7~10시 「내일 ○○ 검사가 있어요. 병원에서 들은 준비 사항(금식 등)도 확인해 주세요」(10시 지나 등록하면 전날 알림은 건너뜀),
+                    당일 아침 7시~밤 10시 「오늘 ○○ 검사가 있어요」(지난 날짜로 적은 검사는 알림 없음). 이름이 「검사」로 끝나면 「검사」를 또 붙이지 않는다. 장소는 알림에 안 넣는다.
+                    알림함에는 「오늘·내일」 대신 날짜로 남는다 (「11월 10일(화) ○○ 검사가 있어요」).
+                    진료·검사 알림을 끄면 안 가고, 산후가 아닌 동안(출산 되돌리기 등)에도 안 간다
                     """)
     @PostMapping
     public ResponseEntity<BaseResponse<PostpartumTestResponse>> create(
@@ -48,7 +51,7 @@ public class PostpartumTestController {
     }
 
     @Operation(summary = "[ 사용자 | 토큰 O | 산후 검사 일정 수정 ]",
-            description = "**Parameters** 바꿀 칸만. 날짜를 바꾸면 알림을 다시 보낸다. 남의 것·없는 번호 404 POSTPARTUM_40401")
+            description = "**Parameters** 바꿀 칸만 (안 보낸 칸은 그대로, placeName은 빈 글이면 지움). 날짜를 바꾸면 알림을 다시 보낸다. 남의 것·없는 번호 404 POSTPARTUM_40401")
     @PatchMapping("/{testId}")
     public ResponseEntity<BaseResponse<PostpartumTestResponse>> update(
             @AuthenticationPrincipal AuthPrincipal principal, @PathVariable Long testId,

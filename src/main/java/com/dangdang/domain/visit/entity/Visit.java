@@ -15,11 +15,12 @@ import java.time.temporal.ChronoUnit;
 import java.util.Objects;
 
 // visits 테이블 한 줄 = 진료 일정 하나
-// @DynamicUpdate: 바뀐 칸만 UPDATE함 → 일정을 고치는 동안 스케줄러가 적은 알림 보낸 시각을 옛 값(null)으로 덮지 않게
 @Getter
 @Entity
-@DynamicUpdate
 @Table(name = "visits")
+// 바뀐 칸만 UPDATE → 일정 수정이 읽어 둔 옛 deleted_at(null)으로 병원 지우기를 덮어쓰지 않고,
+// 스케줄러가 적은 진료 알림 보낸 시각도 옛 값(null)으로 덮지 않는다
+@DynamicUpdate
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Visit extends BaseTimeEntity {
 
@@ -55,16 +56,14 @@ public class Visit extends BaseTimeEntity {
         this.careSiteId = careSiteId;
     }
 
-    // 진료 날짜 바꾸기 (null이면 날짜 미정으로)
-    // 한국 날짜가 바뀌면 보낸 알림 기록을 비워서 새 날짜 기준으로 전날·당일 알림을 다시 보냄
+    // 진료 날짜 바꾸기 (null이면 날짜 미정으로). 한국 날짜가 바뀌었으면 true
+    // 날짜가 바뀌면 부르는 쪽(VisitService.update)이 보낸 알림 기록을 비워서 새 날짜 기준으로 전날·당일 알림을 다시 보냄
     // 같은 날 안에서 시각만 바꾸면 그대로 둠 (「내일 진료가 있어요」를 또 보내지 않게)
-    public void changeVisitAt(Instant visitAt) {
+    public boolean changeVisitAt(Instant visitAt) {
         visitAt = visitAt == null ? null : visitAt.truncatedTo(ChronoUnit.MICROS);   // DB와 같은 정밀도
-        if (!Objects.equals(dateOf(this.visitAt), dateOf(visitAt))) {
-            this.dayBeforeSentAt = null;
-            this.sameDaySentAt = null;
-        }
+        boolean dateChanged = !Objects.equals(dateOf(this.visitAt), dateOf(visitAt));
         this.visitAt = visitAt;
+        return dateChanged;
     }
 
     // 진료의 한국 날짜 (날짜 미정이면 null)

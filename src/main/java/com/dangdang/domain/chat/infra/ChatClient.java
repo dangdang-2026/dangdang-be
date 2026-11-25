@@ -12,8 +12,9 @@ public interface ChatClient {
     record Turn(String role, String text) {}          // role: user · assistant
 
     // kind: RECORDS · QUESTION_DRAFT · INFO · UNKNOWN
+    // reason: UNKNOWN일 때 이유 (ChatUnknownReason 이름, 예전 AI면 null)
     record Reply(String kind, String text, Records records, String questionDraft, List<Source> sources,
-                 String promptVersion) {}
+                 String reason, String promptVersion) {}
 
     record Records(LocalDate from, LocalDate to, String slot) {}   // slot: null이면 전체
 

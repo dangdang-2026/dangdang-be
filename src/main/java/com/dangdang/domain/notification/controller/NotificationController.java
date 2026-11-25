@@ -49,6 +49,7 @@ public class NotificationController {
                     """
                     **Parameters** page(기본 0), size(기본 20, 1~100)
                     **Returns** items, page, size, hasNext. 최신이 위로
+                    type: MEASURE · VISIT_BEFORE · VISIT_TODAY · VISIT_NOTE · POSTPARTUM(산후 검사, 제목은 「11월 10일(화) ○○ 검사가 있어요」처럼 날짜) · MARKETING(광고성 정보 동의·거부 결과, body 「2026년 11월 24일 · 보낸 곳 당당」)
                     """)
     @GetMapping
     public ResponseEntity<BaseResponse<NotificationPageResponse>> list(

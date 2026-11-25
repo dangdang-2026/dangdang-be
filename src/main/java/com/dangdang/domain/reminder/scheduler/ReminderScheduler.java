@@ -34,7 +34,7 @@ public class ReminderScheduler {
         runSafely("측정 알림 계획", dailyReminderPlanner::planDue);   //공복과 자기 전 알림을 먼저 만들어야 같은 바퀴에 바로 보낸다
         runSafely("측정 알림 보내기", reminderDispatchService::dispatchDue);
         runSafely("측정 다시 알림", reminderDispatchService::renotifyDue);
-        runSafely("산후 검사 알림", postpartumTestNotifier::notifyDue);   // 산후 검사 전날,당일 알림 (오전 9시부터)
+        runSafely("산후 검사 알림", postpartumTestNotifier::notifyDue);   // 산후 검사 전날 저녁(한국 7~10시)·당일 아침(7시부터) 알림
         runSafely("진료 알림", visitReminderNotifier::notifyDue);         // 진료 전날(저녁 7~10시),당일(아침 7시~밤 10시) 알림
     }
 

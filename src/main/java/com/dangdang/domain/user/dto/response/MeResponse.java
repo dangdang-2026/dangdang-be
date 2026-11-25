@@ -1,11 +1,13 @@
 package com.dangdang.domain.user.dto.response;
 
 import com.dangdang.domain.pregnancy.entity.Pregnancy;
+import com.dangdang.domain.pregnancy.enums.CareMode;
 import com.dangdang.domain.pregnancy.enums.PregnancyState;
 import com.dangdang.domain.user.entity.User;
 import com.dangdang.domain.user.enums.AuthProvider;
 import io.swagger.v3.oas.annotations.media.Schema;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 
@@ -16,11 +18,18 @@ public record MeResponse(
         @Schema(description = "가입 방식", example = "EMAIL") AuthProvider authProvider,
         @Schema(description = "필수 동의를 지금 문서 버전으로 마쳤는지 (false면 A-01로 — 건강정보 철회·문서 버전 올림 포함)", example = "true") boolean consentCompleted,
         @Schema(description = "이름 바꿀 때 그대로 보낼 수정 버전 (BIGINT 문자열)", example = "0") String version,
-        @Schema(description = "출산 예정일 (안 적었으면 null)", example = "2026-12-20") LocalDate dueDate,
-        @Schema(description = "임신 상태 PREGNANT·HOSPITALIZED·POSTPARTUM (임신 정보가 없으면 null)", example = "PREGNANT")
+        @Schema(description = "출산 예정일 (안 적었거나 다른 상황(PAUSED)이면 null)", example = "2026-12-20") LocalDate dueDate,
+        @Schema(description = "임신 상태 PREGNANT·HOSPITALIZED·PAUSED(다른 상황 · 주수 숨김)·POSTPARTUM (임신 정보가 없으면 null)", example = "PREGNANT")
         PregnancyState pregnancyState,
-        @Schema(description = "오늘 임신 주수 (예정일이 없으면 null)") PregnancyWeek pregnancyWeek,
-        @Schema(description = "로그인 방식 (M-02 「로그인 방식」)") LoginMethods loginMethods) {
+        @Schema(description = "오늘 임신 주수 (예정일이 없거나 다른 상황(PAUSED)이면 null)") PregnancyWeek pregnancyWeek,
+        @Schema(description = "로그인 방식 (M-02 「로그인 방식」)") LoginMethods loginMethods,
+        @Schema(description = "임신성 당뇨 진단일 (안 적었으면 null)", example = "2026-09-24") LocalDate diagnosisDate,
+        @Schema(description = "관리 모드 DIET·INSULIN·ORAL (임신 정보가 없으면 DIET)", example = "DIET") CareMode careMode,
+        @Schema(description = "연락 기준 메모 (없으면 null)", example = "같은 시점에 계속 높게 나오면 외래로 전화하기")
+        String contactMemo,
+        @Schema(description = "연락 기준 메모를 마지막으로 적은 시각 (메모가 없으면 null). G-05 「10월 1일에 적은 메모」",
+                example = "2026-10-01T03:12:00Z")
+        Instant contactMemoUpdatedAt) {
 
     // 이메일: 비밀번호가 있으면(이메일로 가입) · 카카오: 카카오로 가입했거나 연결했으면
     public record LoginMethods(
@@ -46,13 +55,20 @@ public record MeResponse(
     }
 
     public static MeResponse from(User user, boolean consentCompleted, Pregnancy pregnancy, LocalDate today) {
-        LocalDate dueDate = pregnancy == null ? null : pregnancy.getDueDate();
+        // 다른 상황(PAUSED)이면 주수도 예정일도 주지 않는다 — 예정일만 내려가도 앱이 주수를 다시 셀 수 있어서 (E-03b 「임신 주수 숨김」)
+        // 저장된 예정일은 그대로라 「다시 켜기」로 임신 중이 되면 다시 내려간다
+        boolean paused = pregnancy != null && pregnancy.getState() == PregnancyState.PAUSED;
+        LocalDate dueDate = pregnancy == null || paused ? null : pregnancy.getDueDate();
         return new MeResponse(
                 user.getId(), user.getEmail(), user.getDisplayName(), user.getAuthProvider(), consentCompleted,
                 String.valueOf(user.getRowVersion()),
                 dueDate,
                 pregnancy == null ? null : pregnancy.getState(),
-                PregnancyWeek.of(dueDate, today),
-                new LoginMethods(user.hasPassword(), user.hasKakao()));
+                paused ? null : PregnancyWeek.of(dueDate, today),
+                new LoginMethods(user.hasPassword(), user.hasKakao()),
+                pregnancy == null ? null : pregnancy.getDiagnosisDate(),
+                pregnancy == null ? CareMode.DIET : pregnancy.getCareMode(),   // 홈 인슐린 버튼이 null을 따로 다루지 않게
+                pregnancy == null ? null : pregnancy.getContactMemo(),
+                pregnancy == null ? null : pregnancy.getContactMemoUpdatedAt());
     }
 }

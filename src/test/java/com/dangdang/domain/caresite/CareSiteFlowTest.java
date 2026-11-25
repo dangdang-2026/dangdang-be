@@ -17,7 +17,11 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -31,6 +35,7 @@ import java.util.concurrent.TimeUnit;
 import static com.dangdang.support.TestConsents.grantSensitive;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -315,5 +320,92 @@ class CareSiteFlowTest {
 
         mvc.perform(delete("/api/care-sites/" + id).cookie(access))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void 병원을_지우면_그_병원의_다가오는_일정과_미정_일정만_질문_메모와_같이_지워진다() throws Exception {
+        long site = create(access, site("○○대학교병원", "ENDO"));
+        long otherSite = create(access, site("○○산부인과", "OBGYN"));
+        Long userId = jdbc.queryForObject("SELECT id FROM users WHERE email = 'jisu@x.com'", Long.class);
+        Instant now = Instant.now();
+        long past = visitAt(userId, site, now.minus(7, ChronoUnit.DAYS));
+        long upcoming = visitAt(userId, site, now.plus(7, ChronoUnit.DAYS));
+        long undecided = visitAt(userId, site, null);
+        long atOtherSite = visitAt(userId, otherSite, now.plus(7, ChronoUnit.DAYS));
+        jdbc.update("INSERT INTO visit_questions (visit_id, content, source) VALUES (?, '약 바꿔도 되나요', 'USER')", upcoming);
+        jdbc.update("INSERT INTO visit_notes (visit_id, content) VALUES (?, '다음엔 공복 기록 가져오기')", upcoming);
+        jdbc.update("INSERT INTO visit_notes (visit_id, content) VALUES (?, '인슐린 시작')", past);
+
+        mvc.perform(delete("/api/care-sites/" + site).cookie(access)).andExpect(status().isOk());
+
+        assertThat(deleted("visits", past)).isFalse();          // 지난 일정은 메모·리포트 때문에 남김
+        assertThat(deleted("visits", upcoming)).isTrue();
+        assertThat(deleted("visits", undecided)).isTrue();
+        assertThat(deleted("visits", atOtherSite)).isFalse();   // 다른 병원 일정은 그대로
+        assertThat(aliveCount("visit_questions", upcoming)).isZero();   // 지운 일정의 질문·메모도 같이
+        assertThat(aliveCount("visit_notes", upcoming)).isZero();
+        assertThat(aliveCount("visit_notes", past)).isEqualTo(1);
+
+        mvc.perform(get("/api/visits").cookie(access))
+                .andExpect(jsonPath("$.data.items[*].visitId").value(containsInAnyOrder((int) past, (int) atOtherSite)));
+    }
+
+    // 테스트 데이터 넣기 (진짜 시계를 쓰는 테스트라 지금 ± 7일로 넉넉하게)
+    private long visitAt(Long userId, long careSiteId, Instant at) {
+        return jdbc.queryForObject("INSERT INTO visits (user_id, care_site_id, visit_at) VALUES (?, ?, ?) RETURNING id",
+                Long.class, userId, careSiteId, at == null ? null : Timestamp.from(at));
+    }
+
+    private boolean deleted(String table, long id) {
+        return jdbc.queryForObject("SELECT deleted_at IS NOT NULL FROM " + table + " WHERE id = ?", Boolean.class, id);
+    }
+
+    private int aliveCount(String table, long visitId) {
+        return jdbc.queryForObject("SELECT count(*) FROM " + table + " WHERE visit_id = ? AND deleted_at IS NULL",
+                Integer.class, visitId);
+    }
+
+    @Test
+    void 병원을_지우는_중에_그_병원으로_일정을_만들면_지우기가_끝난_뒤_404() throws Exception {
+        long site = create(access, site("○○대학교병원", "ENDO"));
+        Long userId = jdbc.queryForObject("SELECT id FROM users WHERE email = 'jisu@x.com'", Long.class);
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try (Connection deleting = jdbc.getDataSource().getConnection()) {
+            // 병원 지우기가 하는 것처럼 병원 줄을 FOR UPDATE로 잡고 지움 표시까지 한 채로 멈춰 둔다
+            deleting.setAutoCommit(false);
+            try (PreparedStatement lock = deleting.prepareStatement("SELECT id FROM care_sites WHERE id = ? FOR UPDATE");
+                 PreparedStatement mark = deleting.prepareStatement("UPDATE care_sites SET deleted_at = now() WHERE id = ?")) {
+                lock.setLong(1, site);
+                lock.executeQuery();
+                mark.setLong(1, site);
+                mark.executeUpdate();
+            }
+
+            Future<Integer> creating = pool.submit(() -> mvc.perform(post("/api/visits").cookie(access)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"careSiteId\":" + site + ",\"visitAt\":\"2099-01-01T10:00:00+09:00\"}"))
+                    .andReturn().getResponse().getStatus());
+            waitUntilSomeoneWaitsForLock();   // 일정 만들기가 병원 줄(FOR SHARE)에서 기다리는 중
+            deleting.commit();
+
+            assertThat(creating.get(10, TimeUnit.SECONDS)).isEqualTo(404);
+        } finally {
+            pool.shutdownNow();
+        }
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM visits WHERE user_id = ?", Integer.class, userId)).isZero();
+    }
+
+    // 다른 연결이 잠금을 기다리기 시작할 때까지 (시간으로 재지 않고 DB 상태를 본다)
+    private void waitUntilSomeoneWaitsForLock() throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (System.nanoTime() < deadline) {
+            Integer waiting = jdbc.queryForObject("SELECT count(*) FROM pg_stat_activity"
+                    + " WHERE datname = current_database() AND wait_event_type = 'Lock'", Integer.class);
+            if (waiting != null && waiting > 0) {
+                return;
+            }
+            Thread.sleep(20);
+        }
+        throw new AssertionError("일정 만들기가 병원 줄 잠금을 기다리지 않았어요");
     }
 }

@@ -4,16 +4,19 @@ import com.dangdang.domain.criteria.dto.request.CriteriaVersionCreateRequest;
 import com.dangdang.domain.criteria.dto.response.CriteriaVersionResponse;
 import com.dangdang.domain.criteria.entity.CriteriaVersion;
 import com.dangdang.domain.criteria.repository.CriteriaVersionRepository;
+import com.dangdang.domain.reading.repository.ReadingRepository;
 import com.dangdang.domain.user.entity.User;
 import com.dangdang.domain.user.exception.UserErrorCode;
 import com.dangdang.domain.user.repository.UserRepository;
 import com.dangdang.domain.user.service.SensitiveConsentGuard;
+import com.dangdang.global.common.KoreanTime;
 import com.dangdang.global.exception.CustomException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 
@@ -22,22 +25,74 @@ import java.util.List;
 @Transactional(readOnly = true)
 public class CriteriaService {
 
+    // 다음 기준이 없을 때 다시 붙이는 끝 (다음 기준이 생기기 전까지 끝 없음)
+    private static final Instant NO_NEXT_CRITERIA = Instant.parse("9999-01-01T00:00:00Z");
+
     private final CriteriaVersionRepository criteriaVersionRepository;
     private final UserRepository userRepository;
+    private final ReadingRepository readingRepository;
     private final Clock clock;
     private final SensitiveConsentGuard sensitiveConsentGuard;
 
     // 등록 — UPDATE가 아니라 항상 새 줄
+    // 지난 날짜(어제 이전)부터 적용이면 그 사이 이미 잰 기록도 이 기준으로 다시 붙임 (C-09 「10월 19일부터 적용」)
     @Transactional
     public CriteriaVersionResponse create(Long userId, CriteriaVersionCreateRequest req) {
+        // 적용일: 요청 값이 있으면 그것, 비었으면 한국 오늘 (시계가 한국 시간대)
+        LocalDate today = LocalDate.now(clock);
+        LocalDate effectiveFrom = req.effectiveFrom() != null ? req.effectiveFrom() : today;
+        boolean backdated = effectiveFrom.isBefore(today);
+        if (backdated) {
+            // 기록을 다시 붙일 땐 이 사람 줄을 먼저 FOR UPDATE로 잠금 (동의 확인의 FOR SHARE보다 먼저 — 둘이 FOR SHARE를 잡은 채
+            // 서로 FOR UPDATE를 기다리지 않게). 혈당 저장·수정·되돌리기는 FOR SHARE를 잡으니 다시 붙이는 동안 기다렸다가
+            // 새 기준을 보고, 먼저 잡은 저장이 있으면 그게 끝난 뒤 그 기록까지 다시 붙임. 지난 날짜 기준 두 개가 동시에 와도 차례로
+            userRepository.findByIdForUpdate(userId)
+                    .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
+        }
         sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403
         User user = findUser(userId);
-        // 적용일: 요청 값이 있으면 그것, 비었으면 한국 오늘
-        LocalDate effectiveFrom = req.effectiveFrom() != null ? req.effectiveFrom() : LocalDate.now(clock);
         CriteriaVersion saved = criteriaVersionRepository.save(CriteriaVersion.of(
                 user, req.postMealMinutes(), req.measureSlots(), req.fastingTarget(), req.postMealTarget(),
                 req.sourceNote(), effectiveFrom, clock.instant()));
+        if (backdated) {
+            relinkReadings(userId, saved);
+        }
         return CriteriaVersionResponse.from(saved);
+    }
+
+    // 적용일 0시 ~ 다음 진짜 기준 시작 전(없으면 끝까지)에 잰 기록(지운 것 포함)을 새 기준으로
+    // 오늘·미래부터 적용이면 부르지 않음: 오늘 진료 전에 잰 기록은 그때 기준 그대로 (C-10 「지난 기록은 그때 기준으로」)
+    // 같은 적용일 기준이 이미 있으면 새 것이 이김 (지금 기준 찾기의 「적용일 늦은 순 → id 큰 순」과 같은 규칙)
+    // 서버가 만든 빈 기준(autoEmpty)은 「다음 기준」으로 치지 않고, 다시 붙인 뒤 이 기간 안의 것은 지움
+    // → 안 지우면 리포트 기준 목록에 빈 기준이 끼어 나옴. 사용자가 다 비워 등록한 기준은 진짜 기준으로 봄
+    // 다음 기준 시작일에는 그 기준을 적기 전에 잰 기록이 앞 기준(또는 빈 기준)을 가리킴 → 그날 기록 중 앞 기준을 가리키는 것도
+    // 새 기준으로 (그날 그 시각의 「그때 기준」이 이제 새 기준이라서, C-10)
+    private void relinkReadings(Long userId, CriteriaVersion saved) {
+        List<CriteriaVersion> later = criteriaVersionRepository
+                .findAllByUserIdAndEffectiveFromGreaterThanEqualOrderByEffectiveFromAscIdAsc(userId, saved.getEffectiveFrom())
+                .stream()
+                .filter(c -> !c.getId().equals(saved.getId()))
+                .toList();
+        LocalDate nextFrom = later.stream()
+                .filter(c -> !c.isAutoEmpty() && c.getEffectiveFrom().isAfter(saved.getEffectiveFrom()))
+                .map(CriteriaVersion::getEffectiveFrom)
+                .findFirst()
+                .orElse(null);
+        // 다음 기준 시작일에 생긴 빈 기준도 포함 (다음 기준을 적기 전 그날 잰 기록으로 생긴 것)
+        List<Long> coveredEmpty = later.stream()
+                .filter(c -> c.isAutoEmpty() && (nextFrom == null || !c.getEffectiveFrom().isAfter(nextFrom)))
+                .map(CriteriaVersion::getId)
+                .toList();
+
+        Instant from = KoreanTime.startOfDay(saved.getEffectiveFrom());
+        Instant to = nextFrom == null ? NO_NEXT_CRITERIA : KoreanTime.startOfDay(nextFrom);
+        readingRepository.relinkCriteria(userId, saved, from, to);
+        if (nextFrom != null) {
+            readingRepository.relinkStaleOnDay(userId, saved, nextFrom, to, KoreanTime.endOfDay(nextFrom));
+        }
+        if (!coveredEmpty.isEmpty()) {
+            criteriaVersionRepository.deleteUnused(userId, coveredEmpty);
+        }
     }
 
     // 이력 — 최신 먼저
@@ -50,7 +105,7 @@ public class CriteriaService {
     // 지금 기준 — 없으면 null (컨트롤러가 그대로 돌려주면 응답에서 data가 빠짐)
     public CriteriaVersionResponse current(Long userId) {
         return criteriaVersionRepository
-                .findFirstByUserIdAndEffectiveFromLessThanEqualOrderByEffectiveFromDescIdDesc(userId, LocalDate.now(clock))
+                .findFirstByUserIdAndEffectiveFromLessThanEqualOrderByAutoEmptyAscEffectiveFromDescIdDesc(userId, LocalDate.now(clock))
                 .map(CriteriaVersionResponse::from)
                 .orElse(null);
     }
@@ -65,7 +120,7 @@ public class CriteriaService {
     @Transactional
     public CriteriaVersion onDateOrEmpty(Long userId, LocalDate date) {
         return criteriaVersionRepository
-                .findFirstByUserIdAndEffectiveFromLessThanEqualOrderByEffectiveFromDescIdDesc(userId, date)
+                .findFirstByUserIdAndEffectiveFromLessThanEqualOrderByAutoEmptyAscEffectiveFromDescIdDesc(userId, date)
                 .orElseGet(() -> criteriaVersionRepository.save(
                         CriteriaVersion.empty(findUser(userId), date, clock.instant())));
     }

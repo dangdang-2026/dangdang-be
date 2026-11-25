@@ -7,7 +7,7 @@ public enum ChatKind {
     QUESTION_DRAFT,  // Q-04 물어볼 말 초안 → 「물어볼 것에 추가」
     INFO,            // Q-06 일반 정보 + 출처
     UNKNOWN,         // 자료에 없음 → 병원에 물어보세요
-    RISK,            // Q-07 위험 신호 — AI를 거치지 않은 정해진 안내
+    RISK,            // Q-07 위급 안내 — 정해진 문장 (키워드로 잡거나, AI가 위급·마음 위기·폭력 이유를 고름)
     DOSE,            // 약·인슐린 용량 — AI를 거치지 않은 정해진 안내
     CONSENT_NEEDED,  // 기록을 보려면 기록 사용 동의가 필요
     FAILED           // Q-08 답을 만들지 못함

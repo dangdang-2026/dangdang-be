@@ -290,25 +290,42 @@ class VisitReportFlowTest {
                 .andExpect(jsonPath("$.data.summary.missed").value(2))
                 .andExpect(jsonPath("$.data.summary.enteredLate").value(4))
                 .andExpect(jsonPath("$.data.summary.below70").value(1))
+                .andExpect(jsonPath("$.data.summary.above200").value(0))
                 .andExpect(jsonPath("$.data.summary.outOfTarget").value(2))
                 .andExpect(jsonPath("$.data.summary.inTargetRate").value(0.5))   // 목표와 비교한 4개 중 2개
                 .andExpect(jsonPath("$.data.summary.compared").value(true))
-                // 잴 때별: 하루 순서, 잴 때 없는 기록은 맨 뒤
-                .andExpect(jsonPath("$.data.slots", hasSize(3)))
+                // 잴 때별: 하루 순서, 기록이 없어도 빈칸이 있는 잴 때(저녁 식후)는 나옴, 잴 때 없는 기록은 맨 뒤
+                .andExpect(jsonPath("$.data.slots", hasSize(4)))
                 .andExpect(jsonPath("$.data.slots[0].slot").value("FASTING"))
                 .andExpect(jsonPath("$.data.slots[0].measured").value(2))
                 .andExpect(jsonPath("$.data.slots[0].outOfTarget").value(1))
+                .andExpect(jsonPath("$.data.slots[0].missed").value(1))
                 .andExpect(jsonPath("$.data.slots[1].slot").value("LUNCH_AFTER"))
                 .andExpect(jsonPath("$.data.slots[1].measured").value(2))
                 .andExpect(jsonPath("$.data.slots[1].outOfTarget").value(1))
-                .andExpect(jsonPath("$.data.slots[2].slot").value(nullValue()))
-                .andExpect(jsonPath("$.data.slots[2].measured").value(1))
+                .andExpect(jsonPath("$.data.slots[1].missed").value(0))
+                .andExpect(jsonPath("$.data.slots[2].slot").value("DINNER_AFTER"))
+                .andExpect(jsonPath("$.data.slots[2].measured").value(0))
+                .andExpect(jsonPath("$.data.slots[2].missed").value(1))
+                .andExpect(jsonPath("$.data.slots[3].slot").value(nullValue()))
+                .andExpect(jsonPath("$.data.slots[3].measured").value(1))
+                .andExpect(jsonPath("$.data.slots[3].missed").value(0))
+                // 원값 표 「–」: 놓친 알림의 날짜·잴 때 (알림 시각 순). 개수 = summary.missed
+                .andExpect(jsonPath("$.data.missedCells", hasSize(2)))
+                .andExpect(jsonPath("$.data.missedCells[0].date").value("2026-10-05"))
+                .andExpect(jsonPath("$.data.missedCells[0].slot").value("FASTING"))
+                .andExpect(jsonPath("$.data.missedCells[1].date").value("2026-10-06"))
+                .andExpect(jsonPath("$.data.missedCells[1].slot").value("DINNER_AFTER"))
                 // 원값 표: 잰 시각 오래된 순
                 .andExpect(jsonPath("$.data.readings", hasSize(5)))
                 .andExpect(jsonPath("$.data.readings[0].readingId").value(first))
                 .andExpect(jsonPath("$.data.readings[0].value").value(96))
                 .andExpect(jsonPath("$.data.readings[0].aboveTarget").value(true))
                 .andExpect(jsonPath("$.data.readings[0].enteredLate").value(false))
+                .andExpect(jsonPath("$.data.readings[0].meterLimit").value(nullValue()))   // 숫자로 적음
+                .andExpect(jsonPath("$.data.readings[0].expectedAt").value(nullValue()))   // 공복은 재야 할 시각 없음
+                .andExpect(jsonPath("$.data.readings[0].timing").value(nullValue()))
+                .andExpect(jsonPath("$.data.readings[1].timing").value(nullValue()))       // 식사 없는 식후도 모름
                 .andExpect(jsonPath("$.data.readings[2].aboveTarget").value(false))
                 .andExpect(jsonPath("$.data.readings[4].readingType").value("OTHER"))
                 .andExpect(jsonPath("$.data.readings[4].aboveTarget").value(nullValue()))
@@ -386,17 +403,104 @@ class VisitReportFlowTest {
     }
 
     @Test
-    void 같은_날_기준을_두_번_고치면_기록이_판정에_쓴_기준도_목록에_나온다() throws Exception {
+    void 지난_날짜로_기준을_다시_고치면_그날_잰_기록도_새_기준으로_판정한다() throws Exception {
         criteria(access, "{\"fastingTarget\":95,\"effectiveFrom\":\"2026-10-05\"}");    // v1
-        reading(access, 96, "FASTING", "FASTING", "2026-10-05T08:00:00+09:00");         // v1로 판정 → 밖
-        criteria(access, "{\"fastingTarget\":100,\"effectiveFrom\":\"2026-10-05\"}");   // 같은 날 v2
+        reading(access, 96, "FASTING", "FASTING", "2026-10-05T08:00:00+09:00");         // 저장할 땐 v1 → 밖
+        criteria(access, "{\"fastingTarget\":100,\"effectiveFrom\":\"2026-10-05\"}");   // 같은 날짜로 v2 (지난 날짜라 다시 붙임)
 
         report(access, visitId)
                 .andExpect(jsonPath("$.data.from").value("2026-10-05"))
-                .andExpect(jsonPath("$.data.readings[0].aboveTarget").value(true))
-                .andExpect(jsonPath("$.data.criteria", hasSize(2)))
-                .andExpect(jsonPath("$.data.criteria[0].fastingTarget").value(95))
-                .andExpect(jsonPath("$.data.criteria[1].fastingTarget").value(100));
+                .andExpect(jsonPath("$.data.readings[0].aboveTarget").value(false))   // v2(100 미만) → 안
+                .andExpect(jsonPath("$.data.criteria", hasSize(1)))
+                .andExpect(jsonPath("$.data.criteria[0].fastingTarget").value(100));
+    }
+
+    @Test
+    void 빈칸은_잴_때별_개수와_날짜까지_주고_200_이상도_센다() throws Exception {
+        createVisit(access, "2026-10-01T09:00:00+09:00");   // 기간 10/1~10/13
+        reading(access, 210, "POST_MEAL", "DINNER_AFTER", "2026-10-03T19:00:00+09:00");   // 200 이상
+        reading(access, 200, "POST_MEAL", "DINNER_AFTER", "2026-10-04T19:00:00+09:00");   // 200도 이상
+        reading(access, 199, "POST_MEAL", "DINNER_AFTER", "2026-10-05T19:00:00+09:00");
+        long jisu = userId("jisu@x.com");
+        reminder(jisu, "BREAKFAST_AFTER", "2026-10-04T09:00:00+09:00", "SENT");       // 아침 식후 빈칸 (그 잴 때 기록 0개)
+        reminder(jisu, "BREAKFAST_AFTER", "2026-10-02T09:00:00+09:00", "DISMISSED");  // 건너뛴 끼니도 빈칸
+        long mealId = jdbc.queryForObject(
+                "INSERT INTO meals (user_id, meal_slot, started_at, deleted_at) VALUES (?, 'LUNCH', ?, ?) RETURNING id",
+                Long.class, jisu, at("2026-10-06T12:00:00+09:00"), at("2026-10-06T13:00:00+09:00"));
+        jdbc.update("INSERT INTO reminders (user_id, meal_id, slot, scheduled_at, status) VALUES (?, ?, 'LUNCH_AFTER', ?, 'SENT')",
+                jisu, mealId, at("2026-10-06T13:00:00+09:00"));                       // 지운 식사의 알림 → 안 셈
+
+        report(access, visitId)
+                .andExpect(jsonPath("$.data.summary.above200").value(2))
+                .andExpect(jsonPath("$.data.summary.missed").value(2))
+                .andExpect(jsonPath("$.data.slots", hasSize(2)))
+                .andExpect(jsonPath("$.data.slots[0].slot").value("BREAKFAST_AFTER"))
+                .andExpect(jsonPath("$.data.slots[0].measured").value(0))
+                .andExpect(jsonPath("$.data.slots[0].outOfTarget").value(0))
+                .andExpect(jsonPath("$.data.slots[0].missed").value(2))
+                .andExpect(jsonPath("$.data.slots[1].slot").value("DINNER_AFTER"))
+                .andExpect(jsonPath("$.data.slots[1].measured").value(3))
+                .andExpect(jsonPath("$.data.slots[1].missed").value(0))
+                .andExpect(jsonPath("$.data.missedCells", hasSize(2)))
+                .andExpect(jsonPath("$.data.missedCells[0].date").value("2026-10-02"))
+                .andExpect(jsonPath("$.data.missedCells[0].slot").value("BREAKFAST_AFTER"))
+                .andExpect(jsonPath("$.data.missedCells[1].date").value("2026-10-04"));
+    }
+
+    @Test
+    void 자정을_넘긴_식후_알림의_빈칸은_식사한_날로_센다() throws Exception {
+        createVisit(access, "2026-10-01T09:00:00+09:00");   // 기간 10/1~10/13
+        long jisu = userId("jisu@x.com");
+        long lastNight = meal(jisu, "2026-10-13T23:30:00+09:00");     // 기간 마지막 날 밤 식사, 알림은 다음 날 0:30
+        jdbc.update("INSERT INTO reminders (user_id, meal_id, slot, scheduled_at, status) VALUES (?, ?, 'DINNER_AFTER', ?, 'SENT')",
+                jisu, lastNight, at("2026-10-14T00:30:00+09:00"));
+        long beforePeriod = meal(jisu, "2026-09-30T23:30:00+09:00");   // 기간 전날 밤 식사 → 알림이 10/1이어도 안 셈
+        jdbc.update("INSERT INTO reminders (user_id, meal_id, slot, scheduled_at, status) VALUES (?, ?, 'DINNER_AFTER', ?, 'SENT')",
+                jisu, beforePeriod, at("2026-10-01T00:30:00+09:00"));
+
+        report(access, visitId)
+                .andExpect(jsonPath("$.data.summary.missed").value(1))
+                .andExpect(jsonPath("$.data.missedCells", hasSize(1)))
+                .andExpect(jsonPath("$.data.missedCells[0].date").value("2026-10-13"))
+                .andExpect(jsonPath("$.data.missedCells[0].slot").value("DINNER_AFTER"));
+    }
+
+    @Test
+    void 식후_혈당을_재야_할_시각보다_늦게_재면_리포트에_LATE() throws Exception {
+        criteria(access, "{\"postMealMinutes\":60,\"measureSlots\":[\"LUNCH_AFTER\"],\"effectiveFrom\":\"2026-10-01\"}");
+        long jisu = userId("jisu@x.com");
+        // 식사는 SQL로 넣어서 알림이 없음 → 재야 할 시각 = 식사 시작 + 병원 식후 60분
+        long lateMeal = meal(jisu, "2026-10-10T12:00:00+09:00");
+        long onTimeMeal = meal(jisu, "2026-10-11T12:00:00+09:00");
+        postMealReading(118, "2026-10-10T13:25:00+09:00", lateMeal);     // 25분 늦게
+        postMealReading(118, "2026-10-11T13:10:00+09:00", onTimeMeal);   // 15분 안
+
+        report(access, visitId)                              // 진료 10-14 → 기간 끝 10-13
+                .andExpect(jsonPath("$.data.readings", hasSize(2)))
+                .andExpect(jsonPath("$.data.readings[0].expectedAt").value("2026-10-10T04:00:00Z"))   // 12:00 + 60분 (KST)
+                .andExpect(jsonPath("$.data.readings[0].timing").value("LATE"))
+                .andExpect(jsonPath("$.data.readings[1].expectedAt").value("2026-10-11T04:00:00Z"))
+                .andExpect(jsonPath("$.data.readings[1].timing").value("ON_TIME"));
+    }
+
+    @Test
+    void HI로_적은_혈당은_리포트_표에_HI로_나오고_200_이상으로_LO는_70_미만으로_센다() throws Exception {
+        mvc.perform(post("/api/readings").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"meterLimit\":\"HI\",\"measuredAt\":\"2026-10-06T08:00:00+09:00\","
+                                + "\"readingType\":\"FASTING\",\"slot\":\"FASTING\"}"))
+                .andExpect(status().isCreated());
+        mvc.perform(post("/api/readings").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"meterLimit\":\"LO\",\"measuredAt\":\"2026-10-07T08:00:00+09:00\","
+                                + "\"readingType\":\"FASTING\",\"slot\":\"FASTING\"}"))
+                .andExpect(status().isCreated());
+
+        report(access, visitId)                              // 앞 진료 없음 → 첫 혈당 10-06 ~ 10-13
+                .andExpect(jsonPath("$.data.readings[0].value").value(600))
+                .andExpect(jsonPath("$.data.readings[0].meterLimit").value("HI"))
+                .andExpect(jsonPath("$.data.readings[1].value").value(20))
+                .andExpect(jsonPath("$.data.readings[1].meterLimit").value("LO"))
+                .andExpect(jsonPath("$.data.summary.above200").value(1))
+                .andExpect(jsonPath("$.data.summary.below70").value(1));
     }
 
     @Test
@@ -415,6 +519,21 @@ class VisitReportFlowTest {
                         .value((int) (ChronoUnit.DAYS.between(start, LocalDate.of(2026, 10, 1)) / 7)))
                 .andExpect(jsonPath("$.data.pregnancyWeeks.to")
                         .value((int) (ChronoUnit.DAYS.between(start, LocalDate.of(2026, 10, 13)) / 7)));
+    }
+
+    @Test
+    void 다른_상황이면_리포트에도_주수를_넣지_않는다() throws Exception {
+        createVisit(access, "2026-10-01T09:00:00+09:00");   // 기간 10/1~10/13
+        long jisu = userId("jisu@x.com");
+        // 옛 임신도 기간과 겹치지만, 가장 최근 임신이 다른 상황이면 옛 임신 주수로 넘어가지 않고 비운다
+        jdbc.update("INSERT INTO pregnancies (user_id, due_date, delivery_date, state, created_at, updated_at)"
+                + " VALUES (?, '2026-10-20', '2026-10-12', 'ENDED', now(), now())", jisu);
+        jdbc.update("INSERT INTO pregnancies (user_id, due_date, state, created_at, updated_at)"
+                + " VALUES (?, '2026-12-20', 'PAUSED', now(), now())", jisu);
+
+        report(access, visitId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.pregnancyWeeks").value(nullValue()));
     }
 
     @Test
@@ -656,6 +775,22 @@ class VisitReportFlowTest {
     private void reminder(long userId, String slot, String scheduledAt, String status) {
         jdbc.update("INSERT INTO reminders (user_id, slot, scheduled_at, status) VALUES (?, ?, ?, ?)",
                 userId, slot, Timestamp.from(OffsetDateTime.parse(scheduledAt).toInstant()), status);
+    }
+
+    private long meal(long userId, String startedAt) {
+        return jdbc.queryForObject("INSERT INTO meals (user_id, meal_slot, started_at) VALUES (?, 'LUNCH', ?) RETURNING id",
+                Long.class, userId, at(startedAt));
+    }
+
+    private void postMealReading(int value, String measuredAt, long mealId) throws Exception {
+        mvc.perform(post("/api/readings").cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"value\":" + value + ",\"measuredAt\":\"" + measuredAt + "\","
+                                + "\"readingType\":\"POST_MEAL\",\"slot\":\"LUNCH_AFTER\",\"mealId\":" + mealId + "}"))
+                .andExpect(status().isCreated());
+    }
+
+    private static Timestamp at(String time) {
+        return Timestamp.from(OffsetDateTime.parse(time).toInstant());
     }
 
     private void question(long visit, String content) throws Exception {

@@ -3,6 +3,7 @@ package com.dangdang.domain.visit.repository;
 import com.dangdang.domain.visit.entity.Visit;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Pageable;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Slice;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -20,12 +21,20 @@ public interface VisitRepository extends JpaRepository<Visit, Long> {
     // 하나 찾기: 이 id + 내 것 + 삭제 안 된 것만 (아니면 Optional.empty)
     Optional<Visit> findByIdAndUserIdAndDeletedAtIsNull(Long id, Long userId);
 
-    // 수정용: 이 줄을 잠그고 읽음 (내 것 + 삭제 안 된 것만)
-    // 스케줄러가 알림 「처리함」을 적는 중이면 끝날 때까지 기다린 뒤 최신 값(보낸 시각 포함)을 읽음
+    // 일정 수정 — 내 일정(삭제 안 된 것) 줄을 FOR UPDATE로 잠그고 읽는다
+    // 병원 지우기·일정 지우기가 먼저 잡았으면 끝날 때까지 기다렸다가, 지워졌으면 빈 값 (지운 일정을 되살리지 않게)
+    // 잠금 순서는 care_sites → visits (병원 줄은 부르는 쪽이 먼저 잡는다)
+    // 진료 알림이 「처리함」을 적는 중이면 끝날 때까지 기다린 뒤 최신 값(보낸 시각 포함)을 읽음
     // → 날짜를 바꿀 때 보낸 시각을 확실히 비우고, 옛 날짜 알림은 조건부 UPDATE에서 걸러짐
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select v from Visit v where v.id = :id and v.user.id = :userId and v.deletedAt is null")
     Optional<Visit> findMineForUpdate(@Param("id") Long id, @Param("userId") Long userId);
+
+    // 질문·메모 추가 — 일정 줄을 FOR SHARE로 잠그고 읽는다
+    // 지우기(일정 → 질문 → 메모 순서)가 먼저 잡았으면 끝난 뒤 빈 값, 추가가 먼저면 지우기가 기다렸다가 새 질문·메모까지 지운다
+    @Lock(LockModeType.PESSIMISTIC_READ)
+    @Query("select v from Visit v where v.id = :id and v.user.id = :userId and v.deletedAt is null")
+    Optional<Visit> findMineForShare(@Param("id") Long id, @Param("userId") Long userId);
 
     // 전날 알림 차례: 진료 시각이 from 이상 to 미만(= 내일 하루) · 살아 있음 · 아직 처리 안 함 (회원도 같이 읽음)
     @Query("""
@@ -47,6 +56,12 @@ public interface VisitRepository extends JpaRepository<Visit, Long> {
             order by v.visitAt asc, v.id asc
             """)
     List<Visit> findSameDayDue(@Param("now") Instant now, @Param("to") Instant to);
+
+    // 진료 날짜가 바뀌면 보낸 알림 기록을 비움 → 새 날짜로 전날·당일 알림을 다시 보냄
+    // 바뀐 일정 값은 아직 메모리에 있어서 지우지 않게 clearAutomatically는 끔 (@DynamicUpdate라 보낸 시각 칸은 다시 안 덮음)
+    @Modifying
+    @Query("update Visit v set v.dayBeforeSentAt = null, v.sameDaySentAt = null where v.id = :id")
+    int clearReminderSent(@Param("id") Long id);
 
     // 전날 알림을 「처리함」으로 적음. 읽은 뒤에 날짜가 바뀌었거나 지워졌거나 이미 처리했으면 0 → 보내지 않음
     @Modifying(clearAutomatically = true)
@@ -102,4 +117,18 @@ public interface VisitRepository extends JpaRepository<Visit, Long> {
               and v.visitAt is not null
             """)
     List<Instant> findAllVisitAts(@Param("userId") Long userId);
+
+    // C-20 병원 지우기 — 그 병원의 아직 안 온 일정(visit_at >= now)과 날짜 미정 일정을 지운다 (soft delete)
+    // 지난 일정은 메모·리포트 때문에 남긴다. 조건을 UPDATE 안에 두어서, 그사이 다른 병원·지난 날짜로 바뀐 일정은 안 지운다
+    // 지운 줄 수를 돌려준다
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("""
+            update Visit v set v.deletedAt = :now
+            where v.user.id = :userId
+              and v.careSiteId = :careSiteId
+              and v.deletedAt is null
+              and (v.visitAt is null or v.visitAt >= :now)
+            """)
+    int deleteUpcomingAtCareSite(@Param("userId") Long userId, @Param("careSiteId") Long careSiteId,
+                                 @Param("now") Instant now);
 }

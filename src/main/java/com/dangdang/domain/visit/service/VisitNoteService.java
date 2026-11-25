@@ -37,7 +37,8 @@ public class VisitNoteService {
     @Transactional
     public VisitNoteResponse create(Long userId, Long visitId, VisitNoteRequest req) {
         sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403
-        Visit visit = visitService.findMine(userId, visitId);
+        // 일정 줄을 FOR SHARE로 잡는다 → 일정·병원 지우기와 겹쳐도 지운 일정에 살아 있는 질문·메모가 남지 않는다
+        Visit visit = visitService.findMineForShare(userId, visitId);
         VisitNote saved = visitNoteRepository.saveAndFlush(VisitNote.of(visit, req.content()));
         return VisitNoteResponse.from(saved);
     }
