@@ -5,6 +5,7 @@ import com.dangdang.domain.reminder.service.DailyReminderPlanner;
 import com.dangdang.domain.reminder.service.ReminderDispatchService;
 import com.dangdang.domain.visit.service.VisitReminderNotifier;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -12,6 +13,7 @@ import org.springframework.stereotype.Component;
 import java.util.concurrent.TimeUnit;
 
 // 서버가 여러 대여도 한 바퀴는 한 대만 돈다 (ShedLock — SchedulingConfig)
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class ReminderScheduler {
@@ -29,10 +31,19 @@ public class ReminderScheduler {
     @Scheduled(initialDelay = 30, fixedDelay = 30, timeUnit = TimeUnit.SECONDS)
     @SchedulerLock(name = LOCK_NAME, lockAtLeastFor = "PT20S", lockAtMostFor = "PT5M")
     public void run() {
-        dailyReminderPlanner.planDue();          //공복과 자기 전 알림을 먼저 만들어야 같은 바퀴에 바로 보낸다
-        reminderDispatchService.dispatchDue();
-        reminderDispatchService.renotifyDue();
-        postpartumTestNotifier.notifyDue();      // 산후 검사 전날,당일 알림 (오전 9시부터)
-        visitReminderNotifier.notifyDue();       // 진료 전날(저녁 7~10시),당일(아침 7시~밤 10시) 알림
+        runSafely("측정 알림 계획", dailyReminderPlanner::planDue);   //공복과 자기 전 알림을 먼저 만들어야 같은 바퀴에 바로 보낸다
+        runSafely("측정 알림 보내기", reminderDispatchService::dispatchDue);
+        runSafely("측정 다시 알림", reminderDispatchService::renotifyDue);
+        runSafely("산후 검사 알림", postpartumTestNotifier::notifyDue);   // 산후 검사 전날,당일 알림 (오전 9시부터)
+        runSafely("진료 알림", visitReminderNotifier::notifyDue);         // 진료 전날(저녁 7~10시),당일(아침 7시~밤 10시) 알림
+    }
+
+    // 한 작업이 실패해도 같은 바퀴의 다음 작업은 돌게 함 (앞에서 에러가 나면 뒤 알림이 전부 멈추지 않게)
+    private void runSafely(String name, Runnable task) {
+        try {
+            task.run();
+        } catch (Exception e) {
+            log.error("[스케줄러] {} 실패: {}", name, e.getClass().getSimpleName(), e);
+        }
     }
 }

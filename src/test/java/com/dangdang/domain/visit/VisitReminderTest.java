@@ -133,6 +133,13 @@ class VisitReminderTest extends ReminderTestBase {
         scheduler.run();
         assertThat(fakeSender.sent).hasSize(1);
 
+        // 같은 시각을 나노초까지 붙여 다시 보내도 (DB에선 같은 값) 다시 안 보냄
+        mvc.perform(patch("/api/visits/" + visitId).cookie(jisu).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"visitAt\":\"2026-11-10T10:00:00.000000001+09:00\"}"))
+                .andExpect(status().isOk());
+        scheduler.run();
+        assertThat(fakeSender.sent).hasSize(1);
+
         // 같은 날 다른 시각으로 바꾸면 전날 알림을 새로 보냄
         mvc.perform(patch("/api/visits/" + visitId).cookie(jisu).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"visitAt\":\"2026-11-10T11:30:00+09:00\"}"))

@@ -86,7 +86,9 @@ public class VisitService {
         if (req.isEmpty()) {
             throw new CustomException(VisitErrorCode.NOTHING_TO_UPDATE);
         }
-        Visit visit = findMine(userId, visitId);
+        // 줄을 잠그고 읽음 — 진료 알림 스케줄러와 겹쳐도 보낸 시각을 최신 값으로 보고 바꿈
+        Visit visit = visitRepository.findMineForUpdate(visitId, userId)
+                .orElseThrow(() -> new CustomException(VisitErrorCode.VISIT_NOT_FOUND));
         // 병원은 실제로 바꿀 때만 확인함. 화면이 원래 병원 id를 그대로 다시 보냈는데
         // 그 병원이 그사이 지워졌다고 수정 전체가 404로 실패하면 안 돼서
         if (req.isCareSiteIdSent() && !Objects.equals(req.getCareSiteId(), visit.getCareSiteId())) {

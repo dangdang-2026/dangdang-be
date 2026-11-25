@@ -72,7 +72,9 @@ public class VisitReminderNotifier {
             if (!recorder.claim(visit.getId(), visit.getVisitAt(), dayBefore, now)) {
                 return 0;
             }
-            return send(visit, dayBefore, now);
+            // 목록을 읽은 뒤 병원이 바뀌었을 수 있어서, 처리함으로 적은 다음 일정을 다시 읽어 문구를 만듦
+            Visit latest = visitRepository.findById(visit.getId()).orElse(visit);
+            return send(latest, visit.getUser().getId(), dayBefore, now);
         } catch (Exception e) {
             // 한 사람 것이 실패해도 다음 사람 알림은 계속 보냄
             log.warn("[진료] 알림 {} 처리 실패: {}", visit.getId(), e.getClass().getSimpleName());
@@ -80,8 +82,7 @@ public class VisitReminderNotifier {
         }
     }
 
-    private int send(Visit visit, boolean dayBefore, Instant now) {
-        Long userId = visit.getUser().getId();
+    private int send(Visit visit, Long userId, boolean dayBefore, Instant now) {
         boolean enabled = notificationPreferenceRepository.findByUserId(userId)
                 .map(NotificationPreference::isScheduleEnabled).orElse(true);   // 「진료·검사 알림」 설정 (M-04)
         if (!enabled) {

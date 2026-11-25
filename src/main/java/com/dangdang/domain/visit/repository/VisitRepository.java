@@ -1,9 +1,11 @@
 package com.dangdang.domain.visit.repository;
 
 import com.dangdang.domain.visit.entity.Visit;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -17,6 +19,13 @@ public interface VisitRepository extends JpaRepository<Visit, Long> {
 
     // 하나 찾기: 이 id + 내 것 + 삭제 안 된 것만 (아니면 Optional.empty)
     Optional<Visit> findByIdAndUserIdAndDeletedAtIsNull(Long id, Long userId);
+
+    // 수정용: 이 줄을 잠그고 읽음 (내 것 + 삭제 안 된 것만)
+    // 스케줄러가 알림 「처리함」을 적는 중이면 끝날 때까지 기다린 뒤 최신 값(보낸 시각 포함)을 읽음
+    // → 날짜를 바꿀 때 보낸 시각을 확실히 비우고, 옛 날짜 알림은 조건부 UPDATE에서 걸러짐
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select v from Visit v where v.id = :id and v.user.id = :userId and v.deletedAt is null")
+    Optional<Visit> findMineForUpdate(@Param("id") Long id, @Param("userId") Long userId);
 
     // 전날 알림 차례: 진료 시각이 from 이상 to 미만(= 내일 하루) · 살아 있음 · 아직 처리 안 함 (회원도 같이 읽음)
     @Query("""
