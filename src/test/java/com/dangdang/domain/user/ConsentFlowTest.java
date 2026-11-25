@@ -156,6 +156,8 @@ class ConsentFlowTest {
                 .containsExactly("광고성 정보 수신에 동의했어요", "광고성 정보 수신을 거부했어요");
         assertThat(jdbc.queryForList("SELECT body FROM notifications WHERE type = 'MARKETING'", String.class))
                 .allMatch(body -> body.matches("\\d{4}년 \\d{1,2}월 \\d{1,2}일 · 보낸 곳 당당"));
+        assertThat(jdbc.queryForList("SELECT deep_link FROM notifications WHERE type = 'MARKETING'", String.class))
+                .containsOnly("/my/notifications");   // 광고성 정보 받기 토글이 있는 알림 설정 화면
 
         mvc.perform(get("/api/notifications").cookie(access))
                 .andExpect(jsonPath("$.data.items[0].type").value("MARKETING"))
