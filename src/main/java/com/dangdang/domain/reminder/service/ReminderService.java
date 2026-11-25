@@ -223,7 +223,7 @@ public class ReminderService {
     // 알림을 눌러서 들어왔을 때 — 알림함의 같은 알림(재알림 포함)도 읽음으로 (H-15)
     @Transactional
     public ReminderOpenResponse open(Long userId, Long reminderId) {
-        Reminder reminder = findMine(userId, reminderId);
+        Reminder reminder = findMineForUpdate(userId, reminderId);
         switch (reminder.getStatus()) {
             case SENT -> reminder.markOpened(clock.instant());
             case OPENED, DONE, DISMISSED -> {
@@ -240,7 +240,7 @@ public class ReminderService {
     // 10분 뒤 다시. 받았거나 열어 본 알림만 미룰 수 있다
     @Transactional
     public ReminderSnoozeResponse snooze(Long userId, Long reminderId) {
-        Reminder reminder = findMine(userId, reminderId);
+        Reminder reminder = findMineForUpdate(userId, reminderId);
         switch (reminder.getStatus()) {
             case SENT, OPENED -> reminder.snooze(clock.instant().plus(SNOOZE));
             default -> throw new CustomException(ReminderErrorCode.CANNOT_SNOOZE);
@@ -248,9 +248,9 @@ public class ReminderService {
         return ReminderSnoozeResponse.from(reminder);
     }
 
-    // "내 것만". 남의 번호면 404
-    private Reminder findMine(Long userId, Long reminderId) {
-        return reminderRepository.findByIdAndUserId(reminderId, userId)
+    // "내 것만". 남의 번호면 404. 줄을 잠가서 읽음 — 건너뛰기(DISMISSED)와 겹쳐도 옛 상태로 덮지 않게
+    private Reminder findMineForUpdate(Long userId, Long reminderId) {
+        return reminderRepository.findMineForUpdate(reminderId, userId)
                 .orElseThrow(() -> new CustomException(ReminderErrorCode.REMINDER_NOT_FOUND));
     }
 

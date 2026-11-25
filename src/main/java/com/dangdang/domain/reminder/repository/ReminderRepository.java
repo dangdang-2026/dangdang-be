@@ -6,7 +6,9 @@ import com.dangdang.domain.reminder.enums.ReminderStatus;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 
@@ -87,6 +89,17 @@ public interface ReminderRepository extends JpaRepository<Reminder, Long> {
     // "내 것만" — 남의 번호면 비어서 나온다
     Optional<Reminder> findByIdAndUserId(Long id, Long userId);
 
+    // 줄을 잠가서 읽기 — 읽은 상태를 보고 고치는 곳(열기·미루기·보냄·재알림 기록)이 건너뛰기(DISMISSED) 같은
+    // 다른 요청의 상태 변경을 옛 값으로 덮지 않게. 건너뛰기의 UPDATE가 먼저면 끝난 뒤의 상태를 읽고,
+    // 이쪽이 먼저면 건너뛰기 UPDATE가 기다렸다가 바뀐 상태를 보고 다시 판단함
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select r from Reminder r where r.id = :id and r.user.id = :userId")
+    Optional<Reminder> findMineForUpdate(Long id, Long userId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select r from Reminder r where r.id = :id")
+    Optional<Reminder> findByIdForUpdate(Long id);
+
     // 목록 — from 이상, to 미만
     Slice<Reminder> findByUserIdAndScheduledAtGreaterThanEqualAndScheduledAtLessThan(
             Long userId, Instant from, Instant to, Pageable pageable);
@@ -129,8 +142,8 @@ public interface ReminderRepository extends JpaRepository<Reminder, Long> {
     int release(Long id);
 
     // H-05 이번 끼니 건너뛰기 — 이 식사의 아직 안 끝난 알림(예약·보냄·열어 봄)을 DISMISSED로
-    // 한 문장 UPDATE라 스케줄러가 같은 알림을 잡는 중이어도 상태는 둘 중 하나로만 정해진다
-    // (보내기·재알림은 SCHEDULED·SENT 조건으로 잡고, markSent는 SCHEDULED일 때만 바꾸니 DISMISSED를 덮지 않음)
+    // 상태를 읽고 고치는 쪽(열기·미루기·보냄·재알림 기록)은 줄을 잠가서 읽으니(findMineForUpdate·findByIdForUpdate)
+    // 이 UPDATE와 겹쳐도 앞 요청이 끝난 뒤의 상태를 보고, DISMISSED를 옛 값(SENT·OPENED·SCHEDULED)으로 덮지 않음
     // clearAutomatically를 안 붙인다 — 같은 트랜잭션에서 고친 Meal이 영속성 컨텍스트에서 떨어져 저장이 안 될 수 있어서
     @Modifying(flushAutomatically = true)
     @Query("""
