@@ -37,3 +37,22 @@ FROM (SELECT c2.post_id, c2.profile_id,
 WHERE c.post_id = f.post_id
   AND c.profile_id = f.profile_id
   AND c.is_anonymous;
+
+-- U-04 · M-16 예전 닉네임: 띄어쓰기 두 칸 이상은 한 칸으로 (이제 새로 만들거나 고칠 때 두 칸을 막으니, 남은 것도 맞춘다)
+-- 한 칸으로 바꾼 이름이 아직 없으면 그대로 바꾼다. 같은 이름으로 바뀌는 줄이 여럿이면 먼저 만든 한 줄만
+UPDATE community_profiles cp
+SET nickname = regexp_replace(cp.nickname, ' {2,}', ' ', 'g')
+WHERE cp.nickname LIKE '%  %'
+  AND NOT EXISTS (SELECT 1 FROM community_profiles o
+                  WHERE o.nickname = regexp_replace(cp.nickname, ' {2,}', ' ', 'g'))
+  AND cp.id = (SELECT min(o.id) FROM community_profiles o
+               WHERE o.nickname LIKE '%  %'
+                 AND regexp_replace(o.nickname, ' {2,}', ' ', 'g') = regexp_replace(cp.nickname, ' {2,}', ' ', 'g'));
+
+-- 남은 줄(한 칸으로 바꾸면 남의 이름과 같아지는 줄)은 한 칸으로 바꾸고 뒤에 프로필 번호를 붙여 겹치지 않게
+-- 10자를 넘을 수 있지만 칸은 20자라 들어가고, 글자 수 규칙은 다음에 닉네임을 고칠 때만 본다
+UPDATE community_profiles cp
+SET nickname = regexp_replace(cp.nickname, ' {2,}', ' ', 'g') || cp.id
+WHERE cp.nickname LIKE '%  %'
+  AND NOT EXISTS (SELECT 1 FROM community_profiles o
+                  WHERE o.nickname = regexp_replace(cp.nickname, ' {2,}', ' ', 'g') || cp.id);

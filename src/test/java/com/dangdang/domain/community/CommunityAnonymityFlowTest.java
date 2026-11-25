@@ -461,6 +461,25 @@ class CommunityAnonymityFlowTest extends ReminderTestBase {
                 .andExpect(status().isOk());
     }
 
+    @Test
+    void 예전_두_칸_닉네임은_마이그레이션_뒤_한_칸이고_겹치면_프로필_번호가_붙는다() throws Exception {
+        Long minjiProfile = Long.valueOf(myProfileId(minji));
+        Long hanaProfile = Long.valueOf(myProfileId(hana));
+        // 이번 PR 전에 쌓인 모양: 두 칸 닉네임 (민지는 한 칸으로 바꾸면 지수 「말랑한 두부」와 같아진다)
+        jdbc.update("UPDATE community_profiles SET nickname = '말랑한  두부' WHERE id = ?", minjiProfile);
+        jdbc.update("UPDATE community_profiles SET nickname = '새콤한   자두' WHERE id = ?", hanaProfile);
+
+        jdbc.update(migrationStatement("AND cp.id = (SELECT min(o.id)"));   // V20261124_95의 닉네임 정리 그대로
+        jdbc.update(migrationStatement("|| cp.id\nWHERE"));
+
+        assertThat(jdbc.queryForObject("SELECT nickname FROM community_profiles WHERE id = ?", String.class,
+                hanaProfile)).isEqualTo("새콤한 자두");
+        assertThat(jdbc.queryForObject("SELECT nickname FROM community_profiles WHERE id = ?", String.class,
+                minjiProfile)).isEqualTo("말랑한 두부" + minjiProfile);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM community_profiles WHERE nickname LIKE '%  %'",
+                Long.class)).isZero();
+    }
+
     // ── K ──
     @Test
     void 검색_인기순은_ALL이면_오래된_글도_나온다() throws Exception {
