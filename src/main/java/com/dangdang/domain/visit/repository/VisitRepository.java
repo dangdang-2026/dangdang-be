@@ -4,6 +4,7 @@ import com.dangdang.domain.visit.entity.Visit;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Slice;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -16,6 +17,43 @@ public interface VisitRepository extends JpaRepository<Visit, Long> {
 
     // 하나 찾기: 이 id + 내 것 + 삭제 안 된 것만 (아니면 Optional.empty)
     Optional<Visit> findByIdAndUserIdAndDeletedAtIsNull(Long id, Long userId);
+
+    // 전날 알림 차례: 진료 시각이 from 이상 to 미만(= 내일 하루) · 살아 있음 · 아직 처리 안 함 (회원도 같이 읽음)
+    @Query("""
+            select v from Visit v join fetch v.user
+            where v.deletedAt is null
+              and v.visitAt >= :from and v.visitAt < :to
+              and v.dayBeforeSentAt is null
+            order by v.visitAt asc, v.id asc
+            """)
+    List<Visit> findDayBeforeDue(@Param("from") Instant from, @Param("to") Instant to);
+
+    // 당일 알림 차례: 진료 시각이 now 이후 to 미만(= 오늘 남은 시간) · 살아 있음 · 아직 처리 안 함
+    // 이미 지난 진료(지난 시각으로 적은 일정 포함)는 「오늘 진료가 있어요」를 안 보냄
+    @Query("""
+            select v from Visit v join fetch v.user
+            where v.deletedAt is null
+              and v.visitAt > :now and v.visitAt < :to
+              and v.sameDaySentAt is null
+            order by v.visitAt asc, v.id asc
+            """)
+    List<Visit> findSameDayDue(@Param("now") Instant now, @Param("to") Instant to);
+
+    // 전날 알림을 「처리함」으로 적음. 읽은 뒤에 날짜가 바뀌었거나 지워졌거나 이미 처리했으면 0 → 보내지 않음
+    @Modifying(clearAutomatically = true)
+    @Query("""
+            update Visit v set v.dayBeforeSentAt = :now
+            where v.id = :id and v.visitAt = :visitAt and v.deletedAt is null and v.dayBeforeSentAt is null
+            """)
+    int claimDayBefore(@Param("id") Long id, @Param("visitAt") Instant visitAt, @Param("now") Instant now);
+
+    // 당일 알림을 「처리함」으로 적음 (조건은 전날과 같음)
+    @Modifying(clearAutomatically = true)
+    @Query("""
+            update Visit v set v.sameDaySentAt = :now
+            where v.id = :id and v.visitAt = :visitAt and v.deletedAt is null and v.sameDaySentAt is null
+            """)
+    int claimSameDay(@Param("id") Long id, @Param("visitAt") Instant visitAt, @Param("now") Instant now);
 
     // 목록 한 페이지: 진료 날짜 이른 순, 날짜 미정(null)은 맨 뒤, 같으면 먼저 만든 순
     // Slice라서 전체 개수(count)는 안 셈 → 다음 페이지가 있는지만 앎

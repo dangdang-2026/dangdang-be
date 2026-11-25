@@ -3,6 +3,7 @@ package com.dangdang.domain.reminder.scheduler;
 import com.dangdang.domain.postpartum.service.PostpartumTestNotifier;
 import com.dangdang.domain.reminder.service.DailyReminderPlanner;
 import com.dangdang.domain.reminder.service.ReminderDispatchService;
+import com.dangdang.domain.visit.service.VisitReminderNotifier;
 import lombok.RequiredArgsConstructor;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -20,6 +21,7 @@ public class ReminderScheduler {
     private final ReminderDispatchService reminderDispatchService;
     private final DailyReminderPlanner dailyReminderPlanner;
     private final PostpartumTestNotifier postpartumTestNotifier;
+    private final VisitReminderNotifier visitReminderNotifier;
 
     // 앞 바퀴가 끝나고 30초 뒤에 다음 바퀴 (겹치지 않는다). 테스트는 이 메서드를 직접 부른다
     // 잠금: 다른 서버가 돌고 있으면 이번 바퀴는 건너뛴다. 최소 20초는 잡고 있어서 다른 서버가 바로 또 돌지 않고,
@@ -31,5 +33,6 @@ public class ReminderScheduler {
         reminderDispatchService.dispatchDue();
         reminderDispatchService.renotifyDue();
         postpartumTestNotifier.notifyDue();      // 산후 검사 전날,당일 알림 (오전 9시부터)
+        visitReminderNotifier.notifyDue();       // 진료 전날(저녁 7~10시),당일(아침 7시~밤 10시) 알림
     }
 }

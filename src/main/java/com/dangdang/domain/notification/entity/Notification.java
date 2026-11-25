@@ -67,6 +67,19 @@ public class Notification {
         return n;
     }
 
+    // 진료 전날·당일 알림 (type = VISIT_BEFORE · VISIT_TODAY). body = 「○○산부인과 · 오전 10:00」
+    public static Notification visit(User user, NotificationType type, String title, String body,
+                                     String deepLink, Instant sentAt) {
+        Notification n = new Notification();
+        n.user = user;
+        n.type = type;
+        n.title = title;
+        n.body = body;
+        n.deepLink = deepLink;
+        n.sentAt = sentAt;
+        return n;
+    }
+
     // 처음 읽은 시각만 남긴다
     public void markRead(Instant now) {
         if (this.readAt == null) {
