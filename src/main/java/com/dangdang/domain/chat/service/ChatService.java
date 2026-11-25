@@ -7,9 +7,12 @@ import com.dangdang.domain.chat.entity.ChatMessage;
 import com.dangdang.domain.chat.entity.ChatPayload;
 import com.dangdang.domain.chat.enums.ChatKind;
 import com.dangdang.domain.chat.enums.ChatRole;
+import com.dangdang.domain.chat.enums.ChatUnknownReason;
 import com.dangdang.domain.chat.exception.ChatErrorCode;
 import com.dangdang.domain.chat.infra.ChatClient;
 import com.dangdang.domain.chat.repository.ChatMessageRepository;
+import com.dangdang.domain.pregnancy.enums.PregnancyState;
+import com.dangdang.domain.pregnancy.repository.PregnancyRepository;
 import com.dangdang.domain.user.entity.User;
 import com.dangdang.domain.user.enums.ConsentType;
 import com.dangdang.domain.user.exception.UserErrorCode;
@@ -40,7 +43,7 @@ import java.util.Set;
 public class ChatService {
 
     static final String FAILED_TEXT = "지금은 답을 만들지 못했어요. 잠시 뒤 다시 물어봐 주세요.";
-    static final String UNKNOWN_TEXT = "그 내용은 당당이 가진 자료에 없어요. 다니는 병원에 물어봐 주세요.";
+    static final String UNKNOWN_TEXT = "그 내용은 당당이가 가진 자료에 없어요. 다니는 병원에 물어봐 주세요.";
     static final String CONSENT_TEXT = "내 기록을 보려면 「기록 사용 동의」가 필요해요. 마이 › AI 설정에서 켤 수 있어요.";
     static final String RECORDS_TEXT = "요청하신 기록이에요.";
     // AI에 안 보내는 답 — 다음 질문의 history에도 넣지 않는다 (리뷰 #79)
@@ -48,6 +51,7 @@ public class ChatService {
 
     private final ChatMessageRepository chatMessageRepository;
     private final UserRepository userRepository;
+    private final PregnancyRepository pregnancyRepository;
     private final ConsentService consentService;
     private final AiGuard aiGuard;
     private final ChatClient chatClient;
@@ -62,7 +66,7 @@ public class ChatService {
         // 1) 위험 신호·약 용량: 국외 이전 동의·상한과 상관없이 바로 정해진 안내 (AI로 안 보낸다)
         //    건강정보(SENSITIVE) 동의가 없어도 안내는 돌려준다 — 문서 버전이 올라 재동의가 필요한 사람이 챗봇 화면을 열어 둔 채
         //    「피가 비쳐요」를 보내도 응급 안내를 받아야 해서. 이때는 대화 기록에 남기지 않는다 (id 없이 화면에만)
-        Optional<RiskSignalRules.Hit> hit = RiskSignalRules.match(content);
+        Optional<RiskSignalRules.Hit> hit = RiskSignalRules.match(content, afterBirth(userId));
         if (hit.isPresent()) {
             return ruleAnswer(user, userId, content, hit.get());
         }
@@ -124,10 +128,8 @@ public class ChatService {
 
     // 위험 신호·약 용량 안내. 건강정보 동의가 있으면 질문·답을 남기고, 없으면(또는 저장 직전 철회됐으면) 남기지 않고 화면에만
     private ChatAskResponse ruleAnswer(User user, Long userId, String content, RiskSignalRules.Hit hit) {
-        ChatKind kind = hit.type() == RiskSignalRules.Type.DOSE ? ChatKind.DOSE : ChatKind.RISK;
         ChatMessage question = ChatMessage.question(user, content, clock.instant());
-        ChatMessage answer = ChatMessage.answer(user, kind, hit.text(), ChatPayload.ofActions(hit.actions()),
-                null, null, clock.instant());
+        ChatMessage answer = riskAnswer(user, hit, null, null);
         if (!consentService.isGranted(userId, ConsentType.SENSITIVE)) {
             return pair(question, answer);
         }
@@ -141,8 +143,7 @@ public class ChatService {
                 throw e;
             }
             // 확인과 저장 사이에 철회됨 → 저장은 롤백됐고 안내만 돌려준다. 롤백으로 붙은 id는 화면에 안 내보낸다
-            return pair(ChatMessage.question(user, content, clock.instant()), ChatMessage.answer(user, kind,
-                    hit.text(), ChatPayload.ofActions(hit.actions()), null, null, clock.instant()));
+            return pair(ChatMessage.question(user, content, clock.instant()), riskAnswer(user, hit, null, null));
         }
     }
 
@@ -172,13 +173,43 @@ public class ChatService {
                     ChatPayload.ofDraft(reply.questionDraft()), requestId, pv);
             // 출처가 없거나 글이 비었으면 보여 주지 않는다 (ASK-05, 리뷰 #79: 글 없이 출처만 오면 500이 났음)
             case "INFO" -> reply.sources() == null || reply.sources().isEmpty() || isBlank(reply.text())
-                    ? answerOf(user, ChatKind.UNKNOWN, UNKNOWN_TEXT, null, requestId, pv)
+                    ? answerOf(user, ChatKind.UNKNOWN, UNKNOWN_TEXT,
+                    ChatPayload.ofReason(ChatUnknownReason.NO_SOURCE), requestId, pv)
                     : answerOf(user, ChatKind.INFO, reply.text(), ChatPayload.ofSources(reply.sources().stream()
                     .map(s -> new ChatPayload.Source(s.title(), s.url())).toList()), requestId, pv);
-            case "UNKNOWN" -> answerOf(user, ChatKind.UNKNOWN, textOr(reply.text(), UNKNOWN_TEXT), null,
-                    requestId, pv);
+            case "UNKNOWN" -> unknownAnswer(user, userId, reply, requestId, pv);
             default -> null;
         };
+    }
+
+    // AI가 고른 이유를 화면까지 (버튼 고르기). 위급·마음 위기·폭력이면 키워드로 잡혔을 때와 같은 위급 안내로 바꿔 끼운다
+    // → RISK라서 다음 질문의 AI 기록(history)에도 안 들어간다 (NOT_FOR_AI). 예전 AI(reason 없음)면 NO_SOURCE
+    private ChatMessage unknownAnswer(User user, Long userId, ChatClient.Reply reply, String requestId, String pv) {
+        ChatUnknownReason reason = ChatUnknownReason.from(reply.reason());
+        if (reason.isRisk()) {
+            return riskAnswer(user, RiskSignalRules.forAiReason(reason, afterBirth(userId)), requestId, pv);
+        }
+        return answerOf(user, ChatKind.UNKNOWN, textOr(reply.text(), UNKNOWN_TEXT),
+                ChatPayload.ofReason(reason), requestId, pv);
+    }
+
+    // 위급 안내 한 틀 (제목·본문·빨간 줄·버튼). 약 용량은 틀 없이 버튼만
+    // content에는 본문만 — 제목·빨간 줄은 payload.risk에
+    private ChatMessage riskAnswer(User user, RiskSignalRules.Hit h, String requestId, String promptVersion) {
+        boolean dose = h.type() == RiskSignalRules.Type.DOSE;
+        ChatPayload payload = dose
+                ? ChatPayload.ofActions(h.actions())
+                : ChatPayload.ofRisk(new ChatPayload.Risk(h.type().name(), h.title(), h.warning()), h.actions());
+        return answerOf(user, dose ? ChatKind.DOSE : ChatKind.RISK, h.text(), payload, requestId, promptVersion);
+    }
+
+    // 산후·졸업이면 「태동」 없는 위급 안내 (정해진 안내도 모드를 따라감)
+    // 임신 정보가 없거나 임신 중·입원 중이면 임신 중 문구. 「임신 중·입원 중이 아니면」으로 써서 상태가 늘어도 산후 쪽
+    // PAUSED(다른 상황)는 산후가 아니지만 임신 중인지도 모르니 태동 이야기를 꺼내지 않는 쪽(산후 문구)으로 둔다
+    private boolean afterBirth(Long userId) {
+        return pregnancyRepository.findByUserIdAndStateNot(userId, PregnancyState.ENDED)
+                .map(p -> p.getState() != PregnancyState.PREGNANT && p.getState() != PregnancyState.HOSPITALIZED)
+                .orElseGet(() -> pregnancyRepository.existsByUserIdAndState(userId, PregnancyState.ENDED));
     }
 
     private ChatMessage failed(User user, AiGuard.AiCall call) {

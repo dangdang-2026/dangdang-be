@@ -39,6 +39,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -407,6 +408,65 @@ class VisitNoteOrganizeFlowTest {
         verify(organizeClient, never()).organize(any(), any(), any());
     }
 
+    // ---------- AI로 보내기 전 이름 가리기 (C-11) ----------
+
+    @Test
+    void AI에는_내_이름과_병원_이름과_전화번호를_가려서_보내고_메모_원문은_그대로() throws Exception {
+        careSite(access, "한빛산부인과");
+        long note = createNote(access, visitId, "테스트님 한빛산부인과 진료. 공복 95 미만. 문의 010-1234-5678");
+        given(organizeClient.organize(anyString(), any(), any())).willReturn(EXTRACT);
+
+        organize(access, visitId, note).andExpect(status().isOk());
+
+        verify(organizeClient).organize(anyString(),
+                eq("[이름]님 [병원] 진료. 공복 95 미만. 문의 [전화번호]"), any());   // signupAndLogin의 이름이 「테스트」
+        assertThat(jdbc.queryForObject("SELECT content FROM visit_notes WHERE id = ?", String.class, note))
+                .isEqualTo("테스트님 한빛산부인과 진료. 공복 95 미만. 문의 010-1234-5678");
+    }
+
+    @Test
+    void 길이는_원문으로_재서_가린_글이_길어져도_3000자_메모는_보낸다() throws Exception {
+        long note = createNote(access, visitId, "테스트 ".repeat(750).strip());   // 2999자, 가리면 [이름]이라 더 길어짐
+        given(organizeClient.organize(anyString(), any(), any())).willReturn(EXTRACT);
+
+        organize(access, visitId, note).andExpect(status().isOk());
+        verify(organizeClient).organize(anyString(), eq(("[이름] ".repeat(750)).strip()), any());
+    }
+
+    @Test
+    void 지운_병원_이름도_가린다() throws Exception {   // 지우기 전에 쓴 메모에 이름이 남아 있을 수 있음
+        long site = careSite(access, "한빛산부인과");
+        mvc.perform(delete("/api/care-sites/" + site).cookie(access)).andExpect(status().isOk());
+        long note = createNote(access, visitId, "한빛산부인과 진료");
+        given(organizeClient.organize(anyString(), any(), any())).willReturn(EXTRACT);
+
+        organize(access, visitId, note).andExpect(status().isOk());
+        verify(organizeClient).organize(anyString(), eq("[병원] 진료"), any());
+    }
+
+    @Test
+    void 가린_글에서_옮긴_근거도_메모에_있는_것으로_본다() throws Exception {
+        careSite(access, "한빛산부인과");
+        long note = createNote(access, visitId, "한빛산부인과에서 공복은 95 미만이래요.");
+        given(organizeClient.organize(anyString(), any(), any())).willReturn(new VisitNoteExtract(
+                null, new Field<>(95, "[병원]에서 공복은 95 미만이래요.", ExtractStatus.FOUND),
+                null, null, null, false, "visit-note-v1"));
+
+        organize(access, visitId, note)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.aiExtract.fastingTarget.status").value("FOUND"));
+    }
+
+    @Test
+    void 남의_병원_이름은_안_가린다() throws Exception {
+        careSite(other, "한빛산부인과");
+        long note = createNote(access, visitId, "한빛산부인과 진료");
+        given(organizeClient.organize(anyString(), any(), any())).willReturn(EXTRACT);
+
+        organize(access, visitId, note).andExpect(status().isOk());
+        verify(organizeClient).organize(anyString(), eq("한빛산부인과 진료"), any());
+    }
+
     // ---------- 도우미 ----------
 
     private String usageKey() {
@@ -439,6 +499,14 @@ class VisitNoteOrganizeFlowTest {
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         return ((Number) JsonPath.read(body, "$.data.visitId")).longValue();
+    }
+
+    private long careSite(Cookie who, String name) throws Exception {
+        String body = mvc.perform(post("/api/care-sites").cookie(who).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"" + name + "\",\"department\":\"OBGYN\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return ((Number) JsonPath.read(body, "$.data.careSiteId")).longValue();
     }
 
     private long createNote(Cookie who, long visit, String content) throws Exception {
