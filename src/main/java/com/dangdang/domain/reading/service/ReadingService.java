@@ -147,20 +147,33 @@ public class ReadingService {
         findMine(userId, readingId).delete(clock.instant());
         try {
             readingRepository.flush();   // 동시 수정 충돌을 409로 바꾸려고 트랜잭션 끝나기 전에 씀
+            // 이 혈당이 끝낸 알림은 풀어 줌 (DONE으로 남으면 지운 혈당이 '쟀음'으로 잡혀서). 수정 때 relinkAfterEdit와 같은 규칙
+            reminderService.releaseForDeletedReading(readingId);
         } catch (ObjectOptimisticLockingFailureException e) {
             throw new CustomException(ReadingErrorCode.VERSION_CONFLICT);
         }
     }
 
-    // 되돌리기 (D-08). 지울 때 알림·식사 연결은 안 건드렸으니 deleted_at만 비우면 끝 (editedAt도 그대로 → 「수정됨」 아님)
+    // 되돌리기 (D-08). deleted_at을 비우고 지울 때 푼 알림을 다시 붙임 (editedAt은 그대로 → 「수정됨」 아님)
     // 조건부 UPDATE 한 번이라 동시에 두 번 눌러도 하나만 성공, 나머지는 409
+    // 붙은 식사를 그사이 지웠으면 409 READING_40904 — 지운 식사를 가리키는 혈당이 살아나지 않게 (식사부터 되돌리면 됨)
+    // 그사이 그 끼니를 건너뛰었으면 건너뛴 뒤 잰 것과 같게 처리 (DISMISSED 알림을 DONE으로 붙임, H-05)
     @Transactional
     public ReadingResponse restore(Long userId, Long readingId) {
         sensitiveConsentGuard.require(userId);   // 되살리기도 건강 기록 저장이라 동의가 없으면 403
+        // 붙은 식사 줄부터 잠금 — 식사 지우기·건너뛰기도 같은 줄을 잠가서, 살아 있다고 본 식사가 되돌리는 사이 지워지지 않게
+        Long mealId = readingRepository.findByIdAndUserId(readingId, userId).map(Reading::getMealId).orElse(null);
+        boolean mealAlive = liveMealOf(userId, mealId) != null;
         if (readingRepository.restore(readingId, userId, UndoWindow.since(clock.instant())) == 0) {
             throw restoreFailure(userId, readingId);
         }
+        if (mealId != null && !mealAlive) {
+            throw new CustomException(ReadingErrorCode.MEAL_DELETED);   // 위 되살리기도 트랜잭션째 되돌아감
+        }
         Reading reading = findMine(userId, readingId);   // 벌크 UPDATE가 영속성 컨텍스트를 비워서 DB에서 새로 읽음
+        // 지울 때 releaseForDeletedReading으로 푼 알림을 다시 붙임 (고칠 때와 같은 규칙, 풀면서 SKIPPED·DISMISSED가 된 알림도)
+        reminderService.relinkAfterEdit(userId, reading.getId(), reading.getMealId(), reading.getSlot(),
+                reading.getMeasuredAt());
         return ReadingResponse.of(reading, expectedTimeResolver.expectedAtOf(userId, reading, null));
     }
 
@@ -193,16 +206,18 @@ public class ReadingService {
 
     // mealId를 보냈으면 내 식사 + 삭제 안 된 식사인지 확인하고 돌려줌. 아니면 404 (남의 식사가 있다는 것도 안 알려줌)
     // 안 보냈으면 null
+    // 식사 줄을 잠그고 읽음 — 식사 시작 시각 수정(MealService.update)도 같은 줄을 잠가서,
+    // 식사 시작 확인(READING_40005)과 식사 쪽 확인(MEAL_40008)이 동시에 둘 다 통과하지 않게 함
     private Meal mealIfMine(Long userId, Long mealId) {
         if (mealId == null) {
             return null;
         }
-        return mealRepository.findByIdAndUserIdAndDeletedAtIsNull(mealId, userId)
+        return mealRepository.findMineForUpdate(mealId, userId)
                 .orElseThrow(() -> new CustomException(MealErrorCode.MEAL_NOT_FOUND));
     }
 
-    // 혈당에 붙어 있는 식사 (지웠거나 안 붙었으면 null)
+    // 혈당에 붙어 있는 식사 (지웠거나 안 붙었으면 null). mealIfMine처럼 식사 줄을 잠그고 읽음
     private Meal liveMealOf(Long userId, Long mealId) {
-        return mealId == null ? null : mealRepository.findByIdAndUserIdAndDeletedAtIsNull(mealId, userId).orElse(null);
+        return mealId == null ? null : mealRepository.findMineForUpdate(mealId, userId).orElse(null);
     }
 }
