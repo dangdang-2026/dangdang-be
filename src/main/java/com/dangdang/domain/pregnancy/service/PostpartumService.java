@@ -15,6 +15,7 @@ import com.dangdang.domain.reminder.repository.ReminderRepository;
 import com.dangdang.domain.user.entity.User;
 import com.dangdang.domain.user.exception.UserErrorCode;
 import com.dangdang.domain.user.repository.UserRepository;
+import com.dangdang.domain.user.service.SensitiveConsentGuard;
 import com.dangdang.global.config.ClockConfig;
 import com.dangdang.global.exception.CustomException;
 import lombok.RequiredArgsConstructor;
@@ -40,10 +41,12 @@ public class PostpartumService {
     private final PostpartumTestRepository postpartumTestRepository;
     private final UserRepository userRepository;
     private final Clock clock;
+    private final SensitiveConsentGuard sensitiveConsentGuard;
 
     // E-03 입원했어요 / E-04 다시 켜기
     @Transactional
     public PregnancyStateResponse hospitalization(Long userId, boolean hospitalized) {
+        sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403
         Instant now = clock.instant();
         Pregnancy p = activeOrStart(userId, now);
         int paused = 0;
@@ -66,6 +69,7 @@ public class PostpartumService {
     // E-06 출산일 → 산후 모드. 측정 알림 멈춤, 임신 중 기록은 그대로
     @Transactional
     public PregnancyStateResponse deliver(Long userId, LocalDate deliveryDate) {
+        sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403
         if (deliveryDate.isAfter(today())) {
             throw new CustomException(PregnancyErrorCode.FUTURE_DELIVERY_DATE);
         }
@@ -80,6 +84,7 @@ public class PostpartumService {
     // E-09 나중에 다시 물어보기 — 같은 질문은 하나만 (덮어쓰기)
     @Transactional
     public LocalDate remindLater(Long userId, LocalDate remindOn) {
+        sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403
         if (remindOn.isBefore(today())) {
             throw new CustomException(PregnancyErrorCode.PAST_ASK_DATE);
         }
@@ -105,6 +110,7 @@ public class PostpartumService {
     // E-12 임신 중 관리 졸업 — 산후에서만
     @Transactional
     public GraduationResponse graduate(Long userId) {
+        sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403
         Pregnancy p = postpartum(userId);
         User user = p.getUser();
         Instant now = clock.instant();

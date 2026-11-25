@@ -22,6 +22,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 
+import static com.dangdang.support.TestConsents.grantSensitive;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -57,7 +58,8 @@ class ReadingStatsFlowTest {
     }
 
     private Cookie signupAndLogin(String email) throws Exception {
-        userRepository.save(User.ofEmail(email, "테스트", passwordEncoder.encode("abcd1234"), Instant.now()));
+        grantSensitive(jdbc,
+                userRepository.save(User.ofEmail(email, "테스트", passwordEncoder.encode("abcd1234"), Instant.now())));
         return mvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"" + email + "\",\"password\":\"abcd1234\"}"))
@@ -121,6 +123,35 @@ class ReadingStatsFlowTest {
     }
 
     // ---------- 정상 ----------
+
+    @Test
+    void 분모와_70_미만과_잰_날_수와_처음_기록일이_온다() throws Exception {
+        criteria(access, 95, 140, daysAgo(200));
+        reading(access, 88, "FASTING", daysAgo(3), 7, null, null);
+        reading(access, 97, "FASTING", daysAgo(2), 7, null, null);   // 95 넘음
+        reading(access, 68, "FASTING", daysAgo(1), 7, null, null);   // 70 미만 (목표 안)
+
+        mvc.perform(get("/api/readings/stats").cookie(access).param("slot", "FASTING").param("period", "1W"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.current.count").value(3))
+                .andExpect(jsonPath("$.data.current.judged").value(3))
+                .andExpect(jsonPath("$.data.current.inTarget").value(2))
+                .andExpect(jsonPath("$.data.current.judgedDays").value(3))
+                .andExpect(jsonPath("$.data.current.inTargetDays").value(2))
+                .andExpect(jsonPath("$.data.current.overDays").value(1))
+                .andExpect(jsonPath("$.data.current.belowLow").value(1))
+                .andExpect(jsonPath("$.data.firstRecordDate").value(daysAgo(3).toString()));
+    }
+
+    @Test
+    void 기록이_없으면_처음_기록일은_null이고_분모는_0() throws Exception {
+        mvc.perform(get("/api/readings/stats").cookie(access).param("slot", "FASTING").param("period", "1W"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.firstRecordDate").value((Object) null))
+                .andExpect(jsonPath("$.data.current.judged").value(0))
+                .andExpect(jsonPath("$.data.current.inTargetRate").value((Object) null))
+                .andExpect(jsonPath("$.data.current.belowLow").value(0));
+    }
 
     @Test
     void 식후_1주_통계와_지난주_비교() throws Exception {
@@ -202,16 +233,17 @@ class ReadingStatsFlowTest {
     }
 
     @Test
-    void 놓친_측정은_보냈는데_안_잰_알림만_센다() throws Exception {
+    void 놓친_측정은_보냈거나_건너뛰었는데_안_잰_알림만_센다() throws Exception {
         reminder(jisuId, "LUNCH_AFTER", daysAgo(2), 13, "SENT");     // 놓침
         reminder(jisuId, "DINNER_AFTER", daysAgo(2), 19, "OPENED");  // 열어만 봄 → 놓침
+        reminder(jisuId, "DINNER_AFTER", daysAgo(1), 19, "DISMISSED"); // 「이번 끼니는 건너뛸게요」 → 놓침 (H-05)
         reminder(jisuId, "BREAKFAST_AFTER", daysAgo(1), 9, "DONE");  // 잼 → 안 셈
         reminder(jisuId, "LUNCH_AFTER", daysAgo(1), 13, "SKIPPED");  // 안 보냄 → 안 셈
         reminder(jisuId, "FASTING", daysAgo(1), 7, "SENT");          // 공복 알림 → 식후 통계엔 안 셈
         reminder(jisuId, "LUNCH_AFTER", daysAgo(10), 13, "SENT");    // 지난주 → 이번 주엔 안 셈
 
         mvc.perform(get("/api/readings/stats").cookie(access).param("period", "1W"))
-                .andExpect(jsonPath("$.data.current.missed").value(2));
+                .andExpect(jsonPath("$.data.current.missed").value(3));
         mvc.perform(get("/api/readings/stats").cookie(access).param("slot", "FASTING").param("period", "1W"))
                 .andExpect(jsonPath("$.data.current.missed").value(1));
     }

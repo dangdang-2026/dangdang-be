@@ -67,7 +67,7 @@ class UserRepositoryTest {
     void 탈퇴하면_동의_이력과_알림_설정도_같이_지워진다() {
         User user =
                 userRepository.saveAndFlush(User.ofEmail("a@x.com", "지수", "hash", Instant.now()));
-        consentEventRepository.saveAndFlush(ConsentEvent.of(user, ConsentType.TERMS, "1.0", true));
+        consentEventRepository.saveAndFlush(ConsentEvent.of(user, ConsentType.TERMS, "1.0", true, Instant.now()));
         notificationPreferenceRepository.saveAndFlush(NotificationPreference.defaultsFor(user));
 
         jdbc.update("DELETE FROM users WHERE id = ?", user.getId()); // ON DELETE CASCADE 확인

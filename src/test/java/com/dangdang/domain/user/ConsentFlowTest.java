@@ -66,7 +66,7 @@ class ConsentFlowTest {
         mvc.perform(post("/api/me/consents").cookie(access).contentType(MediaType.APPLICATION_JSON).content(A01))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.completed").value(true))
-                .andExpect(jsonPath("$.data.items.length()").value(8))
+                .andExpect(jsonPath("$.data.items.length()").value(9))
                 .andExpect(jsonPath("$.data.items[?(@.type=='TERMS')].version").value("v1"))
                 .andExpect(jsonPath("$.data.items[?(@.type=='AI_PHOTO')].granted").value(false));
 
@@ -93,6 +93,24 @@ class ConsentFlowTest {
         mvc.perform(get("/api/me/consents").cookie(access))
                 .andExpect(jsonPath("$.data.completed").value(true))
                 .andExpect(jsonPath("$.data.items[?(@.type=='AI_PHOTO')].granted").value(false));
+    }
+
+    @Test
+    void 필수_항목을_예전_버전으로만_동의했으면_다시_물어본다() throws Exception {
+        mvc.perform(post("/api/me/consents").cookie(access).contentType(MediaType.APPLICATION_JSON).content(A01))
+                .andExpect(status().isOk());
+        jdbc.update("UPDATE consent_events SET document_version = 'v0' WHERE consent_type = 'SENSITIVE'");
+        mvc.perform(get("/api/me").cookie(access))
+                .andExpect(jsonPath("$.data.consentCompleted").value(false));
+        // 같은 규칙이라 항목 상태도 꺼진 것으로 보인다
+        mvc.perform(get("/api/me/consents").cookie(access))
+                .andExpect(jsonPath("$.data.items[?(@.type=='SENSITIVE')].granted").value(false))
+                .andExpect(jsonPath("$.data.items[?(@.type=='SENSITIVE')].version").value("v0"))
+                // 거절과 구분: 예전 버전 동의는 다시 물어야 함, 거절(MARKETING)·안 고름(AI_PHOTO)·지금 버전 동의는 아님
+                .andExpect(jsonPath("$.data.items[?(@.type=='SENSITIVE')].needsReconsent").value(true))
+                .andExpect(jsonPath("$.data.items[?(@.type=='MARKETING')].needsReconsent").value(false))
+                .andExpect(jsonPath("$.data.items[?(@.type=='AI_PHOTO')].needsReconsent").value(false))
+                .andExpect(jsonPath("$.data.items[?(@.type=='TERMS')].needsReconsent").value(false));
     }
 
     @Test

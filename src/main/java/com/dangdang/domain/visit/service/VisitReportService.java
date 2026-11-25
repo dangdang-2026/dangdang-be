@@ -18,6 +18,7 @@ import com.dangdang.domain.reminder.repository.ReminderRepository;
 import com.dangdang.domain.user.entity.User;
 import com.dangdang.domain.user.exception.UserErrorCode;
 import com.dangdang.domain.user.repository.UserRepository;
+import com.dangdang.domain.user.service.SensitiveConsentGuard;
 import com.dangdang.domain.visit.dto.request.VisitReportCreateRequest;
 import com.dangdang.domain.visit.dto.response.VisitReportPageResponse;
 import com.dangdang.domain.visit.dto.response.VisitReportResponse;
@@ -39,6 +40,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Slice;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -65,7 +67,7 @@ public class VisitReportService {
     // 한 리포트 기간 최대 길이 (임신 기간 전체 280일 + 여유, 혈당 통계 기간 직접 고르기와 같음)
     static final int MAX_DAYS = 300;
     // 이 값 미만이면 「70 미만」으로 셈
-    private static final int LOW_VALUE = 70;
+    private static final int LOW_VALUE = ReadingEvaluator.LOW_VALUE;
     // 임신 기간 (예정일에서 거꾸로 세는 기준)
     private static final int PREGNANCY_DAYS = 280;
 
@@ -79,6 +81,8 @@ public class VisitReportService {
     private final ReminderRepository reminderRepository;
     private final CriteriaVersionRepository criteriaVersionRepository;
     private final PregnancyRepository pregnancyRepository;
+    private final SensitiveConsentGuard sensitiveConsentGuard;
+    private final TransactionTemplate transactionTemplate;
     private final Clock clock;
 
     private record Period(LocalDate from, LocalDate to) {
@@ -113,10 +117,14 @@ public class VisitReportService {
         if (same.isPresent()) {
             return new VisitReportSaveResponse(same.get().getId(), false);
         }
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
         try {
-            SavedReport saved = savedReportRepository.saveAndFlush(newReport.apply(user));
+            // 저장만 짧은 트랜잭션으로 — 건강정보 동의 확인(잠금)과 저장이 한 트랜잭션이어야 철회와 겹치지 않음
+            SavedReport saved = transactionTemplate.execute(status -> {
+                sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403
+                User user = userRepository.findById(userId)
+                        .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
+                return savedReportRepository.saveAndFlush(newReport.apply(user));
+            });
             return new VisitReportSaveResponse(saved.getId(), true);
         } catch (DataIntegrityViolationException e) {
             // 그사이 같은 리포트가 먼저 저장됨 → 그걸 돌려줌. 그래도 없으면 다른 제약에 걸린 것이라 그대로 던짐
@@ -315,7 +323,7 @@ public class VisitReportService {
         Instant rangeEnd = KoreanTime.endOfDay(to);
         Instant graceEnd = clock.instant().minus(ReadingStatsService.MISSED_GRACE);
         Instant end = rangeEnd.isBefore(graceEnd) ? rangeEnd : graceEnd;
-        return reminderRepository.countByUserIdAndSlotInAndStatusInAndScheduledAtGreaterThanEqualAndScheduledAtLessThan(
+        return reminderRepository.countMissed(
                 userId, List.of(MeasureSlot.values()), ReadingStatsService.MISSED_STATUSES,
                 KoreanTime.startOfDay(from), end);
     }

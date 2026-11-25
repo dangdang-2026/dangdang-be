@@ -13,6 +13,7 @@ import com.dangdang.domain.caresite.repository.HospitalRepository;
 import com.dangdang.domain.user.entity.User;
 import com.dangdang.domain.user.exception.UserErrorCode;
 import com.dangdang.domain.user.repository.UserRepository;
+import com.dangdang.domain.user.service.SensitiveConsentGuard;
 import com.dangdang.global.exception.CustomException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -32,6 +33,7 @@ public class CareSiteService {
     private final HospitalSearchClient hospitalSearchClient;
     private final HospitalRepository hospitalRepository;
     private final Clock clock;
+    private final SensitiveConsentGuard sensitiveConsentGuard;
 
     private static final int MIN_KEYWORD = 2;        // 한 글자면 결과가 너무 많음
     private static final int MAX_KEYWORD = 50;       // 병원 이름 칸 길이와 같음
@@ -43,6 +45,7 @@ public class CareSiteService {
         // 대표로 등록하면 회원 줄을 잠가서 같은 사용자의 대표 지정 요청이 한 번에 하나씩 처리되게 함
         User user = (req.isPrimary() ? userRepository.findByIdForUpdate(userId) : userRepository.findById(userId))
                 .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
+        sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403 (대표면 위에서 이미 더 센 잠금을 잡음)
         if (req.isPrimary()) {
             releasePrimary(userId);
         }
@@ -78,6 +81,7 @@ public class CareSiteService {
             userRepository.findByIdForUpdate(userId)
                     .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
         }
+        sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403 (병원 줄을 읽기 전에)
         CareSite careSite = findMine(userId, careSiteId);
         careSite.update(req.name(), req.department(), req.hiraCode(), req.address(), req.phone(),
                 req.roleNote(), req.sortOrder());

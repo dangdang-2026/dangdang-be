@@ -14,6 +14,7 @@ public record MealResponse(
         boolean startedOffline,
         String note,
         List<MealItemSummaryResponse> items,   // 먹은 음식 (추가한 순서, 지운 항목 빼고, 없으면 [])
+        Instant measureSkippedAt,              // H-05 건너뛴 시각. null = 안 건너뜀 → 히어로가 「시간 지났어요」를 안 띄움
         Instant createdAt,
         Instant updatedAt) {
 
@@ -21,6 +22,6 @@ public record MealResponse(
     public static MealResponse from(Meal m, List<MealItemSummaryResponse> items) {
         return new MealResponse(
                 m.getId(), m.getMealSlot(), m.getStartedAt(), m.isStartedOffline(), m.getNote(),
-                items, m.getCreatedAt(), m.getUpdatedAt());
+                items, m.getMeasureSkippedAt(), m.getCreatedAt(), m.getUpdatedAt());
     }
 }

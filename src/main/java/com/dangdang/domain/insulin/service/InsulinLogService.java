@@ -12,6 +12,7 @@ import com.dangdang.domain.meal.enums.MealSlot;
 import com.dangdang.domain.user.entity.User;
 import com.dangdang.domain.user.exception.UserErrorCode;
 import com.dangdang.domain.user.repository.UserRepository;
+import com.dangdang.domain.user.service.SensitiveConsentGuard;
 import com.dangdang.global.common.KoreanTime;
 import com.dangdang.global.common.QueryParams;
 import com.dangdang.global.exception.CustomException;
@@ -39,11 +40,13 @@ public class InsulinLogService {
 
     private final InsulinLogRepository insulinLogRepository;
     private final UserRepository userRepository;
+    private final SensitiveConsentGuard sensitiveConsentGuard;
     private final Clock clock;
 
     // 등록
     @Transactional
     public InsulinLogResponse create(Long userId, InsulinLogCreateRequest req) {
+        sensitiveConsentGuard.require(userId);   // 건강정보 동의 철회 뒤엔 저장 안 함 (USER_40302)
         checkTakenAt(req.takenAt());
         MealSlot mealSlot = mealSlotFor(req.insulinType(), req.mealSlot(), null);
         User user = userRepository.findById(userId)
@@ -83,6 +86,7 @@ public class InsulinLogService {
         if (req.isEmpty()) {
             throw new CustomException(InsulinErrorCode.NOTHING_TO_UPDATE);
         }
+        sensitiveConsentGuard.require(userId);
         checkTakenAt(req.takenAt());
         InsulinLog log = findMine(userId, insulinLogId);
         InsulinType type = req.insulinType() != null ? req.insulinType() : log.getInsulinType();
