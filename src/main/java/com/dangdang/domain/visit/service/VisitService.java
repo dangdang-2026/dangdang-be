@@ -110,7 +110,10 @@ public class VisitService {
     @Transactional
     public void delete(Long userId, Long visitId) {
         Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);   // DB(TIMESTAMPTZ)와 같은 정밀도
-        findMine(userId, visitId).delete(now);
+        // 줄을 잠그고 읽음 — 진료 알림이 이 일정을 처리하는 중이면 끝날 때까지 기다린 뒤 지움 (수정과 같은 순서)
+        visitRepository.findMineForUpdate(visitId, userId)
+                .orElseThrow(() -> new CustomException(VisitErrorCode.VISIT_NOT_FOUND))
+                .delete(now);
         visitQuestionRepository.deleteAllOfVisit(visitId, now);
         visitNoteRepository.deleteAllOfVisit(visitId, now);
     }

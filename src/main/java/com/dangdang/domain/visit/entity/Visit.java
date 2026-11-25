@@ -1,6 +1,7 @@
 package com.dangdang.domain.visit.entity;
 
 import com.dangdang.domain.user.entity.User;
+import com.dangdang.global.common.KoreanTime;
 import com.dangdang.global.common.BaseTimeEntity;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
@@ -9,6 +10,7 @@ import lombok.NoArgsConstructor;
 import org.hibernate.annotations.DynamicUpdate;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.Objects;
 
@@ -54,15 +56,20 @@ public class Visit extends BaseTimeEntity {
     }
 
     // 진료 날짜 바꾸기 (null이면 날짜 미정으로)
-    // 날짜가 실제로 바뀌면 보낸 알림 기록을 비워서 새 날짜 기준으로 전날·당일 알림을 다시 보냄
-    // DB(TIMESTAMPTZ)는 마이크로초까지만 저장해서, 나노초까지 비교하면 같은 시각을 다시 보내도 「바뀜」으로 봄 → 먼저 자름
+    // 한국 날짜가 바뀌면 보낸 알림 기록을 비워서 새 날짜 기준으로 전날·당일 알림을 다시 보냄
+    // 같은 날 안에서 시각만 바꾸면 그대로 둠 (「내일 진료가 있어요」를 또 보내지 않게)
     public void changeVisitAt(Instant visitAt) {
-        visitAt = visitAt == null ? null : visitAt.truncatedTo(ChronoUnit.MICROS);
-        if (!Objects.equals(this.visitAt, visitAt)) {
+        visitAt = visitAt == null ? null : visitAt.truncatedTo(ChronoUnit.MICROS);   // DB와 같은 정밀도
+        if (!Objects.equals(dateOf(this.visitAt), dateOf(visitAt))) {
             this.dayBeforeSentAt = null;
             this.sameDaySentAt = null;
         }
         this.visitAt = visitAt;
+    }
+
+    // 진료의 한국 날짜 (날짜 미정이면 null)
+    private static LocalDate dateOf(Instant at) {
+        return at == null ? null : KoreanTime.dateOf(at);
     }
 
     // 삭제 (soft delete). 줄을 지우지 않고 지운 시각만 적어 둠. 질문·메모는 VisitService.delete에서 같이 지움

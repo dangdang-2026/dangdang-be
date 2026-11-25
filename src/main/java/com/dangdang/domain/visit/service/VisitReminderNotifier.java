@@ -59,7 +59,7 @@ public class VisitReminderNotifier {
     private int handle(Visit visit, boolean dayBefore, Instant now) {
         Long userId = visit.getUser().getId();
         try {
-            PushMessage push = recorder.claimAndRecord(visit.getId(), visit.getVisitAt(), dayBefore, now);
+            PushMessage push = recorder.claimAndRecord(userId, visit.getId(), visit.getVisitAt(), dayBefore, now);
             if (push == null) {
                 return 0;
             }

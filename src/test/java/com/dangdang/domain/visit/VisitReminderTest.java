@@ -142,14 +142,22 @@ class VisitReminderTest extends ReminderTestBase {
         notifier.notifyDue();
         assertThat(fakeSender.sent).hasSize(1);
 
-        // 같은 날 다른 시각으로 바꾸면 전날 알림을 새로 보냄
+        // 같은 날 안에서 시각만 바꾸면 다시 안 보냄
         mvc.perform(patch("/api/visits/" + visitId).cookie(jisu).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"visitAt\":\"2026-11-10T11:30:00+09:00\"}"))
                 .andExpect(status().isOk());
         notifier.notifyDue();
+        assertThat(fakeSender.sent).hasSize(1);
+
+        // 다른 날로 옮기면 새 날짜의 전날(11/10 저녁)에 다시 보냄
+        mvc.perform(patch("/api/visits/" + visitId).cookie(jisu).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"visitAt\":\"2026-11-11T09:00:00+09:00\"}"))
+                .andExpect(status().isOk());
+        clock.set(KST_1900_NOV9.plus(java.time.Duration.ofDays(1)));
+        notifier.notifyDue();
         assertThat(fakeSender.sent).hasSize(2);
         assertThat(jdbc.queryForList("SELECT body FROM notifications ORDER BY id", String.class))
-                .containsExactly("당당산부인과 · 오전 10:00", "오전 11:30");
+                .containsExactly("당당산부인과 · 오전 10:00", "오전 9:00");
     }
 
     // ---------- 도우미 ----------

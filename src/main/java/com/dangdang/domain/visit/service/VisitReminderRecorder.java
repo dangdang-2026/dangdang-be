@@ -8,6 +8,7 @@ import com.dangdang.domain.notification.service.NotificationService;
 import com.dangdang.domain.push.infra.PushMessage;
 import com.dangdang.domain.user.entity.NotificationPreference;
 import com.dangdang.domain.user.repository.NotificationPreferenceRepository;
+import com.dangdang.domain.user.repository.UserRepository;
 import com.dangdang.domain.visit.entity.Visit;
 import com.dangdang.domain.visit.repository.VisitRepository;
 import com.dangdang.global.config.ClockConfig;
@@ -27,6 +28,7 @@ public class VisitReminderRecorder {
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("a h:mm", Locale.KOREAN);   // 「오전 10:00」
 
     private final VisitRepository visitRepository;
+    private final UserRepository userRepository;
     private final CareSiteRepository careSiteRepository;
     private final NotificationPreferenceRepository notificationPreferenceRepository;
     private final NotificationService notificationService;
@@ -37,7 +39,11 @@ public class VisitReminderRecorder {
     // - 읽은 뒤에 날짜가 바뀌었거나 지워졌거나 이미 처리했으면 null (안 보냄)
     // - 「진료·검사 알림」을 끈 사람은 처리함으로만 적고 null (다시 안 봄)
     @Transactional
-    public PushMessage claimAndRecord(Long visitId, Instant visitAt, boolean dayBefore, Instant now) {
+    public PushMessage claimAndRecord(Long userId, Long visitId, Instant visitAt, boolean dayBefore, Instant now) {
+        // 회원 줄을 먼저 잡음 (탈퇴와 같은 순서: 회원 → 일정). 이미 탈퇴했으면 안 보냄
+        if (userRepository.lockForKeyShare(userId).isEmpty()) {
+            return null;
+        }
         int claimed = dayBefore
                 ? visitRepository.claimDayBefore(visitId, visitAt, now)
                 : visitRepository.claimSameDay(visitId, visitAt, now);
@@ -45,7 +51,6 @@ public class VisitReminderRecorder {
             return null;
         }
         Visit visit = visitRepository.findById(visitId).orElseThrow();   // 잠근 줄이라 방금 확인한 그 상태
-        Long userId = visit.getUser().getId();
         boolean enabled = notificationPreferenceRepository.findByUserId(userId)
                 .map(NotificationPreference::isScheduleEnabled).orElse(true);   // 「진료·검사 알림」 설정 (M-04)
         if (!enabled) {

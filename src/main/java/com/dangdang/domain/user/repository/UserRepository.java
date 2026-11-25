@@ -25,6 +25,11 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Query("select u from User u where u.id = :id")
     Optional<User> findByIdForUpdate(@Param("id") Long id);
 
+    // 이 사람 줄에 가장 약한 잠금(FOR KEY SHARE)만 걸기: 같이 읽거나 고치는 건 막지 않고, 탈퇴(줄 지우기)만 기다리게 함
+    // 진료 알림이 일정 줄보다 먼저 잡아서 탈퇴와 잠그는 순서(회원 → 일정)를 맞춤 → 서로 막는 데드락이 안 생김
+    @Query(value = "SELECT id FROM users WHERE id = :id FOR KEY SHARE", nativeQuery = true)
+    Optional<Long> lockForKeyShare(@Param("id") Long id);
+
     // 이메일 필수 전(11/24)에 카카오로 가입해 이메일이 빈 계정 → 카카오가 인증한 이메일로 채운다 (한 줄 UPDATE)
     // 다른 계정이 그 이메일을 쓰면(대소문자 무시) 안 채운다 (합치지 않는다, AUTH-05). 채웠으면 1, 아니면 0
     // 확인과 쓰기가 한 문장이라 「없는 줄 알았는데 커밋 때 ux_users_email에 걸려 500」이 없다
