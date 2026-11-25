@@ -71,7 +71,8 @@ public interface ReminderRepository extends JpaRepository<Reminder, Long> {
             """)
     List<Reminder> findDue(ReminderStatus status, Instant now, Limit limit);
 
-    // 10분 뒤 한 번 더 보낼 후보 — 설정을 끈 사람과 직접 미룬 알림은 뺀다
+    // 10분 뒤 한 번 더 보낼 후보 — 설정을 끈 사람과 직접 미룬 알림, 지운 식사의 알림은 뺀다
+    // (식사를 지우면 안 보낸 알림만 취소돼서, 이미 보낸 알림은 SENT로 남아 지운 식사에 「잴 시간이에요」가 다시 가므로)
     @Query("""
             SELECT r FROM Reminder r
             WHERE r.status = com.dangdang.domain.reminder.enums.ReminderStatus.SENT
@@ -79,6 +80,8 @@ public interface ReminderRepository extends JpaRepository<Reminder, Long> {
               AND r.snoozedUntil IS NULL
               AND r.sentAt <= :sentBefore
               AND r.sentAt > :tooOld
+              AND (r.mealId IS NULL
+                   OR EXISTS (SELECT 1 FROM Meal m WHERE m.id = r.mealId AND m.deletedAt IS NULL))
               AND NOT EXISTS (
                   SELECT 1 FROM NotificationPreference p
                   WHERE p.user = r.user AND (p.renotifyEnabled = false OR p.measurementEnabled = false))
@@ -126,12 +129,15 @@ public interface ReminderRepository extends JpaRepository<Reminder, Long> {
     int claimDue(Long id, Instant now, Instant until);
 
     // 재알림을 보내기 직전에 잡는다 — 보낸 상태이고, 아직 재알림 전이고, 아무도 안 잡았을 때만 1
+    // 후보로 고른 뒤 식사를 지웠으면 여기서 0 (findRenotifyDue와 같은 살아 있는 식사 조건)
     @Modifying
     @Query("""
             UPDATE Reminder r SET r.claimedUntil = :until
             WHERE r.id = :id
               AND r.status = com.dangdang.domain.reminder.enums.ReminderStatus.SENT
               AND r.renotified = false
+              AND (r.mealId IS NULL
+                   OR EXISTS (SELECT 1 FROM Meal m WHERE m.id = r.mealId AND m.deletedAt IS NULL))
               AND (r.claimedUntil IS NULL OR r.claimedUntil < :now)
             """)
     int claimRenotify(Long id, Instant now, Instant until);
