@@ -22,6 +22,7 @@ import com.dangdang.global.common.KoreanTime;
 import com.dangdang.global.common.QueryParams;
 import com.dangdang.global.exception.CustomException;
 import com.dangdang.global.exception.GlobalErrorCode;
+import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -46,6 +47,7 @@ public class VisitService {
     private final VisitNoteRepository visitNoteRepository;
     private final Clock clock;
     private final SensitiveConsentGuard sensitiveConsentGuard;
+    private final EntityManager entityManager;
 
     // 진료 날짜로 받을 수 있는 범위: 한국 기준 2000-01-01 0시 이상 ~ 2101-01-01 0시 미만 (QueryParams와 같은 연도)
     private static final Instant MIN_VISIT_AT = KoreanTime.startOfDay(LocalDate.of(QueryParams.MIN_YEAR, 1, 1));
@@ -105,12 +107,19 @@ public class VisitService {
         // 병원 줄을 잡은 뒤, 값을 바꾸기 전에 일정 줄을 FOR UPDATE로 잠그고 다시 본다 (잠금 순서 care_sites → visits)
         // 위에서 읽은 일정은 잠그지 않은 값이라, 그사이 병원 지우기가 이 일정을 지웠으면 여기서 404 (지운 일정을 되살리지 않게)
         lockMine(userId, visitId);
+        // 이미 읽어 둔 엔티티는 잠금 조회로 값이 다시 채워지지 않아서, 잠근 줄의 최신 값(진료 날짜 등)으로 새로 읽음
+        // → 「한국 날짜가 바뀌었나」를 다른 기기가 막 바꾼 날짜 기준으로 판단 (아직 바꾼 값이 없어서 버릴 것도 없음)
+        entityManager.refresh(visit);
         if (changesCareSite) {
             visit.changeCareSite(req.getCareSiteId());
         }
         if (req.isVisitAtSent()) {
             checkVisitAt(req.getVisitAt());
-            visit.changeVisitAt(req.getVisitAt());
+            if (visit.changeVisitAt(req.getVisitAt())) {
+                // 한국 날짜가 바뀌면 진료 알림 보낸 기록을 DB에서 직접 비움 (일정 줄은 위에서 잠갔음)
+                // 처음 읽은 일정은 잠그기 전 값이라 보낸 시각이 옛 값(null)일 수 있어서, 엔티티 값만 바꾸면 안 쓰일 수 있음
+                visitRepository.clearReminderSent(visitId);
+            }
         }
         // 변경 감지로 트랜잭션 끝날 때 반영되지만, 응답에 새 updatedAt을 담으려고 먼저 DB에 씀
         visitRepository.flush();
@@ -123,7 +132,10 @@ public class VisitService {
     @Transactional
     public void delete(Long userId, Long visitId) {
         Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);   // DB(TIMESTAMPTZ)와 같은 정밀도
-        findMine(userId, visitId).delete(now);
+        // 줄을 잠그고 읽음 — 진료 알림이 이 일정을 처리하는 중이면 끝날 때까지 기다린 뒤 지움 (수정과 같은 순서)
+        visitRepository.findMineForUpdate(visitId, userId)
+                .orElseThrow(() -> new CustomException(VisitErrorCode.VISIT_NOT_FOUND))
+                .delete(now);
         visitQuestionRepository.deleteAllOfVisit(visitId, now);
         visitNoteRepository.deleteAllOfVisit(visitId, now);
     }
