@@ -1,5 +1,8 @@
 package com.dangdang.domain.visit.service;
 
+import com.dangdang.domain.user.enums.ConsentType;
+import com.dangdang.domain.user.exception.UserErrorCode;
+import com.dangdang.domain.user.service.ConsentService;
 import com.dangdang.domain.user.service.SensitiveConsentGuard;
 import com.dangdang.domain.visit.dto.response.VisitNoteOrganizeResponse;
 import com.dangdang.domain.visit.entity.Visit;
@@ -36,6 +39,7 @@ public class VisitNoteOrganizeService {
     private final AiGuard aiGuard;
     private final TransactionTemplate transactionTemplate;
     private final SensitiveConsentGuard sensitiveConsentGuard;
+    private final ConsentService consentService;
     private final Clock clock;
 
     public VisitNoteOrganizeResponse organize(Long userId, Long visitId, Long noteId) {
@@ -57,6 +61,12 @@ public class VisitNoteOrganizeService {
         // 진료일: "2주 뒤 금요일"을 날짜로 바꿀 때 기준. 날짜 미정 일정이면 오늘 (메모는 보통 진료 당일·다음 날 씀)
         // 오늘도 한국 날짜로 (시계 설정의 시간대와 상관없이, AiGuard와 같은 방식)
         LocalDate visitDate = KoreanTime.dateOf(visit.getVisitAt() != null ? visit.getVisitAt() : clock.instant());
+
+        // 건강정보(SENSITIVE) 동의가 없으면 메모를 AI(국외)로 보내기 전에 403 USER_40302 (재동의 필요 상태 포함)
+        // AI 횟수도 쓰지 않는다. 저장할 때 잠그고 한 번 더 본다 (AI를 기다리는 사이 철회했을 수 있어서)
+        if (!consentService.isGranted(userId, ConsentType.SENSITIVE)) {
+            throw new CustomException(UserErrorCode.SENSITIVE_CONSENT_REQUIRED);
+        }
 
         // 2) 문지기 — 국외 이전 동의가 없으면 403 AI_40301, 오늘 10번을 넘으면 429 AI_42901
         AiGuard.AiCall call = aiGuard.begin(userId, AiFeature.VISIT_NOTE);

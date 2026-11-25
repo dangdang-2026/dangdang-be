@@ -151,6 +151,26 @@ class CommunityAnonymityFlowTest extends ReminderTestBase {
     }
 
     @Test
+    void 예전에_이름으로_막은_줄은_마이그레이션_뒤_익명_글도_가리고_목록에_익명_사용자_줄이_생긴다() throws Exception {
+        String anon = write(jisu, true);
+        String named = write(jisu, false);
+        // 이번 PR 전에 쌓인 모양: 이름 줄 하나 (예전엔 이걸로 익명 글까지 가렸다)
+        postJson(minji, "/api/blocks", "{\"blockedProfileId\":\"" + myProfileId(jisu) + "\"}").andExpect(status().isOk());
+        mvc.perform(get("/api/posts/" + anon).cookie(minji)).andExpect(status().isOk());
+
+        jdbc.update(migrationStatement("INSERT", "SELECT profile_id, blocked_profile_id, true"));   // V20261124_95 그대로
+        jdbc.update(migrationStatement("INSERT", "SELECT profile_id, blocked_profile_id, true"));   // 다시 돌려도 줄이 안 늘어난다
+
+        mvc.perform(get("/api/posts/" + anon).cookie(minji)).andExpect(status().isNotFound());
+        mvc.perform(get("/api/posts/" + named).cookie(minji)).andExpect(status().isNotFound());
+        mvc.perform(get("/api/blocks").cookie(minji))
+                .andExpect(jsonPath("$.data.items.length()").value(2))
+                .andExpect(jsonPath("$.data.items[0].nickname").value("익명 사용자"))
+                .andExpect(jsonPath("$.data.items[0].anonymous").value(true))
+                .andExpect(jsonPath("$.data.items[1].nickname").value("말랑한 두부"));
+    }
+
+    @Test
     void 익명으로_막은_줄은_blockId로만_풀고_남의_줄은_못_푼다() throws Exception {
         String anon = write(jisu, true);
         postJson(minji, "/api/blocks", "{\"postId\":\"" + anon + "\"}").andExpect(status().isOk());
@@ -224,6 +244,31 @@ class CommunityAnonymityFlowTest extends ReminderTestBase {
         assertThat(jdbc.queryForObject("SELECT count(*) FROM profile_blocks", Long.class)).isZero();
     }
 
+    @Test
+    void 지우거나_가린_댓글의_답글로는_막을_수_없다() throws Exception {
+        String postId = write(minji, false);
+        String hiddenParent = comment(hana, postId, false);
+        String deletedParent = comment(hana, postId, false);
+        String replyOnHidden = reply(jisu, postId, hiddenParent);
+        String replyOnDeleted = reply(jisu, postId, deletedParent);
+        jdbc.update("UPDATE comments SET hidden_reason = 'MEDICATION' WHERE id = ?", Long.valueOf(hiddenParent));
+        jdbc.update("UPDATE comments SET deleted_at = now() WHERE id = ?", Long.valueOf(deletedParent));
+
+        for (String c : List.of(replyOnHidden, replyOnDeleted)) {   // 댓글 목록에서 같이 빠지는 답글
+            postJson(minji, "/api/blocks", "{\"commentId\":\"" + c + "\"}")
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.errorCode").value("COMMUNITY_40402"));
+        }
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM profile_blocks", Long.class)).isZero();
+    }
+
+    private String reply(Cookie who, String postId, String parentId) throws Exception {
+        String res = postJson(who, "/api/posts/" + postId + "/comments",
+                "{\"content\":\"답글\",\"isAnonymous\":false,\"parentId\":\"" + parentId + "\"}")
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        return JsonPath.read(res, "$.data.id");
+    }
+
     // ── B ──
     @Test
     void 익명_글의_글쓴이가_단_댓글은_이름을_골라도_익명이고_글쓴이_라벨() throws Exception {
@@ -261,10 +306,15 @@ class CommunityAnonymityFlowTest extends ReminderTestBase {
 
     // 마이그레이션 파일에서 marker가 든 UPDATE 문 하나를 꺼낸다
     private String migrationStatement(String marker) throws Exception {
+        return migrationStatement("UPDATE", marker);
+    }
+
+    // keyword(UPDATE·INSERT)로 시작하는 문 하나
+    private String migrationStatement(String keyword, String marker) throws Exception {
         String sql = new String(getClass().getResourceAsStream("/db/migration/V20261124_95__community_anonymity.sql")
                 .readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
         int at = sql.indexOf(marker);
-        int start = sql.lastIndexOf("UPDATE", at);
+        int start = sql.lastIndexOf(keyword, at);
         return sql.substring(start, sql.indexOf(';', at));
     }
 
@@ -436,6 +486,25 @@ class CommunityAnonymityFlowTest extends ReminderTestBase {
                 .andExpect(status().isOk());
     }
 
+    @Test
+    void 예전_두_칸_닉네임은_마이그레이션_뒤_한_칸이고_겹치면_프로필_번호가_붙는다() throws Exception {
+        Long minjiProfile = Long.valueOf(myProfileId(minji));
+        Long hanaProfile = Long.valueOf(myProfileId(hana));
+        // 이번 PR 전에 쌓인 모양: 두 칸 닉네임 (민지는 한 칸으로 바꾸면 지수 「말랑한 두부」와 같아진다)
+        jdbc.update("UPDATE community_profiles SET nickname = '말랑한  두부' WHERE id = ?", minjiProfile);
+        jdbc.update("UPDATE community_profiles SET nickname = '새콤한   자두' WHERE id = ?", hanaProfile);
+
+        jdbc.update(migrationStatement("AND cp.id = (SELECT min(o.id)"));   // V20261124_95의 닉네임 정리 그대로
+        jdbc.update(migrationStatement("|| cp.id\nWHERE"));
+
+        assertThat(jdbc.queryForObject("SELECT nickname FROM community_profiles WHERE id = ?", String.class,
+                hanaProfile)).isEqualTo("새콤한 자두");
+        assertThat(jdbc.queryForObject("SELECT nickname FROM community_profiles WHERE id = ?", String.class,
+                minjiProfile)).isEqualTo("말랑한 두부" + minjiProfile);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM community_profiles WHERE nickname LIKE '%  %'",
+                Long.class)).isZero();
+    }
+
     // ── K ──
     @Test
     void 검색_인기순은_ALL이면_오래된_글도_나온다() throws Exception {
@@ -446,6 +515,14 @@ class CommunityAnonymityFlowTest extends ReminderTestBase {
         mvc.perform(get("/api/posts").param("sort", "POPULAR").param("period", "ALL").param("q", "제목").cookie(minji))
                 .andExpect(jsonPath("$.data.items.length()").value(1));
         mvc.perform(get("/api/posts").param("sort", "POPULAR").param("period", "ALL").cookie(minji))   // 검색어 없이 전체는 안 된다
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("GLOBAL_40001"));
+        mvc.perform(get("/api/posts").param("sort", "POPULAR").param("period", "ALL").param("q", "제")
+                        .cookie(minji))   // 한 글자는 거의 모든 글과 맞아서 전체 점수 매기기와 같다
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("GLOBAL_40001"));
+        mvc.perform(get("/api/posts").param("sort", "LATEST").param("period", "ALL").param("q", "제목")
+                        .cookie(minji))   // 최신순에 기간은 조용히 무시하지 않고 400
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errorCode").value("GLOBAL_40001"));
     }

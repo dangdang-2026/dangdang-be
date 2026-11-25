@@ -55,6 +55,7 @@ public class PostService {
 
     private static final Sort LATEST = Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
     static final int POPULAR_MAX = 50;          // 인기 게시판은 한 번에 50개 (size 무시, 다음 페이지 없음)
+    private static final int ALL_PERIOD_MIN_QUERY = 2;   // period=ALL 검색어 최소 글자 수
     private static final List<PostCategory> LATEST_ONLY_CATEGORIES =
             List.of(PostCategory.MEAL, PostCategory.VISIT, PostCategory.NEWS);
 
@@ -78,6 +79,9 @@ public class PostService {
         Long myProfileId = profileService.findMyProfileId(userId).orElse(null);
         if (sort == PostSort.POPULAR) {
             return popular(category, who, period, q, myProfileId);
+        }
+        if (period == PopularPeriod.ALL) {   // 기간은 인기순에만 — 최신순에 ALL을 보내면 조용히 무시하지 않고 알려 준다
+            throw new CustomException(GlobalErrorCode.INVALID_INPUT, "period는 sort=POPULAR일 때만 보내 주세요.");
         }
         String filter = category + "|" + q + "|" + who;
         TimeCursor cursor = rawCursor == null ? null
@@ -239,8 +243,9 @@ public class PostService {
         if (category != null && LATEST_ONLY_CATEGORIES.contains(category)) {
             throw new CustomException(PostErrorCode.LATEST_ONLY);
         }
-        if (period == PopularPeriod.ALL && q == null) {   // 기간 없이 전체 글 점수를 매기지 않게 — 검색 결과에서만
-            throw new CustomException(GlobalErrorCode.INVALID_INPUT, "period=ALL은 검색어(q)와 같이 보내 주세요.");
+        // 기간 없이 전체 글 점수를 매기지 않게 — 검색 결과에서만, 한 글자 검색어는 거의 모든 글과 맞으니 두 글자부터
+        if (period == PopularPeriod.ALL && (q == null || q.codePointCount(0, q.length()) < ALL_PERIOD_MIN_QUERY)) {
+            throw new CustomException(GlobalErrorCode.INVALID_INPUT, "period=ALL은 두 글자 이상 검색어(q)와 같이 보내 주세요.");
         }
         Specification<Post> filter = PostSpecifications.feed(category, q, null, myProfileId, who)
                 .and((root, query, cb) -> root.get("category").in(LATEST_ONLY_CATEGORIES).not());
