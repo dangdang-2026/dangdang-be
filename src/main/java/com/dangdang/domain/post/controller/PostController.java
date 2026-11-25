@@ -62,7 +62,7 @@ public class PostController {
             description =
                     """
                     **Parameters** category, title(100자), content(5000자), isAnonymous(선택), poll(선택, 2~5개),
-                    postedDespite(선택, 올리기 전 확인에서 보고도 올린 kind 최대 4개 → 글은 바로 보이고 운영자 처리함에 들어감)
+                    postedDespite(선택, 올리기 전 확인에서 보고도 올린 kind 최대 4개. 같은 내용으로 30분 안에 확인해 실제로 걸린 것만 운영자 처리함에, 글은 바로 보임)
                     **Returns** 저장된 글. 프로필 없음 COMMUNITY_40401, NEWS는 POST_40301, postedDespite 모양이 틀리면 GLOBAL_40001
                     """)
     @PostMapping
