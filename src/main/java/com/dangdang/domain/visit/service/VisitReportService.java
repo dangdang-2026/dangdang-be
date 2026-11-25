@@ -6,6 +6,7 @@ import com.dangdang.domain.caresite.repository.CareSiteRepository;
 import com.dangdang.domain.criteria.entity.CriteriaVersion;
 import com.dangdang.domain.criteria.enums.MeasureSlot;
 import com.dangdang.domain.criteria.repository.CriteriaVersionRepository;
+import com.dangdang.domain.insulin.repository.InsulinLogRepository;
 import com.dangdang.domain.pregnancy.entity.Pregnancy;
 import com.dangdang.domain.pregnancy.enums.PregnancyState;
 import com.dangdang.domain.pregnancy.repository.PregnancyRepository;
@@ -80,6 +81,7 @@ public class VisitReportService {
     private final UserRepository userRepository;
     private final CareSiteRepository careSiteRepository;
     private final ReadingRepository readingRepository;
+    private final InsulinLogRepository insulinLogRepository;
     private final ExpectedTimeResolver expectedTimeResolver;
     private final ReminderRepository reminderRepository;
     private final CriteriaVersionRepository criteriaVersionRepository;
@@ -284,8 +286,9 @@ public class VisitReportService {
         LocalDate to = period.to();
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
-        List<Reading> readings = readingRepository.findAllInRange(userId,
-                KoreanTime.startOfDay(from), KoreanTime.endOfDay(to));
+        Instant start = KoreanTime.startOfDay(from);
+        Instant end = KoreanTime.endOfDay(to);
+        List<Reading> readings = readingRepository.findAllInRange(userId, start, end);
         // 식후 혈당마다 재야 할 시각 (오늘 화면·기록 목록과 같은 규칙, 알림·식사·병원 기준을 한 번씩만 읽음)
         // 리포트는 식사를 따로 안 읽어서 List.of() → 식후 혈당이 붙은 식사만 한 번에 찾음
         Map<Long, Instant> expectedAt = expectedTimeResolver.expectedAtByReading(userId, readings, List.of());
@@ -310,6 +313,9 @@ public class VisitReportService {
                 missed.stream()
                         .map(m -> new VisitReportResponse.MissedCell(KoreanTime.dateOf(m.cellAt()), m.getSlot()))
                         .toList(),
+                // 인슐린은 맞은 그대로만 (summary·slots엔 안 섞음)
+                insulinLogRepository.findAllInRange(userId, start, end).stream()
+                        .map(VisitReportResponse.InsulinRow::of).toList(),
                 visit == null ? null : visitQuestionRepository.countByVisitIdAndDeletedAtIsNull(visit.getId()));
     }
 
