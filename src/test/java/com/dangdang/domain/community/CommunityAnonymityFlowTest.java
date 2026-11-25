@@ -492,5 +492,13 @@ class CommunityAnonymityFlowTest extends ReminderTestBase {
         mvc.perform(get("/api/posts").param("sort", "POPULAR").param("period", "ALL").cookie(minji))   // 검색어 없이 전체는 안 된다
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errorCode").value("GLOBAL_40001"));
+        mvc.perform(get("/api/posts").param("sort", "POPULAR").param("period", "ALL").param("q", "제")
+                        .cookie(minji))   // 한 글자는 거의 모든 글과 맞아서 전체 점수 매기기와 같다
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("GLOBAL_40001"));
+        mvc.perform(get("/api/posts").param("sort", "LATEST").param("period", "ALL").param("q", "제목")
+                        .cookie(minji))   // 최신순에 기간은 조용히 무시하지 않고 400
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("GLOBAL_40001"));
     }
 }
