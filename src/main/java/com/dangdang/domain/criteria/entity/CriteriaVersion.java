@@ -50,6 +50,9 @@ public class CriteriaVersion {
     @Column(nullable = false, updatable = false)
     private Instant createdAt;               // 저장한 순간
 
+    @Column(nullable = false, updatable = false)
+    private boolean autoEmpty;               // true = 기준 없는 날짜에 혈당을 저장해서 서버가 만든 빈 기준 (사용자가 칸을 다 비워 등록한 기준은 false)
+
     public static CriteriaVersion of(User user, Integer postMealMinutes, List<MeasureSlot> measureSlots,
                                      Integer fastingTarget, Integer postMealTarget, String sourceNote,
                                      LocalDate effectiveFrom, Instant now) {
@@ -65,15 +68,10 @@ public class CriteriaVersion {
         return c;
     }
 
-    // 기준이 하나도 없는 사람용 "빈 기준" (목표·시간 다 비움)
+    // 기준이 하나도 없는 사람용 "빈 기준" (목표·시간 다 비움). autoEmpty로 표시해서 사용자가 다 비워 등록한 기준과 구분
     public static CriteriaVersion empty(User user, LocalDate today, Instant now) {
-        return of(user, null, null, null, null, null, today, now);
-    }
-
-    // 「빈 기준」인지 (목표·식후 시간·잴 때·메모가 다 비었음). 혈당을 기준 없는 날짜에 저장할 때 empty()로 생긴 줄
-    // 사용자가 칸을 다 비워 등록한 기준도 같은 모양이라 같이 빈 기준으로 봄 (판정에 쓸 값이 없는 것은 같음)
-    public boolean isEmpty() {
-        return postMealMinutes == null && (measureSlots == null || measureSlots.isEmpty())
-                && fastingTarget == null && postMealTarget == null && sourceNote == null;
+        CriteriaVersion c = of(user, null, null, null, null, null, today, now);
+        c.autoEmpty = true;
+        return c;
     }
 }

@@ -63,9 +63,9 @@ public class CriteriaService {
     // 적용일 0시 ~ 다음 진짜 기준 시작 전(없으면 끝까지)에 잰 기록(지운 것 포함)을 새 기준으로
     // 오늘·미래부터 적용이면 부르지 않음: 오늘 진료 전에 잰 기록은 그때 기준 그대로 (C-10 「지난 기록은 그때 기준으로」)
     // 같은 적용일 기준이 이미 있으면 새 것이 이김 (지금 기준 찾기의 「적용일 늦은 순 → id 큰 순」과 같은 규칙)
-    // 빈 기준(기준 없는 날짜에 혈당을 저장해서 생긴 줄)은 「다음 기준」으로 치지 않고, 다시 붙인 뒤 이 기간 안의 것은 지움
-    // → 안 지우면 적용일이 더 늦은 빈 기준이 지금 기준·새 혈당 판정에서 새 기준을 이김
-    // 다시 붙인 뒤에도 혈당이 가리키는 빈 기준(오늘 기준을 적기 전 오늘 잰 혈당 등)은 남김
+    // 서버가 만든 빈 기준(autoEmpty)은 「다음 기준」으로 치지 않고, 다시 붙인 뒤 이 기간 안의 것은 지움
+    // → 안 지우면 리포트 기준 목록에 빈 기준이 끼어 나옴. 사용자가 다 비워 등록한 기준은 진짜 기준으로 봄
+    // 다시 붙인 뒤에도 혈당이 가리키는 빈 기준(오늘 기준을 적기 전 오늘 잰 혈당 등)은 남김 (날짜로 찾을 때 진짜 기준 뒤로 밀려서 새 기준을 안 가림)
     private void relinkReadings(Long userId, CriteriaVersion saved) {
         List<CriteriaVersion> later = criteriaVersionRepository
                 .findAllByUserIdAndEffectiveFromGreaterThanEqualOrderByEffectiveFromAscIdAsc(userId, saved.getEffectiveFrom())
@@ -73,12 +73,12 @@ public class CriteriaService {
                 .filter(c -> !c.getId().equals(saved.getId()))
                 .toList();
         LocalDate nextFrom = later.stream()
-                .filter(c -> !c.isEmpty() && c.getEffectiveFrom().isAfter(saved.getEffectiveFrom()))
+                .filter(c -> !c.isAutoEmpty() && c.getEffectiveFrom().isAfter(saved.getEffectiveFrom()))
                 .map(CriteriaVersion::getEffectiveFrom)
                 .findFirst()
                 .orElse(null);
         List<Long> coveredEmpty = later.stream()
-                .filter(c -> c.isEmpty() && (nextFrom == null || c.getEffectiveFrom().isBefore(nextFrom)))
+                .filter(c -> c.isAutoEmpty() && (nextFrom == null || c.getEffectiveFrom().isBefore(nextFrom)))
                 .map(CriteriaVersion::getId)
                 .toList();
 
@@ -100,7 +100,7 @@ public class CriteriaService {
     // 지금 기준 — 없으면 null (컨트롤러가 그대로 돌려주면 응답에서 data가 빠짐)
     public CriteriaVersionResponse current(Long userId) {
         return criteriaVersionRepository
-                .findFirstByUserIdAndEffectiveFromLessThanEqualOrderByEffectiveFromDescIdDesc(userId, LocalDate.now(clock))
+                .findFirstByUserIdAndEffectiveFromLessThanEqualOrderByAutoEmptyAscEffectiveFromDescIdDesc(userId, LocalDate.now(clock))
                 .map(CriteriaVersionResponse::from)
                 .orElse(null);
     }
@@ -115,7 +115,7 @@ public class CriteriaService {
     @Transactional
     public CriteriaVersion onDateOrEmpty(Long userId, LocalDate date) {
         return criteriaVersionRepository
-                .findFirstByUserIdAndEffectiveFromLessThanEqualOrderByEffectiveFromDescIdDesc(userId, date)
+                .findFirstByUserIdAndEffectiveFromLessThanEqualOrderByAutoEmptyAscEffectiveFromDescIdDesc(userId, date)
                 .orElseGet(() -> criteriaVersionRepository.save(
                         CriteriaVersion.empty(findUser(userId), date, clock.instant())));
     }

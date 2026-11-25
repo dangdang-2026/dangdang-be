@@ -188,6 +188,33 @@ class CriteriaBackdateFlowTest extends ReminderTestBase {
 
         assertThat(fastingTargetOf(todayOnEmpty)).isNull();   // 그때 기준(빈 기준) 그대로 → 외래키에 안 걸리게 E는 남김
         assertThat(criteriaCount()).isEqualTo(3);
+        // 남은 E(11/1)가 X를 가리지 않음: 그 구간 날짜로 새로 저장한 혈당은 X
+        assertThat(fastingTargetOf(reading(jisu, "2026-11-05T08:00:00+09:00"))).isEqualTo(100);
+    }
+
+    @Test
+    void 남아_있는_빈_기준은_그_구간_날짜에_새로_저장한_혈당이나_지금_기준에서_진짜_기준을_가리지_않는다() throws Exception {
+        criteria(jisu, "{\"fastingTarget\":100,\"effectiveFrom\":\"2026-10-19\"}");  // X
+        // 옛 데이터처럼 X보다 늦은 빈 기준 E(11/1)가 남아 있는 상태 (서버가 만든 빈 기준)
+        jdbc.update("INSERT INTO criteria_versions (user_id, effective_from, created_at, auto_empty)"
+                + " VALUES (?, DATE '2026-11-01', now(), true)", jisuId);
+
+        assertThat(fastingTargetOf(reading(jisu, "2026-11-05T08:00:00+09:00"))).isEqualTo(100);
+        mvc.perform(get("/api/criteria-versions/current").cookie(jisu))
+                .andExpect(jsonPath("$.data.fastingTarget").value(100));
+    }
+
+    @Test
+    void 사용자가_다_비워_등록한_기준은_다음_기준으로_치고_지우지_않는다() throws Exception {
+        criteria(jisu, "{\"measureSlots\":[],\"effectiveFrom\":\"2026-11-05\"}");   // 「아직 몰라요」 B
+        long beforeB = reading(jisu, "2026-11-03T08:00:00+09:00");     // 기준 없음 → 빈 기준 E(11/3)
+        long onB = reading(jisu, "2026-11-06T08:00:00+09:00");         // B
+
+        criteria(jisu, "{\"fastingTarget\":100,\"effectiveFrom\":\"2026-10-19\"}");  // X: 10/19 ~ B 전
+
+        assertThat(fastingTargetOf(beforeB)).isEqualTo(100);
+        assertThat(fastingTargetOf(onB)).isNull();      // 사용자가 적은 B 그대로
+        assertThat(criteriaCount()).isEqualTo(2);       // B, X (E만 지움)
     }
 
     @Test
