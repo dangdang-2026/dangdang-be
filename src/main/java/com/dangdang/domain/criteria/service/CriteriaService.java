@@ -7,6 +7,7 @@ import com.dangdang.domain.criteria.repository.CriteriaVersionRepository;
 import com.dangdang.domain.user.entity.User;
 import com.dangdang.domain.user.exception.UserErrorCode;
 import com.dangdang.domain.user.repository.UserRepository;
+import com.dangdang.domain.user.service.SensitiveConsentGuard;
 import com.dangdang.global.exception.CustomException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -24,10 +25,12 @@ public class CriteriaService {
     private final CriteriaVersionRepository criteriaVersionRepository;
     private final UserRepository userRepository;
     private final Clock clock;
+    private final SensitiveConsentGuard sensitiveConsentGuard;
 
     // 등록 — UPDATE가 아니라 항상 새 줄
     @Transactional
     public CriteriaVersionResponse create(Long userId, CriteriaVersionCreateRequest req) {
+        sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403
         User user = findUser(userId);
         // 적용일: 요청 값이 있으면 그것, 비었으면 한국 오늘
         LocalDate effectiveFrom = req.effectiveFrom() != null ? req.effectiveFrom() : LocalDate.now(clock);

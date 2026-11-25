@@ -22,6 +22,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
 
+import static com.dangdang.support.TestConsents.grantSensitive;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 // 지수·민지 두 사람과, 고정 시계(한국 13:00)·가짜 발송기를 준비한다
@@ -62,7 +63,8 @@ public abstract class ReminderTestBase {
     }
 
     private Long saveUser(String email, String name) {
-        return userRepository.save(User.ofEmail(email, name, passwordEncoder.encode("abcd1234"), Instant.now())).getId();
+        return grantSensitive(jdbc,
+                userRepository.save(User.ofEmail(email, name, passwordEncoder.encode("abcd1234"), Instant.now()))).getId();
     }
 
     protected Cookie login(String email) throws Exception {

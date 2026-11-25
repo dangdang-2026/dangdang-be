@@ -15,6 +15,7 @@ import com.dangdang.domain.reading.repository.ReadingRepository;
 import com.dangdang.domain.user.entity.User;
 import com.dangdang.domain.user.exception.UserErrorCode;
 import com.dangdang.domain.user.repository.UserRepository;
+import com.dangdang.domain.user.service.SensitiveConsentGuard;
 import com.dangdang.global.common.KoreanTime;
 import com.dangdang.global.exception.CustomException;
 import lombok.RequiredArgsConstructor;
@@ -38,12 +39,14 @@ public class ReadingService {
     private final MealRepository mealRepository;
     private final ReminderService reminderService;
     private final Clock clock;
+    private final SensitiveConsentGuard sensitiveConsentGuard;
 
     private static final int MAX_PAGE_SIZE = 100;
 
     // 등록 — 잰 날짜(한국)에 적용 중이던 병원 기준을 붙여서 저장
     @Transactional
     public ReadingResponse create(Long userId, ReadingCreateRequest req) {
+        sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
         checkMealIsMine(userId, req.mealId());
@@ -90,6 +93,7 @@ public class ReadingService {
     // 수정 (보낸 칸만). 잰 시각이 바뀌면 바뀐 날짜(한국)의 병원 기준을 다시 붙임
     @Transactional
     public ReadingResponse update(Long userId, Long readingId, ReadingUpdateRequest req) {
+        sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403
         if (req.isEmpty()) {
             throw new CustomException(ReadingErrorCode.NOTHING_TO_UPDATE);
         }

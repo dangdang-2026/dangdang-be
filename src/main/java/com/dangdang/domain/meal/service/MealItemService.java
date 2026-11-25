@@ -13,6 +13,7 @@ import com.dangdang.domain.meal.entity.MealItem;
 import com.dangdang.domain.meal.exception.MealErrorCode;
 import com.dangdang.domain.meal.repository.MealItemRepository;
 import com.dangdang.domain.meal.repository.MealRepository;
+import com.dangdang.domain.user.service.SensitiveConsentGuard;
 import com.dangdang.global.exception.CustomException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -37,10 +38,12 @@ public class MealItemService {
     private final MealItemRepository mealItemRepository;
     private final FoodRepository foodRepository;
     private final Clock clock;
+    private final SensitiveConsentGuard sensitiveConsentGuard;
 
     // 항목 추가. 식약처 음식(foodCode)을 고르거나 이름(name)을 직접 적음 (둘 중 하나만)
     @Transactional
     public MealItemResponse add(Long userId, Long mealId, MealItemCreateRequest req) {
+        sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403
         Meal meal = findMyMeal(userId, mealId);
         String foodCode = req.trimmedFoodCode();
         String name = req.trimmedName();
@@ -68,6 +71,7 @@ public class MealItemService {
     // 항목 수정 (보낸 칸만). 인분·무게, 직접 적은 음식이면 이름까지
     @Transactional
     public MealItemResponse update(Long userId, Long mealId, Long itemId, MealItemUpdateRequest req) {
+        sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403
         if (req.isEmpty()) {
             throw new CustomException(MealErrorCode.NOTHING_TO_UPDATE);
         }
@@ -84,6 +88,7 @@ public class MealItemService {
     // expectedUpdatedAt이 식사의 지금 수정 시각과 다르면 그 사이 다른 곳에서 바뀐 것이라 409 (덮어쓰지 않게)
     @Transactional
     public MealItemResponse overrideNutrition(Long userId, Long mealId, Long itemId, MealItemNutritionRequest req) {
+        sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403
         if (req.getNutritionOverride().toNutrition().isEmpty()) {
             throw new CustomException(MealErrorCode.ITEM_NUTRITION_EMPTY);
         }
@@ -102,6 +107,7 @@ public class MealItemService {
     // 직접 적은 음식은 공공 값이 없어서 409, 이미 공공 값이면 그냥 200
     @Transactional
     public MealItemResponse revertNutrition(Long userId, Long mealId, Long itemId) {
+        sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403
         MealItem item = findMyItem(userId, mealId, itemId);
         if (item.isCustom()) {
             throw new CustomException(MealErrorCode.NO_PUBLIC_NUTRITION);

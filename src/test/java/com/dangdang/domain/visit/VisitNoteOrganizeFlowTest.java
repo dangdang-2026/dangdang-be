@@ -29,6 +29,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 
+import static com.dangdang.support.TestConsents.grantSensitive;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.nullValue;
@@ -189,6 +190,17 @@ class VisitNoteOrganizeFlowTest {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.errorCode").value("AI_40301"));
         verify(organizeClient, never()).organize(any(), any(), any());
+    }
+
+    @Test
+    void 건강정보_동의가_없으면_403이고_메모를_AI로_보내지_않는다() throws Exception {
+        jdbc.update("DELETE FROM consent_events WHERE user_id = ? AND consent_type = 'SENSITIVE'", userId);
+
+        organize(access, visitId, noteId)
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("USER_40302"));
+        verify(organizeClient, never()).organize(any(), any(), any());
+        assertThat(redis.opsForValue().get(usageKey())).isNull();   // 오늘 횟수도 안 씀
     }
 
     @Test
@@ -363,7 +375,8 @@ class VisitNoteOrganizeFlowTest {
     }
 
     private Cookie signupAndLogin(String email) throws Exception {
-        userRepository.save(User.ofEmail(email, "테스트", passwordEncoder.encode("abcd1234"), Instant.now()));
+        grantSensitive(jdbc,
+                userRepository.save(User.ofEmail(email, "테스트", passwordEncoder.encode("abcd1234"), Instant.now())));
         return mvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"" + email + "\",\"password\":\"abcd1234\"}"))

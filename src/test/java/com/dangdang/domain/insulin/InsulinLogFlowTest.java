@@ -2,6 +2,7 @@ package com.dangdang.domain.insulin;
 
 import com.dangdang.domain.user.entity.User;
 import com.dangdang.domain.user.repository.UserRepository;
+import com.dangdang.support.TestConsents;
 import com.jayway.jsonpath.JsonPath;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.AfterEach;
@@ -460,7 +461,7 @@ class InsulinLogFlowTest {
     }
 
     private Cookie signupAndLogin(String email) throws Exception {
-        userRepository.save(User.ofEmail(email, "테스트", passwordEncoder.encode("abcd1234"), Instant.now()));
+        TestConsents.grantSensitive(jdbc, userRepository.save(User.ofEmail(email, "테스트", passwordEncoder.encode("abcd1234"), Instant.now())));
         return mvc.perform(post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"" + email + "\",\"password\":\"abcd1234\"}"))

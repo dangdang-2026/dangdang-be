@@ -14,10 +14,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 @Slf4j
 @Service
@@ -25,10 +28,12 @@ import java.util.Map;
 public class ConsentService {
     private final UserRepository userRepository;
     private final ConsentEventRepository consentEventRepository;
+    private final Clock clock;
 
     @Transactional
     public ConsentResponse save(Long userId, ConsentRequest request) {
-        // ① 필수 항목을 false로 보내면 거절 (그만 쓰려면 탈퇴)
+        // ① 필수 항목을 false로 보내면 거절. 건강정보(SENSITIVE) 철회는 전용 API로만 (M-07b)
+        //    — 실수로 SENSITIVE:false가 섞여 와도 건강 기록이 날아가면 안 되니까
         boolean refusesRequired =
                 request.items().stream().anyMatch(item -> item.type().isRequired() && !item.granted());
         if (refusesRequired) {
@@ -36,10 +41,11 @@ public class ConsentService {
         }
         User user =
                 userRepository.findById(userId).orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
-        // ② 덮어쓰지 않고 한 줄씩 쌓는다. 버전은 서버가 넣는다
+        // ② 덮어쓰지 않고 한 줄씩 쌓는다. 버전은 서버가, 시각은 앱 Clock이 넣는다 (같이 보낸 항목은 같은 시각)
+        Instant now = clock.instant();
         List<ConsentEvent> events =
                 request.items().stream()
-                        .map(item -> ConsentEvent.of(user, item.type(), item.type().getVersion(), item.granted()))
+                        .map(item -> ConsentEvent.of(user, item.type(), item.type().getVersion(), item.granted(), now))
                         .toList();
         consentEventRepository.saveAll(events);
         log.info("[Consent] 동의 저장 - 사용자: {}, 항목: {}개", userId, events.size());
@@ -56,11 +62,18 @@ public class ConsentService {
         return new ConsentResponse(isCompleted(latest), items);
     }
 
-    // 이 항목에 지금 동의한 상태인지 (가장 최근 줄 기준. 한 번도 안 골랐으면 false) — AI 문지기가 쓴다
+    // 이 항목에 「지금 버전으로」 동의한 상태인지 (가장 최근 줄 기준. 한 번도 안 골랐으면 false)
+    // AI 문지기(AiGuard)·사진 AI·챗봇 기록·커뮤니티 AI 확인이 쓴다. 문서 버전을 올리면 다시 받기 전까지 false
     @Transactional(readOnly = true)
     public boolean isGranted(Long userId, ConsentType type) {
         ConsentEvent latest = latestByType(userId).get(type);
-        return latest != null && latest.isGranted();
+        return latest != null && latest.isCurrentGrant();
+    }
+
+    // 가장 최근 줄 (버전 상관없이) — 철회 이력을 남길지 볼 때만 쓴다 (SensitiveConsentWithdrawalService)
+    @Transactional(readOnly = true)
+    public Optional<ConsentEvent> findLatest(Long userId, ConsentType type) {
+        return Optional.ofNullable(latestByType(userId).get(type));
     }
 
     @Transactional(readOnly = true)
@@ -77,9 +90,11 @@ public class ConsentService {
         return latest;
     }
 
+    // 필수 항목을 모두, 지금 버전으로 동의했는지 — 문서 버전을 올리면 예전 동의자는 A-01로 다시 간다 (78 E)
+    // 건강정보 동의를 철회하면(M-07b) SENSITIVE 최신 줄이 false라 여기서 false → 다음에 열면 A-01 (74 A)
     private boolean isCompleted(Map<ConsentType, ConsentEvent> latest) {
         return Arrays.stream(ConsentType.values())
                 .filter(ConsentType::isRequired)
-                .allMatch(type -> latest.containsKey(type) && latest.get(type).isGranted());
+                .allMatch(type -> latest.containsKey(type) && latest.get(type).isCurrentGrant());
     }
 }
