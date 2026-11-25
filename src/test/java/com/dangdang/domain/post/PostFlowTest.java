@@ -1,6 +1,7 @@
 package com.dangdang.domain.post;
 
 import com.dangdang.domain.post.infra.PostCheckClient;
+import com.dangdang.domain.report.service.SystemReportService;
 import com.dangdang.domain.user.entity.User;
 import com.dangdang.domain.user.repository.UserRepository;
 import com.jayway.jsonpath.JsonPath;
@@ -15,7 +16,9 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
@@ -25,7 +28,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.isA;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -43,6 +49,7 @@ class PostFlowTest {
     @Autowired JdbcTemplate jdbc;
 
     @MockitoBean PostCheckClient postCheckClient;   // 올리기 전 확인의 AI 서버 대신
+    @MockitoSpyBean SystemReportService systemReportService;   // 자동 신고 실패를 흉내 낼 때만
 
     Cookie jisu;
     Cookie mina;
@@ -361,20 +368,27 @@ class PostFlowTest {
 
     private static final String DOSE_CONTENT = "인슐린 4단위 늘렸는데 괜찮을까요";
 
-    // 올리기 전 확인: AI가 DOSE·MIND·URGENT_MEDICAL을 찾았다고 치고 지수가 확인을 누른다
-    private void precheck(String title, String content) throws Exception {
-        given(postCheckClient.check(any(), any(), anyBoolean())).willReturn(new PostCheckClient.Result(List.of(
-                new PostCheckClient.Issue("DOSE", "4단위"), new PostCheckClient.Issue("MIND", "힘들어요"),
-                new PostCheckClient.Issue("URGENT_MEDICAL", "어지러워요")), false));
+    private static final List<PostCheckClient.Issue> FOUND = List.of(
+            new PostCheckClient.Issue("DOSE", "4단위"), new PostCheckClient.Issue("MIND", "힘들어요"),
+            new PostCheckClient.Issue("URGENT_MEDICAL", "어지러워요"), new PostCheckClient.Issue("SAFETY", "남편이 때려요"));
+
+    // 올리기 전 확인: AI가 issues를 찾았다고 치고 지수가 확인을 누른다
+    private void precheck(String title, String content, List<PostCheckClient.Issue> issues) throws Exception {
+        given(postCheckClient.check(any(), any(), anyBoolean())).willReturn(new PostCheckClient.Result(issues, false));
         mvc.perform(post(BASE + "/precheck").cookie(jisu).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"title\":\"" + title + "\",\"content\":\"" + content + "\"}"))
                 .andExpect(status().isOk());
     }
 
+    private void precheck(String title, String content) throws Exception {
+        precheck(title, content, FOUND);
+    }
+
+    // kinds가 null이면 postedDespite를 아예 안 보낸다
     private String writeDespite(String title, String content, String kinds) throws Exception {
         String body = mvc.perform(post(BASE).cookie(jisu).contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"category\":\"MIND\",\"title\":\"" + title + "\",\"content\":\"" + content + "\","
-                                + "\"postedDespite\":" + kinds + "}"))
+                        .content("{\"category\":\"MIND\",\"title\":\"" + title + "\",\"content\":\"" + content + "\""
+                                + (kinds == null ? "" : ",\"postedDespite\":" + kinds) + "}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.data.postedDespite").doesNotExist())       // 응답엔 안 나간다
                 .andReturn().getResponse().getContentAsString();
@@ -388,13 +402,13 @@ class PostFlowTest {
 
     @Test
     void 확인에서_걸린_종류를_보고도_올리면_바로_보이고_자동_신고로_처리함에_들어간다() throws Exception {
-        precheck("질문", DOSE_CONTENT);
-        String postId = writeDespite(" 질문 ", "  인슐린 4단위   늘렸는데 괜찮을까요 ",   // 앞뒤·겹친 공백은 같은 내용
-                "[\"DOSE\",\"MIND\",\"URGENT_MEDICAL\",\"LOW_GLUCOSE\"]");          // LOW_GLUCOSE는 안 걸렸으니 버림
+        precheck("", DOSE_CONTENT);                                            // 제목을 적기 전에 확인해도
+        String postId = writeDespite("질문", "  인슐린 4단위   늘렸는데 괜찮을까요 ",   // 앞뒤·겹친 공백은 같은 본문
+                null);                                                         // 앱이 postedDespite를 빼고 보내도
 
-        assertThat(systemReports(postId)).containsExactlyInAnyOrder(        // 같은 사유는 한 줄
+        assertThat(systemReports(postId)).containsExactlyInAnyOrder(        // 같은 사유는 한 줄, 폭력 피해(SAFETY)도 위급
                 "MEDICAL_ADVICE|올리기 전 안내를 보고도 올림 (자동: DOSE)",
-                "CRISIS|올리기 전 안내를 보고도 올림 (자동: MIND, URGENT_MEDICAL)");
+                "CRISIS|올리기 전 안내를 보고도 올림 (자동: MIND, SAFETY, URGENT_MEDICAL)");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM reports WHERE target_id = ? AND reporter_id IS NOT NULL",
                 Integer.class, Long.valueOf(postId))).isZero();
         mvc.perform(get(BASE + "/" + postId).cookie(mina))                     // 글은 막지 않는다
@@ -403,36 +417,44 @@ class PostFlowTest {
     }
 
     @Test
-    void 확인을_안_했거나_모르는_종류면_글은_올라가고_자동_신고는_없다() throws Exception {
-        String noCheck = writeDespite("질문", DOSE_CONTENT, "[\"DOSE\",\"MIND\"]");
+    void 자동_신고가_실패해도_글은_올라간다() throws Exception {
+        willThrow(new DataAccessResourceFailureException("DB 끊김"))
+                .given(systemReportService).queuePostForReview(anyLong(), anyCollection());
         precheck("질문", DOSE_CONTENT);
-        String unknown = writeDespite("질문", DOSE_CONTENT, "[\"WHAT\"]");
-        String empty = writeDespite("질문", DOSE_CONTENT, "[]");
+        String postId = writeDespite("질문", DOSE_CONTENT, null);                // 201
 
-        assertThat(systemReports(noCheck)).isEmpty();
-        assertThat(systemReports(unknown)).isEmpty();
-        assertThat(systemReports(empty)).isEmpty();
+        assertThat(systemReports(postId)).isEmpty();
+        mvc.perform(get(BASE + "/" + postId).cookie(mina)).andExpect(status().isOk());
     }
 
     @Test
-    void 확인한_뒤_내용을_바꾸거나_다른_사람이_올리면_자동_신고는_없다() throws Exception {
+    void 확인을_안_했으면_종류를_보내도_글은_올라가고_자동_신고는_없다() throws Exception {
+        String noCheck = writeDespite("질문", DOSE_CONTENT, "[\"DOSE\",\"MIND\"]");
+
+        assertThat(systemReports(noCheck)).isEmpty();
+    }
+
+    @Test
+    void 확인한_뒤_내용을_바꾸거나_다시_확인해_괜찮거나_다른_사람이_올리면_자동_신고는_없다() throws Exception {
         precheck("질문", DOSE_CONTENT);
         String changed = writeDespite("질문", "괜찮은 내용으로 바꿨어요", "[\"DOSE\"]");
-        String retitled = writeDespite("다른 제목", DOSE_CONTENT, "[\"DOSE\"]");
+        precheck("질문", DOSE_CONTENT, List.of());                            // 다시 확인했더니 걸린 게 없음
+        String rechecked = writeDespite("질문", DOSE_CONTENT, "[\"DOSE\"]");
+        precheck("질문", DOSE_CONTENT);
         String byMina = JsonPath.read(mvc.perform(post(BASE).cookie(mina).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"category\":\"MIND\",\"title\":\"질문\",\"content\":\"" + DOSE_CONTENT + "\","
                                 + "\"postedDespite\":[\"DOSE\"]}"))
                 .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString(), "$.data.id");
 
         assertThat(systemReports(changed)).isEmpty();
-        assertThat(systemReports(retitled)).isEmpty();
+        assertThat(systemReports(rechecked)).isEmpty();
         assertThat(systemReports(byMina)).isEmpty();
     }
 
     @Test
     void 안내_종류_모양이_틀리면_400이고_글도_안_올라간다() throws Exception {
         for (String kinds : List.of("[\"dose\"]", "[\"\"]", "[null]", "[\"" + "A".repeat(31) + "\"]",
-                "[\"DOSE\",\"MIND\",\"URGENT_MEDICAL\",\"LOW_GLUCOSE\",\"DOSE\"]")) {
+                "[\"DOSE\",\"MIND\",\"URGENT_MEDICAL\",\"LOW_GLUCOSE\",\"SAFETY\",\"DOSE\"]")) {
             mvc.perform(post(BASE).cookie(jisu).contentType(MediaType.APPLICATION_JSON)
                             .content("{\"category\":\"MIND\",\"title\":\"t\",\"content\":\"c\",\"postedDespite\":" + kinds + "}"))
                     .andExpect(status().isBadRequest())

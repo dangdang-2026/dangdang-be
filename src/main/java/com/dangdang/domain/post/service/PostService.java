@@ -36,10 +36,13 @@ import com.dangdang.global.exception.CustomException;
 import com.dangdang.global.exception.GlobalErrorCode;
 import com.dangdang.global.security.AuthPrincipal;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -48,6 +51,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -117,16 +121,24 @@ public class PostService {
     }
 
     // U-15b 「검토 중일 수 있어요」: 안내를 보고도 올린 글은 운영자 처리함에 (글은 막지 않는다)
-    // 같은 사람이 같은 내용으로 올리기 전 확인을 했을 때 정말 걸렸던 종류만 인정하고, 나머지는 조용히 버린다
+    // 같은 사람이 같은 본문으로 30분 안에 올리기 전 확인을 했을 때 서버가 기억한 종류로 넣는다
+    // 앱이 보내는 postedDespite는 보지 않는다 (빼고 보내도 위급 글이 처리함에서 빠지지 않게)
+    // 글이 저장된 뒤 따로 넣어서, 자동 신고가 실패해도 글쓰기는 성공한다
     private void queueForReview(Long userId, Long postId, PostCreateRequest request) {
-        if (request.postedDespite() == null || request.postedDespite().isEmpty()) {
+        Set<String> checked = precheckKindStore.find(userId, request.content());
+        if (checked.isEmpty()) {
             return;
         }
-        Set<String> checked = precheckKindStore.find(userId, request.title(), request.content());
-        List<String> confirmed = request.postedDespite().stream().filter(checked::contains).distinct().toList();
-        if (!confirmed.isEmpty()) {
-            systemReportService.queuePostForReview(postId, confirmed);
-        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                try {
+                    systemReportService.queuePostForReview(postId, checked);
+                } catch (RuntimeException e) {   // 이미 커밋된 글쓰기가 500으로 보이지 않게
+                    log.warn("[자동 신고] 넣기 실패 - 글: {}, {}", postId, e.getClass().getSimpleName());
+                }
+            }
+        });
     }
 
     @Transactional

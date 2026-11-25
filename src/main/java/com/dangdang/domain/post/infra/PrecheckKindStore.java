@@ -16,8 +16,9 @@ import java.util.HexFormat;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-// 올리기 전 확인(precheck)에서 걸린 종류를 30분 기억한다. Redis post:precheck:{회원 번호}:{제목·본문 해시} = "DOSE,MIND"
-// 글쓰기 때 postedDespite가 정말 이 글로 안내를 본 것인지 맞춰 본다 (아무 글에나 붙여 운영자 처리함을 채우지 못하게)
+// 올리기 전 확인(precheck)에서 걸린 종류를 30분 기억한다. Redis post:precheck:{회원 번호}:{본문 해시} = "DOSE,MIND"
+// 글쓰기 때 같은 사람이 같은 본문으로 올리면 이 종류로 운영자 처리함에 넣는다 (앱이 보내는 값에 기대지 않는다)
+// 제목은 확인 때 비어 있을 수 있어서 키에 넣지 않는다
 // 글 내용은 Redis에 남기지 않고 해시만 쓴다. Redis가 안 되면 기억 못 한 것으로 보고 글쓰기를 막지 않는다
 @Slf4j
 @Component
@@ -29,21 +30,24 @@ public class PrecheckKindStore {
 
     private final StringRedisTemplate redis;
 
-    public void save(Long userId, String title, String content, Collection<String> kinds) {
-        if (kinds.isEmpty()) {
-            return;
-        }
+    // 마지막 확인 결과만 남긴다. 다시 확인해서 걸린 게 없으면 예전 기록을 지운다
+    public void save(Long userId, String content, Collection<String> kinds) {
         try {
-            redis.opsForValue().set(key(userId, title, content), String.join(",", kinds), TTL);
+            String key = key(userId, content);
+            if (kinds.isEmpty()) {
+                redis.delete(key);
+                return;
+            }
+            redis.opsForValue().set(key, String.join(",", kinds), TTL);
         } catch (DataAccessException e) {
             log.warn("[Precheck] 걸린 종류 저장 실패: {}", e.getClass().getSimpleName());
         }
     }
 
     // 같은 사람이 같은 내용(앞뒤·겹친 공백 무시)으로 확인했을 때 걸린 종류. 없으면 빈 집합
-    public Set<String> find(Long userId, String title, String content) {
+    public Set<String> find(Long userId, String content) {
         try {
-            String value = redis.opsForValue().get(key(userId, title, content));
+            String value = redis.opsForValue().get(key(userId, content));
             return value == null ? Set.of() : Arrays.stream(value.split(",")).collect(Collectors.toUnmodifiableSet());
         } catch (DataAccessException e) {
             log.warn("[Precheck] 걸린 종류 읽기 실패: {}", e.getClass().getSimpleName());
@@ -51,10 +55,9 @@ public class PrecheckKindStore {
         }
     }
 
-    private static String key(Long userId, String title, String content) {
-        String text = normalize(title) + "\n" + normalize(content);
+    private static String key(Long userId, String content) {
         try {
-            byte[] hash = MessageDigest.getInstance("SHA-256").digest(text.getBytes(StandardCharsets.UTF_8));
+            byte[] hash = MessageDigest.getInstance("SHA-256").digest(normalize(content).getBytes(StandardCharsets.UTF_8));
             return PREFIX + userId + ":" + HexFormat.of().formatHex(hash);
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException(e);       // SHA-256은 모든 JVM에 있다

@@ -79,7 +79,7 @@ class PostPrecheckFlowTest {
     }
 
     @Test
-    void 걸린_종류는_내용_해시로_30분_기억하고_걸린_게_없으면_안_남긴다() throws Exception {
+    void 걸린_종류는_본문_해시로_30분_기억하고_다시_확인해_걸린_게_없으면_지운다() throws Exception {
         given(postCheckClient.check(any(), any(), anyBoolean())).willReturn(new PostCheckClient.Result(List.of(
                 new PostCheckClient.Issue("DOSE", "인슐린 8단위"), new PostCheckClient.Issue("MIND", "힘들어요"),
                 new PostCheckClient.Issue("DOSE", "두 알")), false));
@@ -93,11 +93,10 @@ class PostPrecheckFlowTest {
         assertThat(redis.opsForValue().get(key)).isEqualTo("DOSE,MIND");
         assertThat(redis.getExpire(key)).isBetween(1L, 1800L);
 
-        redis.delete(key);
         given(postCheckClient.check(any(), any(), anyBoolean())).willReturn(new PostCheckClient.Result(List.of(), false));
         mvc.perform(post("/api/posts/precheck").cookie(jisu).contentType(MediaType.APPLICATION_JSON)
-                .content(body("제목", "아침 뭐 드세요?"))).andExpect(status().isOk());
-        assertThat(redis.keys("post:precheck:*")).isEmpty();
+                .content(body("제목 바꿈", "인슐린 8단위 힘들어요 두 알"))).andExpect(status().isOk());   // 제목은 키에 없다
+        assertThat(redis.keys("post:precheck:*")).isEmpty();                       // 마지막 확인 결과만 남긴다
     }
 
     @Test

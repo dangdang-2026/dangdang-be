@@ -34,8 +34,8 @@ public class PostPrecheckService {
             log.info("[Precheck] 사용자: {}, 걸린 문장: {}개, GPT 확인: {}",
                     userId, result.issues() == null ? 0 : result.issues().size(), result.llmChecked());
             PostPrecheckResponse response = PostPrecheckResponse.from(result);
-            // 「그대로 올리기」로 글을 쓸 때 이 기록과 겹치는 종류만 운영자 처리함에 넣는다 (PostService.create)
-            kindStore.save(userId, request.title(), request.content(),
+            // 같은 본문으로 글을 쓰면 이 종류로 운영자 처리함에 넣는다 (PostService.create). 걸린 게 없으면 예전 기록을 지운다
+            kindStore.save(userId, request.content(),
                     response.issues().stream().map(PostPrecheckResponse.Issue::kind).filter(Objects::nonNull).distinct().toList());
             return response;
         } catch (RestClientException e) {
