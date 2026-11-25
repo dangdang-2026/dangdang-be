@@ -549,6 +549,56 @@ class VisitReportFlowTest {
     // ---------- 저장한 리포트 조회 ----------
 
     @Test
+    void 인슐린은_원값_표에_맞은_그대로만_나오고_혈당_숫자엔_안_섞인다() throws Exception {
+        report(access, visitId).andExpect(jsonPath("$.data.insulinLogs", hasSize(0)));   // 없으면 []
+
+        reading(access, 110, "FASTING", "FASTING", "2026-10-05T08:00:00+09:00");             // 기간 시작 = 첫 혈당 기록일
+        insulin(access, "BEDTIME", null, "10", "2026-10-04T22:00:00+09:00");                 // 기간 앞 → 안 나옴
+        long dinner = insulin(access, "MEAL", "DINNER", "6", "2026-10-06T18:00:00+09:00");
+        long bedtime = insulin(access, "BEDTIME", null, "10.5", "2026-10-07T22:00:00+09:00");
+        insulin(access, "MEAL", "BREAKFAST", "4", "2026-10-14T08:00:00+09:00");             // 진료 당일 → 안 나옴
+        long deleted = insulin(access, "MEAL", "LUNCH", "3", "2026-10-08T12:00:00+09:00");
+        mvc.perform(delete("/api/insulin-logs/" + deleted).cookie(access)).andExpect(status().isOk());
+        insulin(other, "MEAL", "DINNER", "8", "2026-10-06T18:00:00+09:00");                  // 남의 기록 → 안 나옴
+        mvc.perform(patch("/api/insulin-logs/" + dinner).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"units\":7}"))
+                .andExpect(status().isOk());
+
+        report(access, visitId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.from").value("2026-10-05"))
+                .andExpect(jsonPath("$.data.summary.measured").value(1))   // 인슐린은 측정 수에 안 셈
+                .andExpect(jsonPath("$.data.insulinLogs", hasSize(2)))
+                .andExpect(jsonPath("$.data.insulinLogs[0].insulinLogId").value(dinner))
+                .andExpect(jsonPath("$.data.insulinLogs[0].insulinType").value("MEAL"))
+                .andExpect(jsonPath("$.data.insulinLogs[0].mealSlot").value("DINNER"))
+                .andExpect(jsonPath("$.data.insulinLogs[0].units").value(7.0))
+                .andExpect(jsonPath("$.data.insulinLogs[0].edited").value(true))
+                .andExpect(jsonPath("$.data.insulinLogs[1].insulinLogId").value(bedtime))
+                .andExpect(jsonPath("$.data.insulinLogs[1].mealSlot").value(nullValue()))
+                .andExpect(jsonPath("$.data.insulinLogs[1].units").value(10.5))
+                .andExpect(jsonPath("$.data.insulinLogs[1].edited").value(false));
+
+        // 기간 직접 저장본도 같은 계산을 거쳐서 인슐린이 나옴
+        long id = saveAndGetId(access, custom("2026-10-06", "2026-10-06", careSiteId), 201);
+        savedReport(access, id)
+                .andExpect(jsonPath("$.data.insulinLogs", hasSize(1)))
+                .andExpect(jsonPath("$.data.insulinLogs[0].insulinLogId").value(dinner));
+    }
+
+    @Test
+    void 인슐린은_진료_전날_23시59분까지_들어가고_진료_당일_0시부터는_빠진다() throws Exception {
+        reading(access, 110, "FASTING", "FASTING", "2026-10-05T08:00:00+09:00");
+        long lastNight = insulin(access, "BEDTIME", null, "10", "2026-10-13T23:59:00+09:00");   // 진료 전날 마지막 → 들어감
+        insulin(access, "BEDTIME", null, "11", "2026-10-14T00:00:00+09:00");                    // 진료 당일 0시 → 빠짐 (UTC로는 전날)
+
+        report(access, visitId)
+                .andExpect(jsonPath("$.data.to").value("2026-10-13"))
+                .andExpect(jsonPath("$.data.insulinLogs", hasSize(1)))
+                .andExpect(jsonPath("$.data.insulinLogs[0].insulinLogId").value(lastNight));
+    }
+
+    @Test
     void 기간_직접_리포트는_저장한_기간과_병원으로_다시_계산한다() throws Exception {
         reading(access, 90, "FASTING", "FASTING", "2026-10-01T08:00:00+09:00");   // 기간 앞
         reading(access, 91, "FASTING", "FASTING", "2026-10-05T08:00:00+09:00");
@@ -770,6 +820,17 @@ class VisitReportFlowTest {
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         return ((Number) JsonPath.read(body, "$.data.readingId")).longValue();
+    }
+
+    // mealSlot이 null이면 칸을 아예 안 보냄 (자기 전)
+    private long insulin(Cookie who, String type, String mealSlot, String units, String takenAt) throws Exception {
+        String body = mvc.perform(post("/api/insulin-logs").cookie(who).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"insulinType\":\"" + type + "\""
+                                + (mealSlot == null ? "" : ",\"mealSlot\":\"" + mealSlot + "\"")
+                                + ",\"units\":" + units + ",\"takenAt\":\"" + takenAt + "\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        return ((Number) JsonPath.read(body, "$.data.insulinLogId")).longValue();
     }
 
     private void reminder(long userId, String slot, String scheduledAt, String status) {

@@ -34,8 +34,10 @@ public class RecordController {
                     """
                     **Parameters** from·to(한국 날짜 yyyy-MM-dd, 필수, 둘 다 포함, 최대 31일)
                     **Returns** 날짜별 days[]. 기록 없는 날도 events=[]로 들어감. events는 시각 오래된 순이고
-                    type=READING이면 reading, type=MEAL이면 meal 칸만 들어감. modified는 사용자가 저장 후 고친 적이 있는지
-                    (혈당은 값·시점·시각을 고쳤을 때만, 지우기·되돌리기·식사만 붙이기는 안 셈).
+                    type=READING이면 reading, type=MEAL이면 meal, type=INSULIN이면 insulin{insulinType, mealSlot, units} 칸만 들어감.
+                    같은 시각이면 MEAL → READING → INSULIN 순. modified는 사용자가 저장 후 고친 적이 있는지
+                    (혈당은 값·시점·시각을 고쳤을 때만, 지우기·되돌리기·식사만 붙이기는 안 셈.
+                    인슐린은 종류·끼니·단위·시각이 실제로 바뀌었을 때만 (InsulinLog.update)).
                     고친 시각(editedAt)을 남기기 전에 고친 혈당은 modified=false·originalValue=null로 나옴 (예전 기록은 식사만 붙인 것과 진짜 고친 것을 가릴 수 없어서 비워 둠).
                     reading은 meterLimit(HI·LO)·targetValue·aboveTarget·belowLow(70 미만)·expectedAt(재야 할 시각)·timing·originalValue(처음 값)·originalMeterLimit(처음이 HI·LO였으면 그 글자)·editedAt도 줌.
                     meal.items는 먹은 음식 목록(추가한 순서, 지운 항목 빼고, 없으면 []). 날짜 형식이 틀리거나 from > to 거나 31일 넘으면 GLOBAL_40001
@@ -57,7 +59,7 @@ public class RecordController {
                     """
                     **Parameters** month(한국 기준 달 yyyy-MM, 필수)
                     **Returns** 그 달 모든 날짜의 status(RECORDED·EMPTY·TODAY·FUTURE·BEFORE_SIGNUP)와 visit(그날 진료 일정이 있으면 true, 날짜 미정·지운 일정은 안 셈),
-                    firstRecordDate(처음 기록한 날, 없으면 null), hasPrevMonth·hasNextMonth. month 형식이 틀리면 GLOBAL_40001
+                    firstRecordDate(혈당·식사·인슐린 중 처음 기록한 날, 없으면 null), hasPrevMonth·hasNextMonth. 인슐린만 적은 날도 RECORDED. month 형식이 틀리면 GLOBAL_40001
                     """)
     @GetMapping("/calendar")
     public ResponseEntity<BaseResponse<CalendarResponse>> calendar(
