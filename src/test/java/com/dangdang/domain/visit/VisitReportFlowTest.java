@@ -448,6 +448,24 @@ class VisitReportFlowTest {
     }
 
     @Test
+    void 자정을_넘긴_식후_알림의_빈칸은_식사한_날로_센다() throws Exception {
+        createVisit(access, "2026-10-01T09:00:00+09:00");   // 기간 10/1~10/13
+        long jisu = userId("jisu@x.com");
+        long lastNight = meal(jisu, "2026-10-13T23:30:00+09:00");     // 기간 마지막 날 밤 식사, 알림은 다음 날 0:30
+        jdbc.update("INSERT INTO reminders (user_id, meal_id, slot, scheduled_at, status) VALUES (?, ?, 'DINNER_AFTER', ?, 'SENT')",
+                jisu, lastNight, at("2026-10-14T00:30:00+09:00"));
+        long beforePeriod = meal(jisu, "2026-09-30T23:30:00+09:00");   // 기간 전날 밤 식사 → 알림이 10/1이어도 안 셈
+        jdbc.update("INSERT INTO reminders (user_id, meal_id, slot, scheduled_at, status) VALUES (?, ?, 'DINNER_AFTER', ?, 'SENT')",
+                jisu, beforePeriod, at("2026-10-01T00:30:00+09:00"));
+
+        report(access, visitId)
+                .andExpect(jsonPath("$.data.summary.missed").value(1))
+                .andExpect(jsonPath("$.data.missedCells", hasSize(1)))
+                .andExpect(jsonPath("$.data.missedCells[0].date").value("2026-10-13"))
+                .andExpect(jsonPath("$.data.missedCells[0].slot").value("DINNER_AFTER"));
+    }
+
+    @Test
     void 식후_혈당을_재야_할_시각보다_늦게_재면_리포트에_LATE() throws Exception {
         criteria(access, "{\"postMealMinutes\":60,\"measureSlots\":[\"LUNCH_AFTER\"],\"effectiveFrom\":\"2026-10-01\"}");
         long jisu = userId("jisu@x.com");
@@ -501,6 +519,21 @@ class VisitReportFlowTest {
                         .value((int) (ChronoUnit.DAYS.between(start, LocalDate.of(2026, 10, 1)) / 7)))
                 .andExpect(jsonPath("$.data.pregnancyWeeks.to")
                         .value((int) (ChronoUnit.DAYS.between(start, LocalDate.of(2026, 10, 13)) / 7)));
+    }
+
+    @Test
+    void 다른_상황이면_리포트에도_주수를_넣지_않는다() throws Exception {
+        createVisit(access, "2026-10-01T09:00:00+09:00");   // 기간 10/1~10/13
+        long jisu = userId("jisu@x.com");
+        // 옛 임신도 기간과 겹치지만, 가장 최근 임신이 다른 상황이면 옛 임신 주수로 넘어가지 않고 비운다
+        jdbc.update("INSERT INTO pregnancies (user_id, due_date, delivery_date, state, created_at, updated_at)"
+                + " VALUES (?, '2026-10-20', '2026-10-12', 'ENDED', now(), now())", jisu);
+        jdbc.update("INSERT INTO pregnancies (user_id, due_date, state, created_at, updated_at)"
+                + " VALUES (?, '2026-12-20', 'PAUSED', now(), now())", jisu);
+
+        report(access, visitId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.pregnancyWeeks").value(nullValue()));
     }
 
     @Test

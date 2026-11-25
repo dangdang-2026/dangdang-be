@@ -76,7 +76,7 @@ class MeDueDateFlowTest extends ReminderTestBase {
     }
 
     @Test
-    void 다른_상황이면_주수를_주지_않는다() throws Exception {
+    void 다른_상황이면_주수도_예정일도_주지_않는다() throws Exception {
         mvc.perform(patch("/api/me/due-date").cookie(jisu).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"dueDate\":\"2026-12-20\"}"))
                 .andExpect(status().isOk());
@@ -86,6 +86,16 @@ class MeDueDateFlowTest extends ReminderTestBase {
 
         mvc.perform(get("/api/me").cookie(jisu))
                 .andExpect(jsonPath("$.data.pregnancyState").value("PAUSED"))
-                .andExpect(jsonPath("$.data.pregnancyWeek").value(nullValue()));
+                .andExpect(jsonPath("$.data.pregnancyWeek").value(nullValue()))
+                .andExpect(jsonPath("$.data.dueDate").value(nullValue()));   // 예정일로 앱이 주수를 다시 셀 수 없게
+
+        // 다시 켜면 저장해 둔 예정일과 주수가 다시 내려간다
+        mvc.perform(patch("/api/me/measurement-pause").cookie(jisu).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"paused\":false}"))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/me").cookie(jisu))
+                .andExpect(jsonPath("$.data.pregnancyState").value("PREGNANT"))
+                .andExpect(jsonPath("$.data.dueDate").value("2026-12-20"))
+                .andExpect(jsonPath("$.data.pregnancyWeek").exists());
     }
 }

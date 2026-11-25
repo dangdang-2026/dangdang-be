@@ -179,15 +179,56 @@ class CriteriaBackdateFlowTest extends ReminderTestBase {
     }
 
     @Test
-    void 아직_혈당이_가리키는_빈_기준은_남기고_등록은_성공한다() throws Exception {
+    void 다음_기준_시작일에_그_기준을_적기_전_잰_기록도_새_기준으로_다시_붙인다() throws Exception {
+        criteria(jisu, "{\"fastingTarget\":95,\"effectiveFrom\":\"2026-11-01\"}");    // A
+        long between = reading(jisu, "2026-11-05T08:00:00+09:00");             // A
+        long todayBeforeN = reading(jisu, "2026-11-09T08:00:00+09:00");        // 오늘 N 적기 전 → A
+        criteria(jisu, "{\"fastingTarget\":90}");                              // 오늘 N (오늘 기록은 안 바꿈)
+        long todayAfterN = reading(jisu, "2026-11-09T10:00:00+09:00");         // N
+
+        criteria(jisu, "{\"fastingTarget\":100,\"effectiveFrom\":\"2026-11-03\"}");  // X: 11/3 ~ N 전
+
+        assertThat(fastingTargetOf(between)).isEqualTo(100);
+        assertThat(fastingTargetOf(todayBeforeN)).isEqualTo(100);   // 그 시각의 그때 기준이 이제 X
+        assertThat(fastingTargetOf(todayAfterN)).isEqualTo(90);     // N을 가리키는 기록은 그대로
+    }
+
+    @Test
+    void 다음_기준_시작일에_빈_기준을_가리키던_기록도_다시_붙이고_빈_기준은_지운다() throws Exception {
         reading(jisu, "2026-11-01T08:00:00+09:00");                   // 빈 기준 E(11/1)
         long todayOnEmpty = reading(jisu, "2026-11-09T08:00:00+09:00");   // 오늘 기준 적기 전 → E
         criteria(jisu, "{\"fastingTarget\":95}");                    // 오늘 N (오늘 기록은 안 바꿈)
 
         criteria(jisu, "{\"fastingTarget\":100,\"effectiveFrom\":\"2026-10-19\"}");  // X: 10/19 ~ N 전
 
-        assertThat(fastingTargetOf(todayOnEmpty)).isNull();   // 그때 기준(빈 기준) 그대로 → 외래키에 안 걸리게 E는 남김
-        assertThat(criteriaCount()).isEqualTo(3);
+        assertThat(fastingTargetOf(todayOnEmpty)).isEqualTo(100);
+        assertThat(criteriaCount()).isEqualTo(2);   // N, X (아무도 안 가리키는 E는 지움)
+        assertThat(fastingTargetOf(reading(jisu, "2026-11-05T08:00:00+09:00"))).isEqualTo(100);
+    }
+
+    @Test
+    void 남아_있는_빈_기준은_그_구간_날짜에_새로_저장한_혈당이나_지금_기준에서_진짜_기준을_가리지_않는다() throws Exception {
+        criteria(jisu, "{\"fastingTarget\":100,\"effectiveFrom\":\"2026-10-19\"}");  // X
+        // 옛 데이터처럼 X보다 늦은 빈 기준 E(11/1)가 남아 있는 상태 (서버가 만든 빈 기준)
+        jdbc.update("INSERT INTO criteria_versions (user_id, effective_from, created_at, auto_empty)"
+                + " VALUES (?, DATE '2026-11-01', now(), true)", jisuId);
+
+        assertThat(fastingTargetOf(reading(jisu, "2026-11-05T08:00:00+09:00"))).isEqualTo(100);
+        mvc.perform(get("/api/criteria-versions/current").cookie(jisu))
+                .andExpect(jsonPath("$.data.fastingTarget").value(100));
+    }
+
+    @Test
+    void 사용자가_다_비워_등록한_기준은_다음_기준으로_치고_지우지_않는다() throws Exception {
+        criteria(jisu, "{\"measureSlots\":[],\"effectiveFrom\":\"2026-11-05\"}");   // 「아직 몰라요」 B
+        long beforeB = reading(jisu, "2026-11-03T08:00:00+09:00");     // 기준 없음 → 빈 기준 E(11/3)
+        long onB = reading(jisu, "2026-11-06T08:00:00+09:00");         // B
+
+        criteria(jisu, "{\"fastingTarget\":100,\"effectiveFrom\":\"2026-10-19\"}");  // X: 10/19 ~ B 전
+
+        assertThat(fastingTargetOf(beforeB)).isEqualTo(100);
+        assertThat(fastingTargetOf(onB)).isNull();      // 사용자가 적은 B 그대로
+        assertThat(criteriaCount()).isEqualTo(2);       // B, X (E만 지움)
     }
 
     @Test

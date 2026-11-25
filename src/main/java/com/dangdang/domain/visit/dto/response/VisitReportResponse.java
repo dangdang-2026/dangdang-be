@@ -23,7 +23,7 @@ public record VisitReportResponse(
         LocalDate visitDate,                 // 진료용이면 진료 날짜 (한국 날짜), 아니면 null
         CareSite careSite,                   // 보여 줄 병원 (없거나 지운 병원이면 null)
         String displayName,                  // 「윤지수 님 혈당 기록」. 이름 가리기는 화면에서 함
-        PregnancyWeeks pregnancyWeeks,       // 기간 시작·끝의 임신 주수 (예정일이 없으면 null)
+        PregnancyWeeks pregnancyWeeks,       // 기간 시작·끝의 임신 주수 (예정일이 없거나 다른 상황(PAUSED)이면 null)
         List<Criteria> criteria,             // 기간 안에 적용된 병원 기준 (오래된 순, 바뀌었으면 여러 개)
         Summary summary,
         List<SlotCount> slots,               // 잴 때별 목표 밖 / 측정 / 빈칸

@@ -78,6 +78,43 @@ class RecordBulkDeleteFlowTest extends ReminderTestBase {
                 .isEqualTo("CANCELED");
     }
 
+    // to 날 23:30 저녁 + 다음 날 01:30 식후 혈당 → 식사와 같이 혈당도 지워서 지운 식사를 가리키는 혈당이 안 남는다
+    @Test
+    void 기간_안_식사에_붙은_식후_혈당은_기간_밖이어도_같이_지운다() throws Exception {
+        long mealId = meal(jisu, "2026-11-03T23:30:00+09:00");
+        long reminderId = sentReminderFor(mealId);
+        long readingId = postMeal(jisu, mealId, "2026-11-04T01:30:00+09:00");
+        assertThat(statusOf(reminderId)).isEqualTo("DONE");
+
+        mvc.perform(delete("/api/records").param("from", "2026-11-01").param("to", "2026-11-03").cookie(jisu))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.deletedMeals").value(1))
+                .andExpect(jsonPath("$.data.deletedReadings").value(1));
+
+        assertThat(jdbc.queryForObject("SELECT deleted_at IS NOT NULL FROM readings WHERE id = ?", Boolean.class, readingId))
+                .isTrue();
+        assertThat(statusOf(reminderId)).isEqualTo("CANCELED");   // 지운 식사의 알림은 되살리지 않고 취소
+    }
+
+    // from 전날 23:50 식사 + from 날 00:30 식후 혈당 → 혈당만 지우고, 그 혈당이 끝낸 알림은 풀어서 「쟀음」으로 남지 않게
+    @Test
+    void 기간_밖_식사에_붙은_혈당만_지우면_알림이_풀린다() throws Exception {
+        long mealId = meal(jisu, "2026-11-02T23:50:00+09:00");
+        long reminderId = sentReminderFor(mealId);
+        postMeal(jisu, mealId, "2026-11-03T00:30:00+09:00");
+        assertThat(statusOf(reminderId)).isEqualTo("DONE");
+
+        mvc.perform(delete("/api/records").param("from", "2026-11-03").param("to", "2026-11-03").cookie(jisu))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.deletedMeals").value(0))
+                .andExpect(jsonPath("$.data.deletedReadings").value(1));
+
+        assertThat(alive("meals", jisuId)).isEqualTo(1);
+        assertThat(statusOf(reminderId)).isEqualTo("SENT");
+        assertThat(jdbc.queryForObject("SELECT reading_id IS NULL FROM reminders WHERE id = ?", Boolean.class, reminderId))
+                .isTrue();
+    }
+
     @Test
     void 기간이_거꾸로거나_366일을_넘거나_날짜가_틀리면_400() throws Exception {
         mvc.perform(delete("/api/records").param("from", "2026-11-05").param("to", "2026-11-01").cookie(jisu))
@@ -100,6 +137,20 @@ class RecordBulkDeleteFlowTest extends ReminderTestBase {
     private long meal(Cookie who, String startedAt) throws Exception {
         return id(send(post("/api/meals"), who, "{\"mealSlot\":\"LUNCH\",\"startedAt\":\"" + startedAt + "\"}")
                 .andExpect(status().isCreated()), "$.data.mealId");
+    }
+
+    private long postMeal(Cookie who, long mealId, String measuredAt) throws Exception {
+        return id(send(post("/api/readings"), who, "{\"value\":130,\"measuredAt\":\"" + measuredAt
+                        + "\",\"readingType\":\"POST_MEAL\",\"mealId\":" + mealId + "}")
+                .andExpect(status().isCreated()), "$.data.readingId");
+    }
+
+    // 이 식사로 이미 보낸 식후 알림 하나
+    private long sentReminderFor(long mealId) {
+        long reminderId = reminderAt(jisuId, NOW.minus(Duration.ofDays(6)));
+        jdbc.update("UPDATE reminders SET meal_id = ?, status = 'SENT', sent_at = scheduled_at WHERE id = ?",
+                mealId, reminderId);
+        return reminderId;
     }
 
     private void insulin(Cookie who, String takenAt) throws Exception {
