@@ -32,7 +32,7 @@ public class AdminReportController {
             description =
                     """
                     **Parameters** status(RECEIVED 기본 · HIDDEN · DISMISSED)
-                    **Returns** 대상(글·댓글)별로 묶은 신고. 위급(CRISIS) 신고가 있는 줄이 맨 위 → 신고 많은 순 → 최근 순, 최대 100줄. ADMIN이 아니면 403
+                    **Returns** 대상(글·댓글)별로 묶은 신고. 사람의 위급(CRISIS) 신고 → 자동 위급 신고 → 사람 신고 많은 순 → 최근 순, 최대 100줄. reportCount는 사람 신고만, 자동 신고는 systemReportCount. ADMIN이 아니면 403
                     """)
     @GetMapping
     public ResponseEntity<BaseResponse<AdminReportListResponse>> list(
@@ -46,7 +46,7 @@ public class AdminReportController {
             description =
                     """
                     **Parameters** targetType(POST·COMMENT), targetId
-                    **Returns** 원문(가린 글·지운 글도) · 글쓴이 회원 번호(이용 제한용) · 신고 목록(신고한 사람은 안 나옴, 안내를 보고도 올린 글은 신고한 사람 없이 detail 「올리기 전 안내를 보고도 올림 (자동: DOSE)」) · 처리 기록. 없으면 REPORT_40401
+                    **Returns** 원문(가린 글·지운 글도) · 글쓴이 회원 번호(이용 제한용) · 신고 목록(신고한 사람은 안 나옴. source USER·SYSTEM, 자동 신고는 detail 「올리기 전 안내를 보고도 올림 (자동: DOSE)」) · 처리 기록. 없으면 REPORT_40401
                     """)
     @GetMapping("/{targetType}/{targetId}")
     public ResponseEntity<BaseResponse<AdminReportDetailResponse>> detail(
@@ -59,7 +59,7 @@ public class AdminReportController {
             summary = "[ 운영자 | 토큰 O(ADMIN) | 가리기 ]",
             description =
                     """
-                    **Parameters** reason(신고 사유 8개 중 하나 → U-14 문구), memo(200자, 운영자만 봄)
+                    **Parameters** reason(CRISIS를 뺀 신고 사유 7개 중 하나 → U-14 문구, CRISIS면 GLOBAL_40001), memo(200자, 운영자만 봄)
                     **Returns** state=HIDDEN, 처리된 신고 수. 이미 가렸으면 REPORT_40901
                     """)
     @PostMapping("/{targetType}/{targetId}/hide")

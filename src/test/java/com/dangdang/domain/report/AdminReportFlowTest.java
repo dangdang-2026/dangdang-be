@@ -2,6 +2,7 @@ package com.dangdang.domain.report;
 
 import com.dangdang.domain.post.entity.Post;
 import com.dangdang.domain.post.repository.PostRepository;
+import com.dangdang.domain.report.service.SystemReportService;
 import com.dangdang.domain.user.entity.User;
 import com.dangdang.support.ReminderTestBase;
 import com.jayway.jsonpath.JsonPath;
@@ -24,6 +25,7 @@ import java.util.concurrent.Future;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -38,6 +40,7 @@ class AdminReportFlowTest extends ReminderTestBase {
     Cookie admin;
 
     @Autowired PostRepository postRepository;
+    @Autowired SystemReportService systemReportService;
     @Autowired PlatformTransactionManager txManager;
 
     @BeforeEach
@@ -133,6 +136,47 @@ class AdminReportFlowTest extends ReminderTestBase {
         mvc.perform(get("/api/admin/reports").cookie(admin))
                 .andExpect(jsonPath("$.data.items[*].targetId", contains(two, one)))
                 .andExpect(jsonPath("$.data.items[0].reasons", contains("ABUSE", "CRISIS")));
+    }
+
+    @Test
+    void 자동_신고는_사람_신고_수에_안_섞이고_사람_위급_신고_다음_사람_신고_많은_글보다_위() throws Exception {
+        String human = write(jisu, "사람이 걱정해서 신고한 글");
+        String auto = write(jisu, "안내를 보고도 올린 글");
+        String many = write(jisu, "광고 글");
+        clock.set(NOW.plusSeconds(60));
+        report(minji, "POST", human, "CRISIS");
+        systemReportService.queuePostForReview(Long.valueOf(auto), List.of("MIND", "URGENT_MEDICAL", "DOSE", "WHAT"));
+        report(minji, "POST", auto, "ABUSE");
+        clock.set(NOW.plusSeconds(120));
+        report(minji, "POST", many, "AD_SALES");
+        report(hana, "POST", many, "AD_SALES");
+
+        mvc.perform(get("/api/admin/reports").cookie(admin))
+                .andExpect(jsonPath("$.data.items[*].targetId", contains(human, auto, many)))
+                .andExpect(jsonPath("$.data.items[0].systemReportCount").value(0))
+                .andExpect(jsonPath("$.data.items[1].reportCount").value(1))           // 사람 신고만
+                .andExpect(jsonPath("$.data.items[1].systemReportCount").value(2))     // 모르는 종류(WHAT)는 버림
+                .andExpect(jsonPath("$.data.items[1].reasons", contains("ABUSE", "CRISIS", "MEDICAL_ADVICE")))
+                .andExpect(jsonPath("$.data.items[2].reportCount").value(2));
+
+        mvc.perform(get("/api/admin/reports/POST/" + auto).cookie(admin))
+                .andExpect(jsonPath("$.data.reports[*].source", containsInAnyOrder("USER", "SYSTEM", "SYSTEM")))
+                .andExpect(jsonPath("$.data.reports[?(@.source == 'SYSTEM')].detail", containsInAnyOrder(
+                        "올리기 전 안내를 보고도 올림 (자동: MIND, URGENT_MEDICAL)", "올리기 전 안내를 보고도 올림 (자동: DOSE)")));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM reports WHERE source = 'SYSTEM' AND reporter_id IS NULL",
+                Integer.class)).isEqualTo(2);
+    }
+
+    @Test
+    void 위급은_가리기_사유로_못_고르고_잘못된_건강_정보는_고를_수_있다() throws Exception {
+        String a = write(jisu, "탄수화물 끊으세요");
+        report(minji, "POST", a, "MISINFO");
+        postJson(admin, "/api/admin/reports/POST/" + a + "/hide", "{\"reason\":\"CRISIS\"}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("GLOBAL_40001"));
+        postJson(admin, "/api/admin/reports/POST/" + a + "/hide", "{\"reason\":\"MISINFO\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.state").value("HIDDEN"));
     }
 
     @Test

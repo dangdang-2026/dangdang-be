@@ -67,7 +67,8 @@ public class AdminReportService {
         Target target = findTarget(type, targetId);
         List<ReportLine> reports = reportRepository.findByTargetTypeAndTargetIdOrderByCreatedAtDescIdDesc(type, targetId)
                 .stream()
-                .map(r -> new ReportLine(r.getReason().name(), r.getDetail(), r.getStatus().name(), r.getCreatedAt()))
+                .map(r -> new ReportLine(r.getReason().name(), r.getDetail(), r.getStatus().name(),
+                        r.getSource().name(), r.getCreatedAt()))
                 .toList();
         List<ActionLine> actions = actionRepository.findByTargetTypeAndTargetIdOrderByOccurredAtDescIdDesc(type, targetId)
                 .stream()
@@ -175,7 +176,7 @@ public class AdminReportService {
                 target == null ? null : String.valueOf(target.postId()),
                 target == null ? null : target.preview(),
                 target == null ? "DELETED" : target.state(),     // 글이 통째로 지워져 행이 없으면
-                row.getReportCount(), reasons, row.getLastReportedAt());
+                row.getReportCount(), row.getSystemReportCount(), reasons, row.getLastReportedAt());
     }
 
     // 운영자는 지운 글도 본다 (deleted_at이 있어도 찾음)
