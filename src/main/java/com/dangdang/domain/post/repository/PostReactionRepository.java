@@ -45,7 +45,8 @@ public interface PostReactionRepository extends JpaRepository<PostReaction, Long
             where r.profile.id = :profileId
               and p.deletedAt is null and p.hiddenReason is null
               and not exists (select 1 from ProfileBlock b
-                              where b.profile.id = :profileId and b.blockedProfile.id = p.profile.id)
+                              where b.profile.id = :profileId and b.blockedProfile.id = p.profile.id
+                                and b.viaAnonymous = p.anonymous)
             order by r.createdAt desc, r.id desc
             """)
     List<PostReaction> findMine(@Param("profileId") Long profileId, Limit limit);
@@ -56,7 +57,8 @@ public interface PostReactionRepository extends JpaRepository<PostReaction, Long
             where r.profile.id = :profileId
               and p.deletedAt is null and p.hiddenReason is null
               and not exists (select 1 from ProfileBlock b
-                              where b.profile.id = :profileId and b.blockedProfile.id = p.profile.id)
+                              where b.profile.id = :profileId and b.blockedProfile.id = p.profile.id
+                                and b.viaAnonymous = p.anonymous)
               and (r.createdAt < :at or (r.createdAt = :at and r.id < :id))
             order by r.createdAt desc, r.id desc
             """)
@@ -69,7 +71,8 @@ public interface PostReactionRepository extends JpaRepository<PostReaction, Long
             where r.profile.id = :profileId
               and p.deletedAt is null and p.hiddenReason is null
               and not exists (select 1 from ProfileBlock b
-                              where b.profile.id = :profileId and b.blockedProfile.id = p.profile.id)
+                              where b.profile.id = :profileId and b.blockedProfile.id = p.profile.id
+                                and b.viaAnonymous = p.anonymous)
             """)
     long countMine(@Param("profileId") Long profileId);
 }

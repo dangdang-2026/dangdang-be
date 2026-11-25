@@ -1,12 +1,15 @@
 package com.dangdang.domain.post.service;
 
 import com.dangdang.domain.comment.repository.CommentRepository;
+import com.dangdang.domain.comment.service.BestComment;
 import com.dangdang.domain.community.entity.CommunityProfile;
 import com.dangdang.domain.community.service.BlockService;
 import com.dangdang.domain.community.service.CommunityProfileService;
 import com.dangdang.domain.community.service.SanctionService;
+import com.dangdang.domain.community.service.WeekBadges;
 import com.dangdang.domain.post.dto.request.PostCreateRequest;
 import com.dangdang.domain.post.dto.request.PostUpdateRequest;
+import com.dangdang.domain.post.dto.response.BestCommentResponse;
 import com.dangdang.domain.post.dto.response.PollResponse;
 import com.dangdang.domain.post.dto.response.PostDetailResponse;
 import com.dangdang.domain.post.dto.response.PostListResponse;
@@ -28,6 +31,7 @@ import com.dangdang.domain.user.enums.Role;
 import com.dangdang.global.common.IdCount;
 import com.dangdang.global.common.TimeCursor;
 import com.dangdang.global.exception.CustomException;
+import com.dangdang.global.exception.GlobalErrorCode;
 import com.dangdang.global.security.AuthPrincipal;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Sort;
@@ -49,6 +53,7 @@ public class PostService {
 
     private static final Sort LATEST = Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id"));
     static final int POPULAR_MAX = 50;          // 인기 게시판은 한 번에 50개 (size 무시, 다음 페이지 없음)
+    private static final int ALL_PERIOD_MIN_QUERY = 2;   // period=ALL 검색어 최소 글자 수
     private static final List<PostCategory> LATEST_ONLY_CATEGORIES =
             List.of(PostCategory.MEAL, PostCategory.VISIT, PostCategory.NEWS);
 
@@ -61,6 +66,7 @@ public class PostService {
     private final BlockService blockService;
     private final CommunityProfileService profileService;
     private final SanctionService sanctionService;
+    private final WeekBadges weekBadges;
     private final Clock clock;
 
     public PostListResponse list(Long userId, PostCategory category, PostSort sort, PopularPeriod period,
@@ -69,6 +75,9 @@ public class PostService {
         Long myProfileId = profileService.findMyProfileId(userId).orElse(null);
         if (sort == PostSort.POPULAR) {
             return popular(category, who, period, q, myProfileId);
+        }
+        if (period == PopularPeriod.ALL) {   // 기간은 인기순에만 — 최신순에 ALL을 보내면 조용히 무시하지 않고 알려 준다
+            throw new CustomException(GlobalErrorCode.INVALID_INPUT, "period는 sort=POPULAR일 때만 보내 주세요.");
         }
         String filter = category + "|" + q + "|" + who;
         TimeCursor cursor = rawCursor == null ? null
@@ -107,7 +116,7 @@ public class PostService {
         Post post = postRepository.findByIdAndDeletedAtIsNull(postId)
                 .orElseThrow(() -> new CustomException(PostErrorCode.POST_NOT_FOUND));
         Long myProfileId = profileService.findMyProfileId(userId).orElse(null);
-        if (blockService.isBlocking(myProfileId, post.getProfile())) {
+        if (blockService.isBlocking(myProfileId, post.getProfile(), post.isAnonymous())) {
             throw new CustomException(PostErrorCode.POST_NOT_FOUND);
         }
         if (post.isHidden()) {
@@ -144,7 +153,7 @@ public class PostService {
     public Post findVisiblePost(Long postId, Long myProfileId) {
         return postRepository.findByIdAndDeletedAtIsNull(postId)
                 .filter(post -> !post.isHidden())
-                .filter(post -> !blockService.isBlocking(myProfileId, post.getProfile()))
+                .filter(post -> !blockService.isBlocking(myProfileId, post.getProfile(), post.isAnonymous()))
                 .orElseThrow(() -> new CustomException(PostErrorCode.POST_NOT_FOUND));
     }
 
@@ -177,11 +186,14 @@ public class PostService {
         Map<Long, Long> comments = toMap(commentRepository.countVisibleByPostIds(ids, viewerKey(myProfileId)));
         Set<Long> reacted = myProfileId == null ? Set.of()
                 : reactionRepository.findReactedPostIds(ids, myProfileId);
+        // 주수 배지: 글쓴이가 몇 명이어도 임신 표는 한 번 (익명 글은 배지를 안 붙이니 빼고 센다)
+        Map<Long, String> badges = weekBadges.of(posts.stream()
+                .filter(post -> !post.isAnonymous()).map(Post::getProfile).toList());
         return posts.stream()
                 .map(post -> PostSummaryResponse.of(post, myProfileId,
                         reactions.getOrDefault(post.getId(), 0L),
                         comments.getOrDefault(post.getId(), 0L),
-                        reacted.contains(post.getId())))
+                        reacted.contains(post.getId()), badges))
                 .toList();
     }
 
@@ -195,8 +207,10 @@ public class PostService {
         long commentCount = toMap(commentRepository.countVisibleByPostIds(List.of(postId), viewerKey(myProfileId)))
                 .getOrDefault(postId, 0L);
         boolean reacted = myProfileId != null && reactionRepository.existsByPostIdAndProfileId(postId, myProfileId);
+        Map<Long, String> badges = post.isAnonymous() || post.getProfile() == null ? Map.of()
+                : weekBadges.of(List.of(post.getProfile()));
         return PostDetailResponse.of(post, myProfileId, viewCount, reactionCount, commentCount, reacted,
-                pollOf(post, myProfileId));
+                pollOf(post, myProfileId), badges);
     }
 
     // 프로필이 없는 사람은 차단한 사람도 없다 → 절대 안 맞는 번호를 넘긴다
@@ -211,13 +225,35 @@ public class PostService {
         if (category != null && LATEST_ONLY_CATEGORIES.contains(category)) {
             throw new CustomException(PostErrorCode.LATEST_ONLY);
         }
-        Instant since = clock.instant().minus(period.window());
+        // 기간 없이 전체 글 점수를 매기지 않게 — 검색 결과에서만, 한 글자 검색어는 거의 모든 글과 맞으니 두 글자부터
+        if (period == PopularPeriod.ALL && (q == null || q.codePointCount(0, q.length()) < ALL_PERIOD_MIN_QUERY)) {
+            throw new CustomException(GlobalErrorCode.INVALID_INPUT, "period=ALL은 두 글자 이상 검색어(q)와 같이 보내 주세요.");
+        }
         Specification<Post> filter = PostSpecifications.feed(category, q, null, myProfileId, who)
-                .and((root, query, cb) -> cb.and(
-                        cb.greaterThanOrEqualTo(root.<Instant>get("createdAt"), since),
-                        root.get("category").in(LATEST_ONLY_CATEGORIES).not()));
+                .and((root, query, cb) -> root.get("category").in(LATEST_ONLY_CATEGORIES).not());
+        if (period.window() != null) {   // ALL(검색 결과 인기순, U-06)은 기간 조건 없이
+            Instant since = clock.instant().minus(period.window());
+            filter = filter.and((root, query, cb) -> cb.greaterThanOrEqualTo(root.<Instant>get("createdAt"), since));
+        }
         List<Post> top = popularQuery.findTop(filter, viewerKey(myProfileId), POPULAR_MAX);
-        return new PostListResponse(toSummaries(top, myProfileId), null, false);
+        return new PostListResponse(withBestComments(toSummaries(top, myProfileId), myProfileId), null, false);
+    }
+
+    // U-23 인기 카드 아래 베스트 댓글 — 글 50개여도 쿼리 2번 (글마다 댓글 API를 부르지 않게)
+    private List<PostSummaryResponse> withBestComments(List<PostSummaryResponse> items, Long myProfileId) {
+        if (items.isEmpty()) {
+            return items;
+        }
+        List<Long> postIds = items.stream().map(i -> Long.valueOf(i.id())).toList();
+        Map<Long, Long> counts = toMap(commentRepository.findBestComments(postIds, viewerKey(myProfileId),
+                BestComment.MIN_REACTIONS));
+        if (counts.isEmpty()) {
+            return items;
+        }
+        Map<Long, BestCommentResponse> byPost = commentRepository.findWithProfileByIdIn(counts.keySet()).stream()
+                .collect(Collectors.toMap(c -> c.getPost().getId(),
+                        c -> BestCommentResponse.of(c, counts.get(c.getId()), myProfileId)));
+        return items.stream().map(i -> i.withBestComment(byPost.get(Long.valueOf(i.id())))).toList();
     }
 
     private String normalizeSearch(String rawQ) {

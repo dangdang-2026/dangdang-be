@@ -5,6 +5,7 @@ import com.dangdang.domain.pregnancy.enums.PregnancyState;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -12,6 +13,9 @@ public interface PregnancyRepository extends JpaRepository<Pregnancy, Long> {
 
     // 진행 중인 임신: state가 ENDED가 아닌 줄
     Optional<Pregnancy> findByUserIdAndStateNot(Long userId, PregnancyState state);
+
+    // 커뮤니티 주수 배지 — 글쓴이 여러 명의 진행 중인 임신을 한 번에 (사람마다 조회하지 않게)
+    List<Pregnancy> findByUserIdInAndStateNot(Collection<Long> userIds, PregnancyState state);
 
     // 이 사람 임신 전부 (끝난 임신 포함), 최근 것 먼저. 리포트 기간과 겹치는 임신을 고를 때
     List<Pregnancy> findAllByUserIdOrderByIdDesc(Long userId);

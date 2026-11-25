@@ -6,7 +6,8 @@ import java.time.Duration;
 public enum PopularPeriod {
     REALTIME(Duration.ofHours(24)),   // 실시간 = 최근 24시간
     WEEK(Duration.ofDays(7)),         // 이번 주 = 최근 7일
-    MONTH(Duration.ofDays(30));       // 이번 달 = 최근 30일
+    MONTH(Duration.ofDays(30)),       // 이번 달 = 최근 30일
+    ALL(null);                        // 기간 없이 — 검색 결과 「인기순」 (U-06)
 
     private final Duration window;
 
@@ -14,6 +15,7 @@ public enum PopularPeriod {
         this.window = window;
     }
 
+    // ALL이면 null (기간 조건 없음)
     public Duration window() {
         return window;
     }
