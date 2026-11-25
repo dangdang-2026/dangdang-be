@@ -4,6 +4,7 @@ import com.dangdang.domain.report.enums.ReportReason;
 import com.dangdang.domain.report.repository.ReportRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
@@ -24,16 +25,18 @@ public class SystemReportService {
     // 올리기 전 확인(precheck)이 내는 종류 → 신고 사유. 여기 없는 종류는 버린다
     private static final Map<String, ReportReason> REVIEW_REASONS = Map.of(
             "DOSE", ReportReason.MEDICAL_ADVICE,           // 약·용량
-            "URGENT_MEDICAL", ReportReason.CRISIS,         // 위급·마음·저혈당은 처리함 맨 위 (자동 위급)
+            "URGENT_MEDICAL", ReportReason.CRISIS,         // 위급·마음·저혈당·폭력 피해는 처리함 맨 위 (자동 위급)
             "MIND", ReportReason.CRISIS,
-            "LOW_GLUCOSE", ReportReason.CRISIS);
+            "LOW_GLUCOSE", ReportReason.CRISIS,
+            "SAFETY", ReportReason.CRISIS);
     private static final String DETAIL = "올리기 전 안내를 보고도 올림 (자동: %s)";
 
     private final ReportRepository reportRepository;
     private final Clock clock;
 
     // 같은 사유로 묶이는 종류는 한 줄로 (예: MIND·URGENT_MEDICAL → CRISIS 한 줄, detail에 두 종류). detail엔 아는 종류 이름만 들어간다
-    @Transactional
+    // 글쓰기가 커밋된 뒤(afterCommit)에 부르므로 새 트랜잭션으로 넣는다
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void queuePostForReview(Long postId, Collection<String> kinds) {
         Map<ReportReason, Set<String>> kindsByReason = kinds.stream()
                 .filter(REVIEW_REASONS::containsKey)
