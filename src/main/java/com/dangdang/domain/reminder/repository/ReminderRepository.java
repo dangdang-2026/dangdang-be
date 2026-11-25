@@ -50,6 +50,25 @@ public interface ReminderRepository extends JpaRepository<Reminder, Long> {
     long countMissed(Long userId, Collection<MeasureSlot> slots, Collection<ReminderStatus> statuses,
                      Instant from, Instant to);
 
+    // countMissed와 같은 조건의 놓친 측정 알림을 개수 대신 줄로 (진료 리포트 빈칸 — 잴 때·날짜까지 알아야 해서). 모든 잴 때
+    // 식사 알림은 식사 시작 시각, 아니면 알림 시각으로 기간(from ~ to)을 봄 → 밤늦게 먹은 저녁의 식후 알림이 자정을 넘어도 식사한 날 칸
+    // 알림 시각이 graceEnd 전인 것만 (아직 잴 시간이 남은 알림은 뺌)
+    // 날짜 기준 시각 순 → id 순
+    @Query("""
+            SELECT r.slot AS slot, r.scheduledAt AS scheduledAt, m.startedAt AS mealStartedAt FROM Reminder r
+            LEFT JOIN Meal m ON m.id = r.mealId
+            WHERE r.user.id = :userId
+              AND r.slot IS NOT NULL
+              AND r.status IN :statuses
+              AND COALESCE(m.startedAt, r.scheduledAt) >= :from
+              AND COALESCE(m.startedAt, r.scheduledAt) < :to
+              AND r.scheduledAt < :graceEnd
+              AND (r.mealId IS NULL OR (m.id IS NOT NULL AND m.deletedAt IS NULL))
+            ORDER BY COALESCE(m.startedAt, r.scheduledAt), r.id
+            """)
+    List<MissedReminder> findMissed(Long userId, Collection<ReminderStatus> statuses, Instant from, Instant to,
+                                    Instant graceEnd);
+
     // 공복과 자기 전 알림을 이 시각으로 이미 만들었는지 (30초마다 돌아도 하루 한 번만)
     boolean existsByUserIdAndSlotAndScheduledAt(Long userId, MeasureSlot slot, Instant scheduledAt);
 

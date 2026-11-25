@@ -16,6 +16,8 @@ public final class ReadingEvaluator {
     private static final Duration ON_TIME_RANGE = Duration.ofMinutes(15);
     // 이 값 미만이면 「70 미만」(낮게 잼). 진료 리포트(VisitReportService)·통계와 같은 기준
     public static final int LOW_VALUE = 70;
+    // 이 값 이상이면 「200 이상」. 진료 리포트 「70 미만 없음 · 200 이상 없음」의 짝
+    public static final int HIGH_VALUE = 200;
 
     private ReadingEvaluator() {
     }
@@ -73,5 +75,10 @@ public final class ReadingEvaluator {
     // 70 미만인지. 목표가 없어도, 기타 혈당이어도 늘 판단함 (저혈당은 시점과 상관없이 위험 신호)
     public static boolean belowLow(Reading reading) {
         return reading.getValue() < LOW_VALUE;
+    }
+
+    // 200 이상인지. 70 미만과 짝으로 목표·시점과 상관없이 늘 판단함 (HI는 600이라 여기 들어감)
+    public static boolean aboveHigh(Reading reading) {
+        return reading.getValue() >= HIGH_VALUE;
     }
 }

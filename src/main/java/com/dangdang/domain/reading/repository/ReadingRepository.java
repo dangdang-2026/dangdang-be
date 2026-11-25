@@ -1,5 +1,6 @@
 package com.dangdang.domain.reading.repository;
 
+import com.dangdang.domain.criteria.entity.CriteriaVersion;
 import com.dangdang.domain.reading.entity.Reading;
 import com.dangdang.domain.reading.enums.ReadingType;
 import org.springframework.data.domain.Limit;
@@ -9,6 +10,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -160,4 +162,33 @@ public interface ReadingRepository extends JpaRepository<Reading, Long> {
               and r.deletedAt is null
             """)
     int softDeleteAll(Collection<Long> ids, Long userId, Instant now);
+
+    // 지난 날짜부터 적용하는 기준 (C-09): 이 기간에 잰 내 기록(지운 것 포함 — 되돌리면 새 기준으로 보이게)을 이 기준에 다시 붙임. 바뀐 줄 수
+    // row_version을 올림 — 그사이 같은 기록을 고치던 요청이 옛 버전으로 옛 기준을 다시 덮지 않고 409(READING_40903)가 되게
+    // updated_at·edited_at은 안 건드림 → 사용자가 고친 게 아니라 「수정됨」이 안 뜸
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update Reading r set r.criteriaVersion = :criteria, r.rowVersion = r.rowVersion + 1
+            where r.user.id = :userId
+              and r.measuredAt >= :from
+              and r.measuredAt < :to
+            """)
+    int relinkCriteria(Long userId, CriteriaVersion criteria, Instant from, Instant to);
+
+    // 지난 날짜 기준 (C-09): 다음 기준 시작일(nextFrom)에 잰 기록 중 그 기준을 적기 전이라 앞 기준을 가리키는 것을 새 기준으로
+    // 앞 기준 = 적용일이 nextFrom보다 이른 기준, 또는 그날 서버가 만든 빈 기준. 다음 기준을 가리키는 기록은 그대로
+    // relinkCriteria처럼 지운 기록도 포함하고 row_version만 올림
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update Reading r set r.criteriaVersion = :criteria, r.rowVersion = r.rowVersion + 1
+            where r.user.id = :userId
+              and r.measuredAt >= :from
+              and r.measuredAt < :to
+              and r.criteriaVersion.id in (
+                  select c.id from CriteriaVersion c
+                  where c.user.id = :userId
+                    and c <> :criteria
+                    and (c.effectiveFrom < :nextFrom or (c.autoEmpty = true and c.effectiveFrom = :nextFrom)))
+            """)
+    int relinkStaleOnDay(Long userId, CriteriaVersion criteria, LocalDate nextFrom, Instant from, Instant to);
 }

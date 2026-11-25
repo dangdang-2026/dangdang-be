@@ -134,8 +134,52 @@ class VisitNoteOrganizeFlowTest {
                 .andExpect(jsonPath("$.data.aiExtract.measureSlots.value").value(contains("FASTING", "LUNCH_AFTER")))
                 .andExpect(jsonPath("$.data.aiExtract.measureSlots.status").value("FOUND"))
                 .andExpect(jsonPath("$.data.aiExtract.fastingTarget.status").value("CHECK_NEEDED"))
-                .andExpect(jsonPath("$.data.aiExtract.postMealTarget.status").value("FOUND"))
+                .andExpect(jsonPath("$.data.aiExtract.postMealTarget.value").value(140))
+                .andExpect(jsonPath("$.data.aiExtract.postMealTarget.status").value("CHECK_NEEDED"))   // 근거는 맞지만 식후 시점이 없어서 (짝)
                 .andExpect(jsonPath("$.data.aiExtract.nextVisitDate.status").value("CHECK_NEEDED"));
+    }
+
+    @Test
+    void 식후_시점과_목표는_짝이라_하나만_찾으면_둘_다_확인_필요() throws Exception {
+        given(organizeClient.organize(anyString(), any(), any())).willReturn(new VisitNoteExtract(
+                null, null,
+                new Field<>(140, "공복은 95 미만, 식후는 140 미만으로 보자고 하셨어요.", ExtractStatus.FOUND),   // 목표만
+                null, null, false, "visit-note-v1"));
+
+        organize(access, visitId, noteId)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.aiExtract.postMealTarget.value").value(140))
+                .andExpect(jsonPath("$.data.aiExtract.postMealTarget.status").value("CHECK_NEEDED"))
+                .andExpect(jsonPath("$.data.aiExtract.postMealMinutes").value(nullValue()));
+    }
+
+    @Test
+    void 식후_시점과_목표를_둘_다_찾으면_그대로_하나라도_확인_필요면_둘_다_확인_필요() throws Exception {
+        String memo = "식후 1시간에 재고 식후는 120 미만으로 보자고 하셨어요.";
+        long note = createNote(access, visitId, memo);
+        given(organizeClient.organize(anyString(), any(), any())).willReturn(new VisitNoteExtract(
+                null, null,
+                new Field<>(120, "식후는 120 미만으로 보자고 하셨어요.", ExtractStatus.FOUND),
+                new Field<>(60, "식후 1시간에 재고", ExtractStatus.FOUND),
+                null, false, "visit-note-v1"));
+
+        organize(access, visitId, note)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.aiExtract.postMealTarget.status").value("FOUND"))
+                .andExpect(jsonPath("$.data.aiExtract.postMealMinutes.value").value(60))
+                .andExpect(jsonPath("$.data.aiExtract.postMealMinutes.status").value("FOUND"));
+
+        given(organizeClient.organize(anyString(), any(), any())).willReturn(new VisitNoteExtract(
+                null, null,
+                new Field<>(120, "식후는 120 미만으로 보자고 하셨어요.", ExtractStatus.FOUND),
+                new Field<>(60, "식후 1시간에 재고", ExtractStatus.CHECK_NEEDED),   // AI가 확신 못 함
+                null, false, "visit-note-v1"));
+
+        organize(access, visitId, note)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.aiExtract.postMealTarget.value").value(120))
+                .andExpect(jsonPath("$.data.aiExtract.postMealTarget.status").value("CHECK_NEEDED"))
+                .andExpect(jsonPath("$.data.aiExtract.postMealMinutes.status").value("CHECK_NEEDED"));
     }
 
     @Test
