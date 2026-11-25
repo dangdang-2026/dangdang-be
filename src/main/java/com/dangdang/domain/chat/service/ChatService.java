@@ -35,7 +35,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
-// 당당이에게 물어보기 (ASK). 순서: 0) 건강정보 동의 1) 위험 신호 규칙(AI 안 감) 2) 문지기(동의·하루 상한) 3) AI 4) 기록 숫자는 Spring
+// 당당이에게 물어보기 (ASK). 순서: 1) 위험 신호 규칙(AI 안 감) 2) 건강정보 동의 3) 문지기(동의·하루 상한) 4) AI 5) 기록 숫자는 Spring
 // AI 서버를 기다리는 동안 DB 연결을 잡지 않도록 이 메서드에는 @Transactional을 붙이지 않는다
 // 저장은 짧은 트랜잭션으로 각각 — 그때마다 건강정보 동의를 잠그고 다시 본다 (SensitiveConsentGuard, 철회와 겹치지 않게)
 @Service
@@ -63,28 +63,24 @@ public class ChatService {
     public ChatAskResponse ask(Long userId, String content) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
-        // 0) 질문·답이 건강 이야기라 건강정보(SENSITIVE) 동의가 있어야 남긴다 — 없으면 403 USER_40302 (위험 신호 안내도)
-        //    동의 전·철회 뒤에는 A-01로 가서 챗봇 화면에 못 오므로, 여기서 막혀 안내를 못 받는 사람은 없다
+        // 1) 위험 신호·약 용량: 국외 이전 동의·상한과 상관없이 바로 정해진 안내 (AI로 안 보낸다)
+        //    건강정보(SENSITIVE) 동의가 없어도 안내는 돌려준다 — 문서 버전이 올라 재동의가 필요한 사람이 챗봇 화면을 열어 둔 채
+        //    「피가 비쳐요」를 보내도 응급 안내를 받아야 해서. 이때는 대화 기록에 남기지 않는다 (id 없이 화면에만)
+        Optional<RiskSignalRules.Hit> hit = RiskSignalRules.match(content, afterBirth(userId));
+        if (hit.isPresent()) {
+            return ruleAnswer(user, userId, content, hit.get());
+        }
+        // 2) 질문·답이 건강 이야기라 건강정보(SENSITIVE) 동의가 있어야 남긴다 — 없으면 403 USER_40302
         //    AI 횟수를 쓰기 전에 먼저 보고, 저장할 때 잠그고 한 번 더 본다 (그사이 철회했을 수 있어서)
         if (!consentService.isGranted(userId, ConsentType.SENSITIVE)) {
             throw new CustomException(UserErrorCode.SENSITIVE_CONSENT_REQUIRED);
         }
-        // 1) 위험 신호·약 용량: 국외 이전 동의·상한과 상관없이 바로 정해진 안내 (AI로 안 보낸다)
-        Optional<RiskSignalRules.Hit> hit = RiskSignalRules.match(content, afterBirth(userId));
-        if (hit.isPresent()) {
-            return transactionTemplate.execute(status -> {
-                sensitiveConsentGuard.require(userId);
-                ChatMessage question = chatMessageRepository.save(ChatMessage.question(user, content, clock.instant()));
-                ChatMessage answer = chatMessageRepository.save(riskAnswer(user, hit.get(), null, null));
-                return pair(question, answer);
-            });
-        }
 
-        // 2) 문지기 — 국외 이전 동의가 없으면 403 AI_40301, 오늘 상한이면 429 (아무것도 저장 안 함) (Q-01 「필수」, 11/24)
+        // 3) 문지기 — 국외 이전 동의가 없으면 403 AI_40301, 오늘 상한이면 429 (아무것도 저장 안 함) (Q-01 「필수」, 11/24)
         AiGuard.AiCall call = aiGuard.begin(userId, AiFeature.CHAT);
         List<ChatClient.Turn> history = history(userId);          // 이번 질문을 저장하기 전에 읽는다 (위험 신호면 안 읽음)
-        // 국외 이전 동의는 문지기가, 건강정보 동의는 0)에서 봤다 → 내 기록을 쓰려면 기록 사용 동의만 더 본다
-        // (철회 뒤 기록 사용 동의만 다시 켜도 0)에서 막혀서, 건강정보 동의 없이 기록을 보내는 일은 없다)
+        // 국외 이전 동의는 문지기가, 건강정보 동의는 2)에서 봤다 → 내 기록을 쓰려면 기록 사용 동의만 더 본다
+        // (철회 뒤 기록 사용 동의만 다시 켜도 2)에서 막혀서, 건강정보 동의 없이 기록을 보내는 일은 없다)
         boolean recordsAllowed = consentService.isGranted(userId, ConsentType.AI_CHAT_RECORDS);
         ChatMessage question;
         try {
@@ -93,26 +89,62 @@ public class ChatService {
                 return chatMessageRepository.save(ChatMessage.question(user, content, clock.instant()));
             });
         } catch (RuntimeException e) {
-            aiGuard.fail(call, "NOT_SAVED");   // 0) 뒤에 철회함 → AI를 안 불렀으니 횟수를 돌려준다
+            aiGuard.fail(call, "NOT_SAVED");   // 2) 뒤에 철회함 → AI를 안 불렀으니 횟수를 돌려준다
             throw e;
         }
 
-        // 3) AI 서버 → 4) 답 만들기. 어디서 어떤 예외가 나도 오늘 횟수를 돌려주고 FAILED로 끝낸다 (리뷰 #79)
+        // 4) AI 서버 → 5) 답 만들기. 어디서 어떤 예외가 나도 FAILED로 끝내고 오늘 횟수를 돌려준다 (리뷰 #79)
         ChatMessage answer;
+        String failReason = null;
+        String promptVersion = null;
         try {
             ChatClient.Reply reply = chatClient.ask(call.requestId(), content, recordsAllowed, history);
             answer = toAnswer(user, userId, reply, recordsAllowed, call.requestId());
             if (answer == null) {
-                aiGuard.fail(call, reply == null || reply.kind() == null ? "EMPTY_REPLY" : "UNKNOWN_KIND");
+                failReason = reply == null || reply.kind() == null ? "EMPTY_REPLY" : "UNKNOWN_KIND";
                 answer = failed(user, call);
             } else {
-                aiGuard.finish(call, reply.promptVersion(), answer.getKind().name());
+                promptVersion = reply.promptVersion();
             }
         } catch (RuntimeException e) {
-            aiGuard.fail(call, e.getClass().getSimpleName());
+            failReason = e.getClass().getSimpleName();
             answer = failed(user, call);
         }
-        return pair(question, saveAnswer(userId, question, answer));
+        // 횟수 기록(finish/fail)은 답을 저장한 뒤에 — AI를 기다리는 사이 철회해서 저장이 403이면 답을 못 받았으니 돌려준다
+        ChatMessage saved;
+        try {
+            saved = saveAnswer(userId, question, answer);
+        } catch (RuntimeException e) {
+            aiGuard.fail(call, "NOT_SAVED");
+            throw e;
+        }
+        if (failReason != null) {
+            aiGuard.fail(call, failReason);
+        } else {
+            aiGuard.finish(call, promptVersion, saved.getKind().name());
+        }
+        return pair(question, saved);
+    }
+
+    // 위험 신호·약 용량 안내. 건강정보 동의가 있으면 질문·답을 남기고, 없으면(또는 저장 직전 철회됐으면) 남기지 않고 화면에만
+    private ChatAskResponse ruleAnswer(User user, Long userId, String content, RiskSignalRules.Hit hit) {
+        ChatMessage question = ChatMessage.question(user, content, clock.instant());
+        ChatMessage answer = riskAnswer(user, hit, null, null);
+        if (!consentService.isGranted(userId, ConsentType.SENSITIVE)) {
+            return pair(question, answer);
+        }
+        try {
+            return transactionTemplate.execute(status -> {
+                sensitiveConsentGuard.require(userId);
+                return pair(chatMessageRepository.save(question), chatMessageRepository.save(answer));
+            });
+        } catch (CustomException e) {
+            if (e.getErrorCode() != UserErrorCode.SENSITIVE_CONSENT_REQUIRED) {
+                throw e;
+            }
+            // 확인과 저장 사이에 철회됨 → 저장은 롤백됐고 안내만 돌려준다. 롤백으로 붙은 id는 화면에 안 내보낸다
+            return pair(ChatMessage.question(user, content, clock.instant()), riskAnswer(user, hit, null, null));
+        }
     }
 
     // 답 저장 — 건강정보 동의를 잠그고 다시 본다 (AI를 기다리는 사이 철회했으면 403, 답을 남기지 않음)
@@ -124,7 +156,7 @@ public class ChatService {
         });
     }
 
-    // 4) 종류별로 화면에 그릴 답 만들기 (저장은 saveAnswer). 모르는 종류·빈 답이면 null
+    // 5) 종류별로 화면에 그릴 답 만들기 (저장은 saveAnswer). 모르는 종류·빈 답이면 null
     private ChatMessage toAnswer(User user, Long userId, ChatClient.Reply reply, boolean recordsAllowed,
                                  String requestId) {
         if (reply == null || reply.kind() == null) {
@@ -197,8 +229,12 @@ public class ChatService {
     }
 
     // 대화 지우기 — 바로 삭제 (보관 기간 결정 10/22)
+    // 회원 줄을 FOR UPDATE로 잠그고 지운다 → 답 저장(saveAnswer, FOR SHARE)이 질문이 있는지 보고 저장하는 사이에 끼어들지 못하고
+    // 차례로 실행된다 (저장 중이면 끝날 때까지 기다렸다가 같이 지움, 지운 뒤면 저장 쪽이 질문 없음을 보고 답을 안 남김)
     @Transactional
     public int deleteAll(Long userId) {
+        userRepository.findByIdForUpdate(userId)
+                .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
         return chatMessageRepository.deleteAllByUserId(userId);
     }
 

@@ -238,6 +238,17 @@ class VisitNoteOrganizeFlowTest {
     }
 
     @Test
+    void 건강정보_동의가_없으면_403이고_메모를_AI로_보내지_않는다() throws Exception {
+        jdbc.update("DELETE FROM consent_events WHERE user_id = ? AND consent_type = 'SENSITIVE'", userId);
+
+        organize(access, visitId, noteId)
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.errorCode").value("USER_40302"));
+        verify(organizeClient, never()).organize(any(), any(), any());
+        assertThat(redis.opsForValue().get(usageKey())).isNull();   // 오늘 횟수도 안 씀
+    }
+
+    @Test
     void 하루_10번을_넘으면_429() throws Exception {
         redis.opsForValue().set(usageKey(), "10");   // 오늘 이미 10번
 
