@@ -151,6 +151,26 @@ class CommunityAnonymityFlowTest extends ReminderTestBase {
     }
 
     @Test
+    void 예전에_이름으로_막은_줄은_마이그레이션_뒤_익명_글도_가리고_목록에_익명_사용자_줄이_생긴다() throws Exception {
+        String anon = write(jisu, true);
+        String named = write(jisu, false);
+        // 이번 PR 전에 쌓인 모양: 이름 줄 하나 (예전엔 이걸로 익명 글까지 가렸다)
+        postJson(minji, "/api/blocks", "{\"blockedProfileId\":\"" + myProfileId(jisu) + "\"}").andExpect(status().isOk());
+        mvc.perform(get("/api/posts/" + anon).cookie(minji)).andExpect(status().isOk());
+
+        jdbc.update(migrationStatement("INSERT", "SELECT profile_id, blocked_profile_id, true"));   // V20261124_95 그대로
+        jdbc.update(migrationStatement("INSERT", "SELECT profile_id, blocked_profile_id, true"));   // 다시 돌려도 줄이 안 늘어난다
+
+        mvc.perform(get("/api/posts/" + anon).cookie(minji)).andExpect(status().isNotFound());
+        mvc.perform(get("/api/posts/" + named).cookie(minji)).andExpect(status().isNotFound());
+        mvc.perform(get("/api/blocks").cookie(minji))
+                .andExpect(jsonPath("$.data.items.length()").value(2))
+                .andExpect(jsonPath("$.data.items[0].nickname").value("익명 사용자"))
+                .andExpect(jsonPath("$.data.items[0].anonymous").value(true))
+                .andExpect(jsonPath("$.data.items[1].nickname").value("말랑한 두부"));
+    }
+
+    @Test
     void 익명으로_막은_줄은_blockId로만_풀고_남의_줄은_못_푼다() throws Exception {
         String anon = write(jisu, true);
         postJson(minji, "/api/blocks", "{\"postId\":\"" + anon + "\"}").andExpect(status().isOk());
@@ -286,10 +306,15 @@ class CommunityAnonymityFlowTest extends ReminderTestBase {
 
     // 마이그레이션 파일에서 marker가 든 UPDATE 문 하나를 꺼낸다
     private String migrationStatement(String marker) throws Exception {
+        return migrationStatement("UPDATE", marker);
+    }
+
+    // keyword(UPDATE·INSERT)로 시작하는 문 하나
+    private String migrationStatement(String keyword, String marker) throws Exception {
         String sql = new String(getClass().getResourceAsStream("/db/migration/V20261124_95__community_anonymity.sql")
                 .readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
         int at = sql.indexOf(marker);
-        int start = sql.lastIndexOf("UPDATE", at);
+        int start = sql.lastIndexOf(keyword, at);
         return sql.substring(start, sql.indexOf(';', at));
     }
 

@@ -51,6 +51,7 @@ public class BlockController {
                     **Parameters** cursor, size(1~100, 기본 20)
                     **Returns** items(blockId, profileId, nickname, anonymous, blockedAt), nextCursor, hasNext. 최근 차단 순
                     익명 글·댓글에서 막은 줄은 anonymous=true · nickname 「익명 사용자」 · profileId null.
+                    이번 배포 전에 막은 사람은 익명 글도 계속 가리려고 「익명 사용자」 줄이 하나 더 있다.
                     같은 사람을 이름으로 한 번, 익명으로 한 번 막으면 두 줄
                     """)
     @GetMapping

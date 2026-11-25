@@ -7,6 +7,14 @@ ALTER TABLE profile_blocks ADD COLUMN via_anonymous BOOLEAN NOT NULL DEFAULT fal
 ALTER TABLE profile_blocks DROP CONSTRAINT uk_profile_blocks;
 ALTER TABLE profile_blocks ADD CONSTRAINT uk_profile_blocks UNIQUE (profile_id, blocked_profile_id, via_anonymous);
 
+-- 이 PR 전에 막은 줄은 그 사람 익명 글·댓글까지 가렸다 → 배포 뒤에도 계속 가리도록 익명 줄도 같이 넣는다
+-- (그래서 예전에 막은 사람은 차단 목록에 「익명 사용자」 줄이 하나 더 보인다. 새로 막는 줄은 이름·익명을 따로)
+INSERT INTO profile_blocks (profile_id, blocked_profile_id, via_anonymous, created_at)
+SELECT profile_id, blocked_profile_id, true, created_at
+FROM profile_blocks
+WHERE NOT via_anonymous
+ON CONFLICT (profile_id, blocked_profile_id, via_anonymous) DO NOTHING;
+
 -- U-02b 「익명 1·2」 (⑩ B): 이 글에서 그 사람이 처음 익명 댓글을 달 때 정한 번호를 댓글 줄에 적어 둔다
 -- 적어 두니까 댓글을 지우거나, 가리거나, 쓴 사람이 탈퇴해도(profile_id가 NULL) 남의 번호가 밀리지 않는다
 -- 익명 글의 글쓴이가 단 댓글은 번호 대신 「글쓴이」라 NULL
