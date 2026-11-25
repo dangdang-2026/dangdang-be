@@ -7,6 +7,7 @@ import com.dangdang.domain.criteria.entity.CriteriaVersion;
 import com.dangdang.domain.criteria.enums.MeasureSlot;
 import com.dangdang.domain.criteria.repository.CriteriaVersionRepository;
 import com.dangdang.domain.pregnancy.entity.Pregnancy;
+import com.dangdang.domain.pregnancy.enums.PregnancyState;
 import com.dangdang.domain.pregnancy.repository.PregnancyRepository;
 import com.dangdang.domain.reading.entity.Reading;
 import com.dangdang.domain.reading.enums.ReadingType;
@@ -386,10 +387,12 @@ public class VisitReportService {
     // 임신 주수 (예정일 기준 280일에서 거꾸로 셈, 내 정보 API와 같은 방식)
     // 지금 진행 중인 임신이 아니라 리포트 기간과 겹치는 임신으로 셈 (출산 뒤 다음 임신 중에 옛 리포트를 열어도 그때 주수)
     // 겹치는 임신이 여럿이면 최근 것. 예정일이 없거나 겹치는 임신이 없으면 null
+    // 그 임신이 다른 상황(PAUSED)이면 내 정보 API처럼 주수를 숨긴다 (더 옛 임신으로 넘어가지도 않음)
     private VisitReportResponse.PregnancyWeeks pregnancyWeeks(Long userId, LocalDate from, LocalDate to) {
         return pregnancyRepository.findAllByUserIdOrderByIdDesc(userId).stream()
                 .filter(p -> p.getDueDate() != null && overlaps(p, from, to))
                 .findFirst()
+                .filter(p -> p.getState() != PregnancyState.PAUSED)
                 .map(p -> new VisitReportResponse.PregnancyWeeks(weekOn(p, from), weekOn(p, to)))
                 .orElse(null);
     }

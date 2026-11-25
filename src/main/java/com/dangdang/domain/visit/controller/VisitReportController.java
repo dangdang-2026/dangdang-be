@@ -60,7 +60,7 @@ public class VisitReportController {
                     **Returns** 리포트 한 장 (볼 때마다 다시 계산, 해석·평균·그래프 없음).
                     기간: 바로 앞 진료일 ~ 이번 진료 전날 (앞 진료가 없으면 첫 혈당 기록일부터, 기록도 없으면 전날 하루, 최대 300일).
                     kind·from·to·visitId·visitDate, careSite{careSiteId, name}(없거나 지운 병원이면 null), displayName,
-                    pregnancyWeeks{from, to}(리포트 기간과 겹치는 임신의 예정일로 셈, 없으면 null, 그날이 임신 전·출산 뒤면 그 칸만 null),
+                    pregnancyWeeks{from, to}(리포트 기간과 겹치는 임신의 예정일로 셈, 없거나 그 임신이 다른 상황(PAUSED)이면 null, 그날이 임신 전·출산 뒤면 그 칸만 null),
                     criteria[](기간 안 날마다 적용된 기준 + 기록들이 실제로 판정에 쓴 기준, 오래된 순),
                     summary{measured 측정, missed 빈칸(알림 뒤 30분 넘게 안 잰 측정 · 건너뛴 끼니 포함, 지운 식사의 알림은 뺌), enteredLate 나중 입력(잰 뒤 30분 넘어 적음), below70(70 미만, LO 포함), above200(200 이상, HI 포함), outOfTarget, inTargetRate, compared},
                     slots[]{slot, measured, outOfTarget, missed 빈칸}(하루 순서, 기록이나 빈칸이 있는 잴 때만, 잴 때 없는 기록은 slot null·missed 0으로 맨 뒤),
