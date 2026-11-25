@@ -65,7 +65,8 @@ public class CriteriaService {
     // 같은 적용일 기준이 이미 있으면 새 것이 이김 (지금 기준 찾기의 「적용일 늦은 순 → id 큰 순」과 같은 규칙)
     // 서버가 만든 빈 기준(autoEmpty)은 「다음 기준」으로 치지 않고, 다시 붙인 뒤 이 기간 안의 것은 지움
     // → 안 지우면 리포트 기준 목록에 빈 기준이 끼어 나옴. 사용자가 다 비워 등록한 기준은 진짜 기준으로 봄
-    // 다시 붙인 뒤에도 혈당이 가리키는 빈 기준(오늘 기준을 적기 전 오늘 잰 혈당 등)은 남김 (날짜로 찾을 때 진짜 기준 뒤로 밀려서 새 기준을 안 가림)
+    // 다음 기준 시작일에는 그 기준을 적기 전에 잰 기록이 앞 기준(또는 빈 기준)을 가리킴 → 그날 기록 중 앞 기준을 가리키는 것도
+    // 새 기준으로 (그날 그 시각의 「그때 기준」이 이제 새 기준이라서, C-10)
     private void relinkReadings(Long userId, CriteriaVersion saved) {
         List<CriteriaVersion> later = criteriaVersionRepository
                 .findAllByUserIdAndEffectiveFromGreaterThanEqualOrderByEffectiveFromAscIdAsc(userId, saved.getEffectiveFrom())
@@ -77,14 +78,18 @@ public class CriteriaService {
                 .map(CriteriaVersion::getEffectiveFrom)
                 .findFirst()
                 .orElse(null);
+        // 다음 기준 시작일에 생긴 빈 기준도 포함 (다음 기준을 적기 전 그날 잰 기록으로 생긴 것)
         List<Long> coveredEmpty = later.stream()
-                .filter(c -> c.isAutoEmpty() && (nextFrom == null || c.getEffectiveFrom().isBefore(nextFrom)))
+                .filter(c -> c.isAutoEmpty() && (nextFrom == null || !c.getEffectiveFrom().isAfter(nextFrom)))
                 .map(CriteriaVersion::getId)
                 .toList();
 
         Instant from = KoreanTime.startOfDay(saved.getEffectiveFrom());
         Instant to = nextFrom == null ? NO_NEXT_CRITERIA : KoreanTime.startOfDay(nextFrom);
         readingRepository.relinkCriteria(userId, saved, from, to);
+        if (nextFrom != null) {
+            readingRepository.relinkStaleOnDay(userId, saved, nextFrom, to, KoreanTime.endOfDay(nextFrom));
+        }
         if (!coveredEmpty.isEmpty()) {
             criteriaVersionRepository.deleteUnused(userId, coveredEmpty);
         }

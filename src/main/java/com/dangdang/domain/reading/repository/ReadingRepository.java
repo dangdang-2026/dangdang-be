@@ -10,6 +10,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -173,4 +174,21 @@ public interface ReadingRepository extends JpaRepository<Reading, Long> {
               and r.measuredAt < :to
             """)
     int relinkCriteria(Long userId, CriteriaVersion criteria, Instant from, Instant to);
+
+    // 지난 날짜 기준 (C-09): 다음 기준 시작일(nextFrom)에 잰 기록 중 그 기준을 적기 전이라 앞 기준을 가리키는 것을 새 기준으로
+    // 앞 기준 = 적용일이 nextFrom보다 이른 기준, 또는 그날 서버가 만든 빈 기준. 다음 기준을 가리키는 기록은 그대로
+    // relinkCriteria처럼 지운 기록도 포함하고 row_version만 올림
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update Reading r set r.criteriaVersion = :criteria, r.rowVersion = r.rowVersion + 1
+            where r.user.id = :userId
+              and r.measuredAt >= :from
+              and r.measuredAt < :to
+              and r.criteriaVersion.id in (
+                  select c.id from CriteriaVersion c
+                  where c.user.id = :userId
+                    and c <> :criteria
+                    and (c.effectiveFrom < :nextFrom or (c.autoEmpty = true and c.effectiveFrom = :nextFrom)))
+            """)
+    int relinkStaleOnDay(Long userId, CriteriaVersion criteria, LocalDate nextFrom, Instant from, Instant to);
 }

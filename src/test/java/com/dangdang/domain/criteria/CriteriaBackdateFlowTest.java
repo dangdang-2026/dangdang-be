@@ -179,16 +179,30 @@ class CriteriaBackdateFlowTest extends ReminderTestBase {
     }
 
     @Test
-    void 아직_혈당이_가리키는_빈_기준은_남기고_등록은_성공한다() throws Exception {
+    void 다음_기준_시작일에_그_기준을_적기_전_잰_기록도_새_기준으로_다시_붙인다() throws Exception {
+        criteria(jisu, "{\"fastingTarget\":95,\"effectiveFrom\":\"2026-11-01\"}");    // A
+        long between = reading(jisu, "2026-11-05T08:00:00+09:00");             // A
+        long todayBeforeN = reading(jisu, "2026-11-09T08:00:00+09:00");        // 오늘 N 적기 전 → A
+        criteria(jisu, "{\"fastingTarget\":90}");                              // 오늘 N (오늘 기록은 안 바꿈)
+        long todayAfterN = reading(jisu, "2026-11-09T10:00:00+09:00");         // N
+
+        criteria(jisu, "{\"fastingTarget\":100,\"effectiveFrom\":\"2026-11-03\"}");  // X: 11/3 ~ N 전
+
+        assertThat(fastingTargetOf(between)).isEqualTo(100);
+        assertThat(fastingTargetOf(todayBeforeN)).isEqualTo(100);   // 그 시각의 그때 기준이 이제 X
+        assertThat(fastingTargetOf(todayAfterN)).isEqualTo(90);     // N을 가리키는 기록은 그대로
+    }
+
+    @Test
+    void 다음_기준_시작일에_빈_기준을_가리키던_기록도_다시_붙이고_빈_기준은_지운다() throws Exception {
         reading(jisu, "2026-11-01T08:00:00+09:00");                   // 빈 기준 E(11/1)
         long todayOnEmpty = reading(jisu, "2026-11-09T08:00:00+09:00");   // 오늘 기준 적기 전 → E
         criteria(jisu, "{\"fastingTarget\":95}");                    // 오늘 N (오늘 기록은 안 바꿈)
 
         criteria(jisu, "{\"fastingTarget\":100,\"effectiveFrom\":\"2026-10-19\"}");  // X: 10/19 ~ N 전
 
-        assertThat(fastingTargetOf(todayOnEmpty)).isNull();   // 그때 기준(빈 기준) 그대로 → 외래키에 안 걸리게 E는 남김
-        assertThat(criteriaCount()).isEqualTo(3);
-        // 남은 E(11/1)가 X를 가리지 않음: 그 구간 날짜로 새로 저장한 혈당은 X
+        assertThat(fastingTargetOf(todayOnEmpty)).isEqualTo(100);
+        assertThat(criteriaCount()).isEqualTo(2);   // N, X (아무도 안 가리키는 E는 지움)
         assertThat(fastingTargetOf(reading(jisu, "2026-11-05T08:00:00+09:00"))).isEqualTo(100);
     }
 
