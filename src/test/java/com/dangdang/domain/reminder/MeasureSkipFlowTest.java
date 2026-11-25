@@ -1,6 +1,7 @@
 package com.dangdang.domain.reminder;
 
 import com.dangdang.domain.reminder.scheduler.ReminderScheduler;
+import com.dangdang.domain.reminder.service.ReminderDeliveryRecorder;
 import com.dangdang.support.ReminderTestBase;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.BeforeEach;
@@ -23,6 +24,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class MeasureSkipFlowTest extends ReminderTestBase {
 
     @Autowired ReminderScheduler scheduler;
+    @Autowired ReminderDeliveryRecorder recorder;
 
     Cookie jisu;
     Long mealId;
@@ -58,6 +60,21 @@ class MeasureSkipFlowTest extends ReminderTestBase {
         assertThat(fakeSender.sent).isEmpty();
     }
 
+    // 기기가 없어 못 보낸(SKIPPED) 알림이 있는 식사도 건너뛰면 DISMISSED → 「놓친 측정」에 셈
+    @Test
+    void 못_보낸_알림이_있는_식사도_건너뛰면_DISMISSED로_놓친_측정에_센다() throws Exception {
+        setStatus(reminderId, "SKIPPED");
+        clock.set(NOW.plus(Duration.ofMinutes(31)));   // 알림 시각 + 30분이 지나야 놓침으로 셈
+        mvc.perform(get("/api/readings/stats").cookie(jisu).param("period", "1W"))
+                .andExpect(jsonPath("$.data.current.missed").value(0));
+
+        mvc.perform(post("/api/meals/" + mealId + "/measure-skip").cookie(jisu)).andExpect(status().isOk());
+
+        assertThat(statusOf(reminderId)).isEqualTo("DISMISSED");
+        mvc.perform(get("/api/readings/stats").cookie(jisu).param("period", "1W"))
+                .andExpect(jsonPath("$.data.current.missed").value(1));
+    }
+
     @Test
     void 두_번_눌러도_처음_시각_그대로() throws Exception {
         mvc.perform(post("/api/meals/" + mealId + "/measure-skip").cookie(jisu)).andExpect(status().isOk());
@@ -72,6 +89,29 @@ class MeasureSkipFlowTest extends ReminderTestBase {
         mvc.perform(post("/api/meals/" + mealId + "/measure-skip").cookie(jisu)).andExpect(status().isOk());
         mvc.perform(post("/api/reminders/" + reminderId + "/open").cookie(jisu)).andExpect(status().isOk());
         assertThat(statusOf(reminderId)).isEqualTo("DISMISSED");
+    }
+
+    @Test
+    void 건너뛴_알림은_미룰_수_없어_다시_울리지_않는다() throws Exception {
+        mvc.perform(post("/api/meals/" + mealId + "/measure-skip").cookie(jisu)).andExpect(status().isOk());
+        mvc.perform(post("/api/reminders/" + reminderId + "/snooze").cookie(jisu))
+                .andExpect(status().isConflict());
+        assertThat(statusOf(reminderId)).isEqualTo("DISMISSED");
+    }
+
+    // 스케줄러가 잡고 푸시를 보내는 사이 건너뛰면, 보냄 기록이 DISMISSED를 SENT로 덮지 않고 알림함 줄도 안 남긴다
+    @Test
+    void 보내는_중에_건너뛰면_SENT로_덮지_않고_알림함에도_안_남긴다() throws Exception {
+        Long sending = reminderAt(jisuId, NOW);
+        jdbc.update("UPDATE reminders SET meal_id = ? WHERE id = ?", mealId, sending);
+        assertThat(recorder.claimDue(sending, NOW, NOW.plus(Duration.ofMinutes(1)))).isTrue();
+        int inboxBefore = inboxCount();
+
+        mvc.perform(post("/api/meals/" + mealId + "/measure-skip").cookie(jisu)).andExpect(status().isOk());
+        recorder.recordSent(sending, NOW);
+
+        assertThat(statusOf(sending)).isEqualTo("DISMISSED");
+        assertThat(inboxCount()).isEqualTo(inboxBefore);
     }
 
     @Test
