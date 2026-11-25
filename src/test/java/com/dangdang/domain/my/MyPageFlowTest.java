@@ -208,11 +208,13 @@ class MyPageFlowTest extends ReminderTestBase {
         Long site = jdbc.queryForObject("INSERT INTO care_sites (user_id, name, department) VALUES (?, '지수 병원', 'OBGYN') RETURNING id",
                 Long.class, jisuId);
         json(put("/api/me/meal-plan"), jisu, "{\"careSiteId\":" + site + ",\"mealGuide\":\"안내\"}")
-                .andExpect(jsonPath("$.data.careSiteId").value(site));
+                .andExpect(jsonPath("$.data.careSiteId").value(site))
+                .andExpect(jsonPath("$.data.careSiteName").value("지수 병원"));
         mvc.perform(delete("/api/care-sites/" + site).cookie(jisu)).andExpect(status().isOk());   // soft delete
         mvc.perform(get("/api/me/meal-plan").cookie(jisu))
                 .andExpect(jsonPath("$.data.mealGuide").value("안내"))
-                .andExpect(jsonPath("$.data.careSiteId").doesNotExist());
+                .andExpect(jsonPath("$.data.careSiteId").doesNotExist())
+                .andExpect(jsonPath("$.data.careSiteName").value("지수 병원"));   // C-20 「받은 곳은 그대로」
     }
 
     // ── 식사 기록 설정 (M-20) ──

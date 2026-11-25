@@ -32,7 +32,9 @@ public class UserController {
             description =
                     """
                     **Parameters** 없음 (ACCESS_TOKEN 쿠키 또는 Authorization: Bearer)
-                    **Returns** userId, email, displayName, authProvider. 토큰 없으면 AUTH_40101, 만료면 AUTH_40102
+                    **Returns** userId, email, displayName, authProvider, consentCompleted, version, dueDate, pregnancyState,
+                    pregnancyWeek, loginMethods, diagnosisDate, careMode(임신 정보가 없으면 DIET), contactMemo, contactMemoUpdatedAt.
+                    토큰 없으면 AUTH_40101, 만료면 AUTH_40102
                     """)
     @GetMapping
     public ResponseEntity<BaseResponse<MeResponse>> me(@AuthenticationPrincipal AuthPrincipal principal) {
