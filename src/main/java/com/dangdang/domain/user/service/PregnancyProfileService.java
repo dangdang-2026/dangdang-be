@@ -31,6 +31,8 @@ public class PregnancyProfileService {
 
     // 진단일로 받을 수 있는 가장 이른 날 (다른 날짜 입력 QueryParams·진료 날짜와 같은 기준)
     private static final LocalDate MIN_DIAGNOSIS_DATE = LocalDate.of(QueryParams.MIN_YEAR, 1, 1);
+    // 연락 기준 메모 최대 글자 수 (pregnancies.contact_memo VARCHAR(100))
+    private static final int MAX_CONTACT_MEMO = 100;
 
     private final UserRepository userRepository;
     private final PregnancyRepository pregnancyRepository;
@@ -52,6 +54,10 @@ public class PregnancyProfileService {
         if (p.getDueDate() != null && diagnosisDate.isAfter(p.getDueDate())) {
             throw new CustomException(PregnancyErrorCode.DIAGNOSIS_AFTER_DUE_DATE);   // 같은 날은 된다
         }
+        // 산후면 출산일도 본다. 임신성 당뇨는 출산 전에 진단받으므로 출산일보다 뒤면 막는다 (같은 날은 된다, 출산일 저장도 같은 규칙)
+        if (p.getDeliveryDate() != null && diagnosisDate.isAfter(p.getDeliveryDate())) {
+            throw new CustomException(PregnancyErrorCode.DIAGNOSIS_AFTER_DELIVERY_DATE);
+        }
         p.changeDiagnosisDate(diagnosisDate, now);
         return PregnancyProfileResponse.from(p);
     }
@@ -68,11 +74,21 @@ public class PregnancyProfileService {
 
     @Transactional
     public PregnancyProfileResponse changeContactMemo(Long userId, String contactMemo) {
+        checkContactMemoLength(contactMemo);
         User user = lockUser(userId);
         Instant now = clock.instant();
         Pregnancy p = activeOrStart(user, now);
         p.changeContactMemo(contactMemo, now);   // 메모 내용은 사용자가 쓴 건강 관련 글이라 로그에 남기지 않는다
         return PregnancyProfileResponse.from(p);
+    }
+
+    // 글자 수는 DB(VARCHAR(100))처럼 글자(코드 포인트)로 센다
+    // @Size는 String.length()(UTF-16 단위)로 세서 이모지 하나를 두 글자로 보므로, 100자가 안 되는 메모도 400이 났다
+    private static void checkContactMemoLength(String contactMemo) {
+        if (contactMemo != null && contactMemo.codePointCount(0, contactMemo.length()) > MAX_CONTACT_MEMO) {
+            throw new CustomException(GlobalErrorCode.INVALID_INPUT,
+                    "연락 기준 메모는 " + MAX_CONTACT_MEMO + "자까지 적을 수 있어요.");
+        }
     }
 
     // 이 사람 줄을 잠그고 건강정보 동의를 본다 (PostpartumService·DueDateService와 같은 잠금)

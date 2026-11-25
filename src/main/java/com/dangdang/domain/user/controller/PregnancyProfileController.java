@@ -33,7 +33,7 @@ public class PregnancyProfileController {
                     **Parameters** diagnosisDate(yyyy-MM-dd, 필수)
                     **Returns** diagnosisDate, careMode, contactMemo, contactMemoUpdatedAt. 진행 중인 임신이 없으면 새로 만든다.
                     형식이 틀리거나 2000년보다 앞이면 GLOBAL_40001, 오늘(한국) 뒤 날짜 PREGNANCY_40003, 출산 예정일보다 뒤 PREGNANCY_40004,
-                    건강정보 동의 없음 USER_40302, 졸업한 뒤 PREGNANCY_40902
+                    산후인데 출산일보다 뒤 PREGNANCY_40005 (같은 날은 됨), 건강정보 동의 없음 USER_40302, 졸업한 뒤 PREGNANCY_40902
                     """)
     @PatchMapping("/diagnosis-date")
     public ResponseEntity<BaseResponse<PregnancyProfileResponse>> diagnosisDate(
@@ -63,7 +63,7 @@ public class PregnancyProfileController {
                     """
                     **Parameters** contactMemo(앞뒤 공백을 지운 뒤 100자까지, 한 줄. 빈 글·null·칸 없음이면 지움)
                     **Returns** diagnosisDate, careMode, contactMemo, contactMemoUpdatedAt(글이 바뀔 때만 새 시각, 지우면 null).
-                    100자 넘음·줄바꿈 GLOBAL_40001, 건강정보 동의 없음 USER_40302, 졸업한 뒤 PREGNANCY_40902
+                    100자 넘음(이모지도 한 글자로 셈)·줄바꿈 GLOBAL_40001, 건강정보 동의 없음 USER_40302, 졸업한 뒤 PREGNANCY_40902
                     """)
     @PatchMapping("/contact-memo")
     public ResponseEntity<BaseResponse<PregnancyProfileResponse>> contactMemo(

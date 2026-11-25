@@ -414,4 +414,47 @@ class PregnancyProfileFlowTest extends ReminderTestBase {
         }
         assertThat(pregnancyCount(jisuId)).isZero();
     }
+
+    // ---------- PR #146 리뷰 ----------
+
+    @Test
+    void 메모_글자_수는_이모지도_한_글자로_센다() throws Exception {
+        String blood = new String(Character.toChars(0x1FA78));   // 🩸 (UTF-16으로는 두 칸)
+        patchJson("/api/me/contact-memo", "{\"contactMemo\":\"" + blood.repeat(100) + "\"}")
+                .andExpect(status().isOk());
+        assertThat(column("contact_memo", jisuId)).isEqualTo(blood.repeat(100));
+
+        patchJson("/api/me/contact-memo", "{\"contactMemo\":\"" + blood.repeat(101) + "\"}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("GLOBAL_40001"));
+        assertThat(column("contact_memo", jisuId)).isEqualTo(blood.repeat(100));
+    }
+
+    @Test
+    void 산후면_진단일이_출산일보다_뒤일_때_400_같은_날은_된다() throws Exception {
+        jdbc.update("INSERT INTO pregnancies (user_id, due_date, delivery_date, state)"
+                + " VALUES (?, '2026-12-20', '2026-11-01', 'POSTPARTUM')", jisuId);
+
+        patchJson("/api/me/diagnosis-date", "{\"diagnosisDate\":\"2026-11-05\"}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("PREGNANCY_40005"));
+        assertThat(column("diagnosis_date", jisuId)).isNull();
+
+        patchJson("/api/me/diagnosis-date", "{\"diagnosisDate\":\"2026-11-01\"}").andExpect(status().isOk());
+        assertThat(column("diagnosis_date", jisuId)).isEqualTo("2026-11-01");
+    }
+
+    @Test
+    void 출산일이_진단일보다_앞이면_400_같은_날은_된다() throws Exception {
+        patchJson("/api/me/diagnosis-date", "{\"diagnosisDate\":\"2026-11-05\"}").andExpect(status().isOk());
+
+        patchJson("/api/me/delivery-date", "{\"deliveryDate\":\"2026-11-04\"}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("PREGNANCY_40005"));
+        assertThat(column("state", jisuId)).isEqualTo("PREGNANT");
+        assertThat(column("delivery_date", jisuId)).isNull();
+
+        patchJson("/api/me/delivery-date", "{\"deliveryDate\":\"2026-11-05\"}").andExpect(status().isOk());
+        assertThat(column("state", jisuId)).isEqualTo("POSTPARTUM");
+    }
 }

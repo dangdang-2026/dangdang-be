@@ -12,6 +12,7 @@ public enum PregnancyErrorCode implements BaseErrorCode {
     PAST_ASK_DATE("PREGNANCY_40002", "다시 물어볼 날은 오늘이나 그 뒤로 골라 주세요.", HttpStatus.BAD_REQUEST),
     FUTURE_DIAGNOSIS_DATE("PREGNANCY_40003", "진단일은 오늘 이후로 고를 수 없어요.", HttpStatus.BAD_REQUEST),
     DIAGNOSIS_AFTER_DUE_DATE("PREGNANCY_40004", "진단일은 출산 예정일보다 뒤일 수 없어요.", HttpStatus.BAD_REQUEST),
+    DIAGNOSIS_AFTER_DELIVERY_DATE("PREGNANCY_40005", "진단일은 출산일보다 뒤일 수 없어요.", HttpStatus.BAD_REQUEST),
     WRONG_STATE("PREGNANCY_40901", "지금 상태에서는 할 수 없어요.", HttpStatus.CONFLICT),
     ALREADY_GRADUATED("PREGNANCY_40902", "이미 임신 중 관리를 졸업했어요.", HttpStatus.CONFLICT);
 
