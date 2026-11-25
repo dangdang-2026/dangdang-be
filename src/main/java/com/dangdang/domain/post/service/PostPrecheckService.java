@@ -3,12 +3,15 @@ package com.dangdang.domain.post.service;
 import com.dangdang.domain.post.dto.request.PostPrecheckRequest;
 import com.dangdang.domain.post.dto.response.PostPrecheckResponse;
 import com.dangdang.domain.post.infra.PostCheckClient;
+import com.dangdang.domain.post.infra.PrecheckKindStore;
 import com.dangdang.domain.user.enums.ConsentType;
 import com.dangdang.domain.user.service.ConsentService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClientException;
+
+import java.util.Objects;
 
 @Slf4j
 @Service
@@ -17,6 +20,7 @@ public class PostPrecheckService {
 
     private final PostCheckClient postCheckClient;
     private final ConsentService consentService;
+    private final PrecheckKindStore kindStore;
 
     // DB를 안 건드려서 @Transactional 이 필요 없다 (동의 읽기는 ConsentService 안에서 readOnly). 글 내용은 로그에 남기지 않는다
     public PostPrecheckResponse precheck(Long userId, PostPrecheckRequest request) {
@@ -29,7 +33,11 @@ public class PostPrecheckService {
             }
             log.info("[Precheck] 사용자: {}, 걸린 문장: {}개, GPT 확인: {}",
                     userId, result.issues() == null ? 0 : result.issues().size(), result.llmChecked());
-            return PostPrecheckResponse.from(result);
+            PostPrecheckResponse response = PostPrecheckResponse.from(result);
+            // 「그대로 올리기」로 글을 쓸 때 이 기록과 겹치는 종류만 운영자 처리함에 넣는다 (PostService.create)
+            kindStore.save(userId, request.title(), request.content(),
+                    response.issues().stream().map(PostPrecheckResponse.Issue::kind).filter(Objects::nonNull).distinct().toList());
+            return response;
         } catch (RestClientException e) {
             log.warn("[Precheck] AI 서버 실패 - 검사 없이 통과: {}", e.getClass().getSimpleName());
             return PostPrecheckResponse.notChecked();

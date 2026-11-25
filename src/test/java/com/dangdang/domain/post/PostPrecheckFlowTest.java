@@ -20,7 +20,9 @@ import org.springframework.web.client.ResourceAccessException;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
@@ -74,6 +76,28 @@ class PostPrecheckFlowTest {
                 .andExpect(jsonPath("$.data.checked").value(true))
                 .andExpect(jsonPath("$.data.issues[0].kind").value("DOSE"))
                 .andExpect(jsonPath("$.data.issues[0].quote").value("지난주부터 인슐린 8단위로 늘렸는데 다들 몇 단위 맞으세요?"));
+    }
+
+    @Test
+    void 걸린_종류는_내용_해시로_30분_기억하고_걸린_게_없으면_안_남긴다() throws Exception {
+        given(postCheckClient.check(any(), any(), anyBoolean())).willReturn(new PostCheckClient.Result(List.of(
+                new PostCheckClient.Issue("DOSE", "인슐린 8단위"), new PostCheckClient.Issue("MIND", "힘들어요"),
+                new PostCheckClient.Issue("DOSE", "두 알")), false));
+        mvc.perform(post("/api/posts/precheck").cookie(jisu).contentType(MediaType.APPLICATION_JSON)
+                .content(body("제목", "인슐린 8단위 힘들어요 두 알"))).andExpect(status().isOk());
+
+        Set<String> keys = redis.keys("post:precheck:*");
+        assertThat(keys).hasSize(1);
+        String key = keys.iterator().next();
+        assertThat(key).doesNotContain("인슐린");                                  // 내용은 해시로만
+        assertThat(redis.opsForValue().get(key)).isEqualTo("DOSE,MIND");
+        assertThat(redis.getExpire(key)).isBetween(1L, 1800L);
+
+        redis.delete(key);
+        given(postCheckClient.check(any(), any(), anyBoolean())).willReturn(new PostCheckClient.Result(List.of(), false));
+        mvc.perform(post("/api/posts/precheck").cookie(jisu).contentType(MediaType.APPLICATION_JSON)
+                .content(body("제목", "아침 뭐 드세요?"))).andExpect(status().isOk());
+        assertThat(redis.keys("post:precheck:*")).isEmpty();
     }
 
     @Test
