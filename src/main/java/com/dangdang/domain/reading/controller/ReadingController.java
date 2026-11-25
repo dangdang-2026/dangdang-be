@@ -166,8 +166,9 @@ public class ReadingController {
                     """
                     **Parameters** readingId, 본문 없음
                     **Returns** 되살린 기록 (판정·재야 할 시각 칸 포함, 상세와 같은 모양). 지운 지 5분 안에만 된다. 되돌려도 「수정됨」(editedAt)은 안 붙는다.
-                    없거나 남의 기록이면 404 READING_40401, 지우지 않은 기록(두 번 누름)이면 409 READING_40901, 5분이 지났으면 409 READING_40902.
-                    건강정보 동의가 없으면 403 USER_40302
+                    지울 때 풀었던 측정 알림은 다시 붙는다(DONE). 지운 사이 그 끼니를 건너뛰었으면 건너뛴 뒤 잰 것과 같게 알림이 DONE이 된다.
+                    없거나 남의 기록이면 404 READING_40401, 지우지 않은 기록(두 번 누름)이면 409 READING_40901, 5분이 지났으면 409 READING_40902,
+                    붙은 식사가 지워졌으면 409 READING_40904(식사를 먼저 되돌리면 됨). 건강정보 동의가 없으면 403 USER_40302
                     """)
     @PostMapping("/{readingId}/restore")
     public ResponseEntity<BaseResponse<ReadingResponse>> restore(
