@@ -3,6 +3,7 @@ package com.dangdang.domain.card.controller;
 import com.dangdang.domain.card.dto.request.CardCorrectRequest;
 import com.dangdang.domain.card.dto.request.CardCreateRequest;
 import com.dangdang.domain.card.dto.request.CardReviewRequest;
+import com.dangdang.domain.card.dto.response.AdminCardItemResponse;
 import com.dangdang.domain.card.dto.response.CardDetailResponse;
 import com.dangdang.domain.card.dto.response.CardSummaryResponse;
 import com.dangdang.domain.card.service.CardService;
@@ -83,10 +84,18 @@ public class CardController {
 
     // ── 운영자 (/api/admin/** = ADMIN만) ──
 
-    @Operation(summary = "[ 운영자 | 카드 목록 ]", description = "**Returns** 최신순 전체 (DRAFT·RECHECK·WITHDRAWN도 상태 그대로)")
+    @Operation(summary = "[ 운영자 | 카드 목록 ]",
+            description = "**Returns** 최신순 전체 (DRAFT·RECHECK·WITHDRAWN도 상태 그대로). 검수 reviewer·reviewedOn, 정정 correctedAt, 내린 시각 withdrawnAt")
     @GetMapping("/api/admin/cards")
-    public ResponseEntity<BaseResponse<List<CardSummaryResponse>>> adminList() {
+    public ResponseEntity<BaseResponse<List<AdminCardItemResponse>>> adminList() {
         return ResponseEntity.ok(BaseResponse.success(200, "카드 목록 조회에 성공했습니다.", cardService.adminList()));
+    }
+
+    @Operation(summary = "[ 운영자 | 카드 상세 ]",
+            description = "**Returns** 상태 그대로(DRAFT·RECHECK 포함), 내린 카드도 슬라이드·출처·질문까지. 정정할 때 지금 슬라이드를 불러오는 데 쓴다. 없으면 CARD_40401")
+    @GetMapping("/api/admin/cards/{cardId}")
+    public ResponseEntity<BaseResponse<CardDetailResponse>> adminDetail(@PathVariable Long cardId) {
+        return ResponseEntity.ok(BaseResponse.success(200, "카드 조회에 성공했습니다.", cardService.adminDetail(cardId)));
     }
 
     @Operation(summary = "[ 운영자 | 카드 만들기 (DRAFT) ]", description = "출처 1개 이상·원문 확인일 필수. 공식 지침 문장만")
