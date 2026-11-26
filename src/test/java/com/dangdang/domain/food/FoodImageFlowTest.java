@@ -252,6 +252,36 @@ class FoodImageFlowTest {
     }
 
     @Test
+    void AI가_그릇을_하나만_찾으면_그_위치와_사진_전체_후보로_음식_하나() throws Exception {
+        // dangdang-ai #40: 그릇이 1개면 items 1개에 그 위치, 후보는 사진 전체 후보와 같음
+        List<Candidate> whole = List.of(new Candidate("김밥", 0.92));
+        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(whole,
+                List.of(new FoodImageClient.Item(new FoodImageClient.Box(0.2, 0.3, 0.5, 0.4), whole))));
+
+        analyze(PHOTO)
+                .andExpect(jsonPath("$.data.fallback").value(false))
+                .andExpect(jsonPath("$.data.candidates[0].name").value("김밥"))
+                .andExpect(jsonPath("$.data.items", hasSize(1)))
+                .andExpect(jsonPath("$.data.items[0].box.x").value(0.2))
+                .andExpect(jsonPath("$.data.items[0].box.height").value(0.4))
+                .andExpect(jsonPath("$.data.items[0].candidates[0].name").value("김밥"));
+    }
+
+    @Test
+    void AI가_그릇을_못_찾으면_box_null인_음식_하나() throws Exception {
+        // dangdang-ai #40: 그릇이 0개거나 그릇 찾기 모델이 없으면 items 1개, box null
+        List<Candidate> whole = List.of(new Candidate("김밥", 0.92));
+        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(whole,
+                List.of(new FoodImageClient.Item(null, whole))));
+
+        analyze(PHOTO)
+                .andExpect(jsonPath("$.data.fallback").value(false))
+                .andExpect(jsonPath("$.data.items", hasSize(1)))
+                .andExpect(jsonPath("$.data.items[0].box").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.data.items[0].candidates[0].name").value("김밥"));
+    }
+
+    @Test
     void 한상_사진이면_음식마다_위치와_후보를_주고_예전_칸은_가장_확신_높은_음식() throws Exception {
         given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(
                 List.of(new Candidate("김치찌개", 0.5)),

@@ -86,6 +86,21 @@ class AiFoodImageClientTest {
     }
 
     @Test
+    void 그릇을_못_찾은_AI_응답은_box가_null인_음식_하나로_읽는다() {
+        // dangdang-ai #40: 그릇이 0개거나 그릇 찾기 모델이 없으면 items 1개, box null, 후보는 사진 전체 후보와 같음
+        response.set("""
+                {"candidates":[{"name":"김밥","confidence":0.92}],
+                 "items":[{"box":null,"candidates":[{"name":"김밥","confidence":0.92}]}]}
+                """);
+
+        FoodImageClient.Result result = client.candidates("req-1", new byte[]{1}, "image/jpeg");
+
+        assertThat(result.items()).hasSize(1);
+        assertThat(result.items().get(0).box()).isNull();
+        assertThat(result.items().get(0).candidates().get(0).name()).isEqualTo("김밥");
+    }
+
+    @Test
     void 형식_값이_깨졌거나_없으면_그냥_파일로_보낸다() {
         client.candidates("req-1", new byte[]{1}, "jpeg;;");
         assertThat(body.get()).contains("Content-Type: application/octet-stream");
