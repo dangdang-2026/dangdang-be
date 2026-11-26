@@ -1,11 +1,8 @@
 package com.dangdang.domain.admin.controller;
 
 import com.dangdang.domain.admin.dto.response.AdminMeResponse;
-import com.dangdang.domain.user.entity.User;
-import com.dangdang.domain.user.exception.UserErrorCode;
-import com.dangdang.domain.user.repository.UserRepository;
+import com.dangdang.domain.admin.service.AdminMeService;
 import com.dangdang.global.common.BaseResponse;
-import com.dangdang.global.exception.CustomException;
 import com.dangdang.global.security.AuthPrincipal;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -21,7 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 public class AdminMeController {
 
-    private final UserRepository userRepository;
+    private final AdminMeService adminMeService;
 
     @Operation(
             summary = "[ 운영자 | 토큰 O(ADMIN) | 내 운영자 계정 ]",
@@ -32,9 +29,7 @@ public class AdminMeController {
                     """)
     @GetMapping("/api/admin/me")
     public ResponseEntity<BaseResponse<AdminMeResponse>> me(@AuthenticationPrincipal AuthPrincipal principal) {
-        User user = userRepository.findById(principal.userId())
-                .orElseThrow(() -> new CustomException(UserErrorCode.USER_NOT_FOUND));
         return ResponseEntity.ok(BaseResponse.success(200, "운영자 계정 조회에 성공했습니다.",
-                new AdminMeResponse(user.getId(), user.getDisplayName(), user.getEmail())));
+                adminMeService.me(principal.userId())));
     }
 }
