@@ -8,6 +8,7 @@ import jakarta.validation.constraints.PositiveOrZero;
 
 // 진료 질문 등록 요청. source는 글자로 받지 않는다 (AI 출처를 꾸미지 못하게)
 // 당당이 대화에서 가져온 질문이면 그 대화 번호(chatMessageId)를 보내고, 서버가 확인한 뒤 CHATBOT으로 정한다
+// 카드뉴스에서 담은 질문이면 그 카드 번호(cardId)를 보내고, 서버가 확인한 뒤 CARD로 정한다 (U-28). 둘 중 하나만
 public record VisitQuestionCreateRequest(
         @NotBlank(message = "질문을 입력해 주세요.")
         String content,
@@ -15,7 +16,9 @@ public record VisitQuestionCreateRequest(
         @PositiveOrZero(message = "정렬 순서는 0 이상이어야 해요.")
         Integer sortOrder,           // 안 보내면 맨 뒤
         @Schema(description = "당당이 「물어볼 말 정리」 답의 대화 번호 (Q-04). 보내면 source=CHATBOT", example = "42")
-        Long chatMessageId) {
+        Long chatMessageId,
+        @Schema(description = "카드뉴스 「물어볼 것에 적기」의 카드 번호 (U-28). 보내면 source=CARD", example = "12")
+        Long cardId) {
 
     private static final int MAX_CONTENT = 500;
 
@@ -37,5 +40,12 @@ public record VisitQuestionCreateRequest(
     @AssertTrue(message = "질문은 500자까지 쓸 수 있어요.")
     public boolean isContentWithinLimit() {
         return content == null || content.strip().length() <= MAX_CONTENT;
+    }
+
+    // 출처는 하나만. 당당이 대화 번호와 카드 번호를 같이 보내면 400
+    @JsonIgnore
+    @AssertTrue(message = "당당이 대화와 카드 중 하나만 보내 주세요.")
+    public boolean isOneSource() {
+        return chatMessageId == null || cardId == null;
     }
 }
