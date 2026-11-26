@@ -1,5 +1,7 @@
 package com.dangdang.domain.announcement.service;
 
+import com.dangdang.domain.admin.enums.AdminLogAction;
+import com.dangdang.domain.admin.service.AdminLogService;
 import com.dangdang.domain.announcement.dto.request.AnnouncementCreateRequest;
 import com.dangdang.domain.announcement.dto.response.AnnouncementResponse;
 import com.dangdang.domain.announcement.entity.Announcement;
@@ -31,6 +33,7 @@ public class AnnouncementService {
 
     private final AnnouncementRepository announcementRepository;
     private final ContentCardRepository contentCardRepository;
+    private final AdminLogService adminLogService;
     private final Clock clock;
 
     @Transactional(readOnly = true)
@@ -48,7 +51,7 @@ public class AnnouncementService {
     }
 
     @Transactional
-    public AnnouncementResponse create(AnnouncementCreateRequest req) {
+    public AnnouncementResponse create(Long adminId, AnnouncementCreateRequest req) {
         String linkUrl = req.linkUrl();
         ContentCard card = null;
         if (req.contentCardId() != null) {
@@ -71,14 +74,24 @@ public class AnnouncementService {
         Announcement saved = announcementRepository.save(Announcement.of(req.slot(), req.kind(), req.title().strip(),
                 req.imageUrl(), linkUrl, req.contentCardId(), from, req.activeTo(),
                 req.reviewedBy() == null ? null : req.reviewedBy().strip(), now));
+        adminLogService.record(adminId, AdminLogAction.ANNOUNCEMENT_CREATE, saved.getId(), saved.getTitle(),
+                null, placeOf(saved) + (from.isAfter(now) ? " · 예약" : ""));
         return AnnouncementResponse.from(saved, card);
     }
 
     @Transactional
-    public AnnouncementResponse end(Long id) {
+    public AnnouncementResponse end(Long adminId, Long id) {
         Announcement a = announcementRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new CustomException(AnnouncementErrorCode.ANNOUNCEMENT_NOT_FOUND));
-        a.end(clock.instant());
+        Instant now = clock.instant();
+        boolean beforeStart = a.getActiveFrom().isAfter(now);
+        Instant before = a.getActiveTo();
+        a.end(now);
+        // 이미 끝났거나 예약 취소한 소식이면 end가 아무것도 안 바꾼다. 그때는 기록도 남기지 않는다 (PR #165 리뷰)
+        if (!Objects.equals(before, a.getActiveTo())) {
+            adminLogService.record(adminId, AdminLogAction.ANNOUNCEMENT_END, a.getId(), a.getTitle(),
+                    null, beforeStart ? "예약 취소" : null);
+        }
         // 그 사이 카드가 내려갔으면 요약을 비운다 — 목록(active)과 같은 결과 (PR #120 리뷰)
         return AnnouncementResponse.from(a, a.getContentCardId() == null ? null
                 : contentCardRepository.findById(a.getContentCardId())
@@ -101,5 +114,12 @@ public class AnnouncementService {
         contentCardRepository.findByIdForUpdate(cardId)
                 .orElseThrow(() -> new CustomException(CardErrorCode.CARD_NOT_FOUND));
         announcementRepository.endAllForCard(cardId, now);
+    }
+
+    // 처리 기록에 보일 자리·종류 (사람이 읽는 말)
+    private static String placeOf(Announcement a) {
+        String slot = a.getSlot() == com.dangdang.domain.announcement.enums.AnnouncementSlot.SPLASH ? "앱 첫 화면" : "커뮤니티 위";
+        String kind = a.getKind() == com.dangdang.domain.announcement.enums.AnnouncementKind.AD ? "광고" : "소식";
+        return slot + " · " + kind;
     }
 }

@@ -1,5 +1,7 @@
 package com.dangdang.domain.card.service;
 
+import com.dangdang.domain.admin.enums.AdminLogAction;
+import com.dangdang.domain.admin.service.AdminLogService;
 import com.dangdang.domain.announcement.service.AnnouncementService;
 import com.dangdang.domain.card.dto.request.CardCorrectRequest;
 import com.dangdang.domain.card.dto.request.CardCreateRequest;
@@ -31,6 +33,7 @@ public class CardService {
     private final CardSaveRepository cardSaveRepository;
     private final CardReactionRepository cardReactionRepository;
     private final AnnouncementService announcementService;
+    private final AdminLogService adminLogService;
     private final Clock clock;
 
     @Transactional(readOnly = true)
@@ -105,41 +108,46 @@ public class CardService {
     }
 
     @Transactional
-    public CardDetailResponse create(CardCreateRequest req) {
+    public CardDetailResponse create(Long adminId, CardCreateRequest req) {
         ContentCard card = contentCardRepository.save(ContentCard.draft(req.title().strip(), req.series(),
                 req.body(), req.sources(), strip(req.questions()), req.checkedOn(), clock.instant()));
+        adminLogService.record(adminId, AdminLogAction.CARD_CREATE, card.getId(), card.getTitle(), null, card.getBody().size() + "장");
         return CardDetailResponse.of(card);
     }
 
     @Transactional
-    public CardDetailResponse publish(Long cardId) {
+    public CardDetailResponse publish(Long adminId, Long cardId) {
         ContentCard card = locked(cardId);
         if (card.getStatus() != CardStatus.DRAFT) {
             throw new CustomException(CardErrorCode.WRONG_STATUS);
         }
         card.publish(clock.instant());
+        adminLogService.record(adminId, AdminLogAction.CARD_PUBLISH, cardId, card.getTitle(), null, null);
         return CardDetailResponse.of(card);
     }
 
     @Transactional
-    public CardDetailResponse correct(Long cardId, CardCorrectRequest req) {
+    public CardDetailResponse correct(Long adminId, Long cardId, CardCorrectRequest req) {
         ContentCard card = locked(cardId);
         if (card.getStatus() == CardStatus.DRAFT || card.getStatus() == CardStatus.WITHDRAWN) {
             throw new CustomException(CardErrorCode.WRONG_STATUS);
         }
         card.correct(req.body(), strip(req.questions()), req.summary().strip(),
                 req.note() == null || req.note().isBlank() ? null : req.note().strip(), req.checkedOn(), clock.instant());
+        adminLogService.record(adminId, AdminLogAction.CARD_CORRECT, cardId, card.getTitle(), req.summary().strip(), null);
         return CardDetailResponse.of(card);
     }
 
     @Transactional
-    public CardDetailResponse withdraw(Long cardId) {
+    public CardDetailResponse withdraw(Long adminId, Long cardId) {
         ContentCard card = locked(cardId);
         if (card.getStatus() == CardStatus.DRAFT || card.getStatus() == CardStatus.WITHDRAWN) {
             throw new CustomException(CardErrorCode.WRONG_STATUS);
         }
         Instant now = clock.instant();
         card.withdraw(now);
+        // 기록도 벌크 UPDATE(endAllForCard) 전에 남긴다 — 그 뒤엔 영속성 컨텍스트가 비워진다
+        adminLogService.record(adminId, AdminLogAction.CARD_WITHDRAW, cardId, card.getTitle(), null, null);
         // 이 카드를 건 소식(스플래시·커뮤니티 맨 위)도 같은 시각으로 끝낸다. findActive가 LIVE 카드만 보여 줘서
         // 화면엔 안 보이지만, 안 끝내면 줄이 열린 채 남아 카드가 다시 올라갈 때 옛 소식이 되살아난다.
         // 카드 줄을 잠근 같은 트랜잭션이라 내리기가 롤백되면 같이 롤백된다 (Redis·푸시 없음 → afterCommit 필요 없음)
@@ -151,12 +159,14 @@ public class CardService {
 
     // 검수자 적기 (U-26 「검수자 · 검수일」) — 내려간 카드는 안 됨
     @Transactional
-    public CardDetailResponse review(Long cardId, CardReviewRequest req) {
+    public CardDetailResponse review(Long adminId, Long cardId, CardReviewRequest req) {
         ContentCard card = locked(cardId);
         if (card.getStatus() == CardStatus.WITHDRAWN) {
             throw new CustomException(CardErrorCode.WRONG_STATUS);
         }
         card.review(req.reviewer().strip(), req.reviewedOn(), clock.instant());
+        adminLogService.record(adminId, AdminLogAction.CARD_REVIEW, cardId, card.getTitle(), null,
+                "검수 " + req.reviewer().strip() + " · " + req.reviewedOn());
         return CardDetailResponse.of(card);
     }
 
