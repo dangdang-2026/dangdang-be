@@ -27,7 +27,8 @@ public record RecordEventResponse(
         boolean modified,        // 사용자가 저장한 뒤 고친 적이 있는지 (혈당은 editedAt, 식사는 meals.edited_at, 인슐린은 editedAt)
         ReadingPayload reading,  // type=READING일 때만
         MealPayload meal,        // type=MEAL일 때만
-        InsulinPayload insulin) {   // type=INSULIN일 때만
+        InsulinPayload insulin,     // type=INSULIN일 때만
+        Instant updatedAt) {        // 이 기록의 마지막 수정 시각. 여기서 고치기를 열면 수정 요청의 expectedUpdatedAt으로 그대로 보냄 (#172)
 
     // expectedAt = 재야 할 시각 (식후만, 모르면 null)
     public static RecordEventResponse from(Reading r, Instant expectedAt) {
@@ -40,7 +41,7 @@ public record RecordEventResponse(
                         ReadingEvaluator.targetOf(r), ReadingEvaluator.aboveTarget(r), ReadingEvaluator.belowLow(r),
                         expectedAt, ReadingEvaluator.timing(r.getMeasuredAt(), expectedAt),
                         r.getOriginalValue(), r.getOriginalMeterLimit(), r.getEditedAt()),
-                null, null);
+                null, null, r.getUpdatedAt());
     }
 
     // items = 이 식사의 음식 항목 (없으면 [])
@@ -48,14 +49,14 @@ public record RecordEventResponse(
         return new RecordEventResponse(RecordEventType.MEAL, m.getId(), m.getStartedAt(), m.isEdited(),   // 음식 항목만 바뀐 건 수정으로 안 셈
                 null,
                 new MealPayload(m.getMealSlot(), m.isStartedOffline(), m.getNote(), items),
-                null);
+                null, m.getUpdatedAt());
     }
 
     // 인슐린은 값이 실제로 바뀐 적이 있으면(editedAt) 수정으로 셈
     public static RecordEventResponse from(InsulinLog l) {
         return new RecordEventResponse(RecordEventType.INSULIN, l.getId(), l.getTakenAt(), l.isEdited(),
                 null, null,
-                new InsulinPayload(l.getInsulinType(), l.getMealSlot(), l.getUnits()));
+                new InsulinPayload(l.getInsulinType(), l.getMealSlot(), l.getUnits()), l.getUpdatedAt());
     }
 
     // 아래 칸들은 null이어도 키를 남겨 둠 (바깥 NON_NULL은 이 안까지 적용 안 됨)

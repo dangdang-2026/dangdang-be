@@ -22,7 +22,8 @@ public record TodayReadingResponse(
         Boolean aboveTarget,      // 목표가 없으면 null
         Integer targetValue,      // 잴 때 적용 중이던 목표. 없으면 null
         boolean belowLow,         // 70 미만 (H-06b 낮은 값)
-        Instant expectedAt) {     // 재야 할 시각 (모르면 null)
+        Instant expectedAt,       // 재야 할 시각 (모르면 null)
+        Instant updatedAt) {      // 이 기록의 마지막 수정 시각. 고치기의 expectedUpdatedAt으로 그대로 보냄 (#172)
 
     // expectedAt = ExpectedTimeResolver로 구한 재야 할 시각 (모르면 null)
     public static TodayReadingResponse of(Reading r, Instant expectedAt) {
@@ -33,6 +34,7 @@ public record TodayReadingResponse(
                 ReadingEvaluator.aboveTarget(r),
                 ReadingEvaluator.targetOf(r),
                 ReadingEvaluator.belowLow(r),
-                expectedAt);
+                expectedAt,
+                r.getUpdatedAt());
     }
 }
