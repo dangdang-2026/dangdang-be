@@ -25,7 +25,11 @@ import java.util.stream.Collectors;
 @Transactional(readOnly = true)
 public class FoodSimilarService {
 
-    static final double MAX_DISTANCE = 0.35;   // 코사인 거리 시작값. 운영 데이터가 채워지면 재 보고 고친다
+    // 코사인 거리 기준 (#189). 개발 서버 DB로 재 보니 0.21~0.31에 같은 음식과 다른 음식이 섞여 있음
+    //  - 맞음: 떡국 만두국과 떡국 0.18, 도라지무침과 도라지나물무침 0.19, 곰탕 설렁탕과 곰탕 0.19
+    //  - 틀림: 감자전과 감자조림 0.22, 고추장진미채볶음과 고추장볶음 0.24, 소세지볶음과 소세지빵 0.31
+    //  엉뚱한 음식이 붙는 것보다 빈칸이 나아서, 틀린 짝이 하나도 안 들어오는 0.20
+    static final double MAX_DISTANCE = 0.20;
     static final int DIM = 1536;               // foods.name_embedding vector(1536). 다르면 DB가 거절해서 미리 거름
 
     private final FoodEmbeddingClient client;
