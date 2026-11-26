@@ -41,7 +41,7 @@ import com.dangdang.global.exception.GlobalErrorCode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Slice;
+import org.springframework.data.domain.Page;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -197,11 +197,14 @@ public class VisitReportService {
     // 카드 숫자(측정·목표 안 비율)는 리포트마다 DB에서 개수만 셈 (기록을 메모리에 올리지 않음)
     // 진료용 기간은 내 진료 시각 전부를 한 번 읽어 리포트마다 계산 (진료 리포트 조회와 같은 규칙)
     @Transactional(readOnly = true)
-    public VisitReportPageResponse list(Long userId, Long careSiteId, int page, int size) {
-        Slice<SavedReport> slice = savedReportRepository.findPage(userId, careSiteId, PageRequest.of(page, size));
+    // until: 그날(한국 날짜)까지의 리포트만 (임신 중 기록 보관함, until = 출산일). null이면 전부
+    public VisitReportPageResponse list(Long userId, Long careSiteId, LocalDate until, int page, int size) {
+        Instant untilEnd = until == null ? null : KoreanTime.endOfDay(until);   // until 다음 날 0시 (그 앞까지)
+        Page<SavedReport> slice = savedReportRepository.findPage(userId, careSiteId, until, untilEnd,
+                PageRequest.of(page, size));
         List<SavedReport> reports = slice.getContent();
         if (reports.isEmpty()) {
-            return new VisitReportPageResponse(List.of(), slice.getNumber(), slice.getSize(), slice.hasNext());
+            return VisitReportPageResponse.of(List.of(), slice);
         }
 
         List<Long> visitIds = reports.stream().map(SavedReport::getVisitId).filter(Objects::nonNull).distinct().toList();
@@ -241,7 +244,7 @@ public class VisitReportService {
                     period == null ? null : listSummary(userId, period),
                     r.getCreatedAt()));
         }
-        return new VisitReportPageResponse(items, slice.getNumber(), slice.getSize(), slice.hasNext());
+        return VisitReportPageResponse.of(items, slice);
     }
 
     // 리포트의 병원: 진료용은 지금 진료 일정의 병원, 기간 직접은 저장한 병원

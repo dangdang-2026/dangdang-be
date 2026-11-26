@@ -1,17 +1,25 @@
 package com.dangdang.domain.visit.dto.response;
 
 import com.dangdang.domain.visit.enums.ReportKind;
+import org.springframework.data.domain.Page;
 
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 
-// 지난 리포트 목록 한 페이지 (C-24). 전체 개수는 안 셈, 다음 페이지가 있는지만
+// 지난 리포트 목록 한 페이지 (C-24, 임신 중 기록 보관함 E-10b·E-10c)
 public record VisitReportPageResponse(
         List<Item> items,            // 결과가 없으면 []
         int page,                    // 0부터
         int size,
-        boolean hasNext) {
+        boolean hasNext,             // C-24가 씀 (그대로 둠)
+        long totalCount,             // 조건에 맞는 전체 리포트 수 (보관함 「리포트 6장」)
+        int totalPages) {            // 전체 쪽 수 (보관함 쪽 번호 ‹ 1 2 ›). 리포트가 없으면 0
+
+    public static VisitReportPageResponse of(List<Item> items, Page<?> page) {
+        return new VisitReportPageResponse(items, page.getNumber(), page.getSize(), page.hasNext(),
+                page.getTotalElements(), page.getTotalPages());
+    }
 
     public record Item(
             Long id,                 // 저장한 리포트 id (상세: GET /api/visit-reports/{id})
