@@ -54,8 +54,10 @@ public class AdminDashboardService {
         // 이의 신청은 처리 상태가 따로 없다 — 그 제한이 아직 걸려 있으면 볼 일이 남은 것
         long appeals = count("SELECT count(*) FROM sanction_appeals a JOIN user_sanctions s ON s.id = a.sanction_id"
                 + " WHERE s.lifted_at IS NULL AND s.starts_at <= ? AND (s.ends_at IS NULL OR s.ends_at > ?)", t, t);
-        long scheduled = count("SELECT count(*) FROM announcements WHERE active_from > ?", t);
-        Instant next = instant(jdbc.queryForObject("SELECT min(active_from) FROM announcements WHERE active_from > ?", Timestamp.class, t));
+        // 시작 전에 내린 소식(예약 취소)은 끝 = 시작이 된다 → 빼야 한다 (AnnouncementState.CANCELED)
+        String scheduledWhere = " FROM announcements WHERE active_from > ? AND (active_to IS NULL OR active_to > active_from)";
+        long scheduled = count("SELECT count(*)" + scheduledWhere, t);
+        Instant next = instant(jdbc.queryForObject("SELECT min(active_from)" + scheduledWhere, Timestamp.class, t));
         return new Todo(pending, crisis, oldest, endingToday, appeals, scheduled, next);
     }
 
