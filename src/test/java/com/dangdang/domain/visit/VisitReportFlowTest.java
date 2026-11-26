@@ -806,6 +806,26 @@ class VisitReportFlowTest {
     }
 
     @Test
+    void careSiteId와_until을_같이_주면_두_조건을_다_맞춘_것만_세고_totalCount가_items와_같다() throws Exception {
+        long otherSite = createCareSite(access);
+        long visitReport = saveAndGetId(access, visit(createVisitAt(access, "2026-10-14T10:00:00+09:00", careSiteId)), 201);   // 이 병원, 진료 10/14 → 들어감
+        saveAndGetId(access, visit(visitId), 201);                                                              // 병원 없는 진료 → 빠짐
+        saveAndGetId(access, visit(createVisitAt(access, "2026-10-25T10:00:00+09:00", careSiteId)), 201);       // 이 병원인데 until 뒤 → 빠짐
+        saveAndGetId(access, visit(createVisitAt(access, "2026-10-15T10:00:00+09:00", otherSite)), 201);        // until 안인데 다른 병원 → 빠짐
+        long customIn = saveAndGetId(access, custom("2026-10-01", "2026-10-20", careSiteId), 201);          // 이 병원, 끝 10/20 → 들어감
+        saveAndGetId(access, custom("2026-10-01", "2026-10-20", otherSite), 201);                              // 다른 병원 → 빠짐
+        saveAndGetId(access, custom("2026-10-01", "2026-10-21", careSiteId), 201);                             // 끝 10/21 → 빠짐
+
+        list(access, "?careSiteId=" + careSiteId + "&until=2026-10-20")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items", hasSize(2)))
+                .andExpect(jsonPath("$.data.totalCount").value(2))   // 목록 쿼리와 count 쿼리의 where절이 같은지
+                .andExpect(jsonPath("$.data.totalPages").value(1))
+                .andExpect(jsonPath("$.data.items[*].id",
+                        org.hamcrest.Matchers.containsInAnyOrder((int) visitReport, (int) customIn)));
+    }
+
+    @Test
     void until_형식이_틀리면_400() throws Exception {
         list(access, "?until=2026/10/20")
                 .andExpect(status().isBadRequest())

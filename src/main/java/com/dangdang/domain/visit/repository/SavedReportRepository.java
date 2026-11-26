@@ -41,6 +41,7 @@ public interface SavedReportRepository extends JpaRepository<SavedReport, Long> 
     //   기간 직접은 끝 날짜(to_date)가 until 이하. 진료용 기간은 저장하지 않아서 진료 날짜로 거름
     // 진료용인데 그 진료 일정을 지웠으면 뺌 (상세에서도 404라서)
     // Page라서 전체 개수도 셈 (보관함 「리포트 6장」·쪽 번호). count는 같은 조건으로 따로 (order by 없이)
+    // ⚠ value와 countQuery의 where절은 같이 고치기 — 한쪽만 고치면 items와 totalCount가 어긋남
     @Query(value = """
             select r from SavedReport r
             where r.user.id = :userId
