@@ -152,4 +152,70 @@ class AdminLogFlowTest extends ReminderTestBase {
         mvc.perform(get("/api/admin/logs").cookie(login("jisu@x.com")))
                 .andExpect(status().isForbidden());
     }
+
+    // PR #165 리뷰: 이미 풀린 제한을 다른 운영자가 또 풀어도 기록은 한 줄, 푼 사람은 처음 푼 운영자
+    @Test
+    void 이미_풀린_제한을_또_풀어도_기록은_한_줄이고_푼_사람은_그대로() throws Exception {
+        Long otherId = userRepository.save(User.ofEmail("admin2@x.com", "승민", passwordEncoder.encode("abcd1234"), clock.instant())).getId();
+        jdbc.update("UPDATE users SET role = 'ADMIN' WHERE id = ?", otherId);
+        Cookie other = login("admin2@x.com");
+        tick();
+        long sanction = idOf(postJson("/api/admin/sanctions", "{\"userId\":" + jisuId + ",\"reason\":\"AD_SALES\",\"days\":7}")
+                .andExpect(status().isCreated()));
+        tick();
+        mvc.perform(post("/api/admin/sanctions/" + sanction + "/lift").cookie(admin)).andExpect(status().isOk());
+        tick();
+        mvc.perform(post("/api/admin/sanctions/" + sanction + "/lift").cookie(other)).andExpect(status().isOk());
+
+        mvc.perform(get("/api/admin/logs?category=SANCTION").cookie(admin))
+                .andExpect(jsonPath("$.data.items", hasSize(2)))
+                .andExpect(jsonPath("$.data.items[0].action").value("SANCTION_LIFT"))
+                .andExpect(jsonPath("$.data.items[0].adminName").value("다현"));
+        mvc.perform(get("/api/admin/sanctions?status=ENDED").cookie(admin))
+                .andExpect(jsonPath("$.data.items[0].liftedByName").value("다현"))
+                .andExpect(jsonPath("$.data.items[0].liftedAt").value(NOW.plusSeconds(120).toString()));
+    }
+
+    // 기간이 끝난 제한은 풀어도 그대로 「기간 끝남」, 기록도 없음
+    @Test
+    void 기간이_끝난_제한은_풀어도_기간_끝남으로_남는다() throws Exception {
+        tick();
+        long sanction = idOf(postJson("/api/admin/sanctions", "{\"userId\":" + jisuId + ",\"reason\":\"AD_SALES\",\"days\":1}")
+                .andExpect(status().isCreated()));
+        clock.set(t.plusSeconds(2 * 86400));
+        mvc.perform(post("/api/admin/sanctions/" + sanction + "/lift").cookie(admin)).andExpect(status().isOk());
+
+        mvc.perform(get("/api/admin/sanctions?status=ENDED").cookie(admin))
+                .andExpect(jsonPath("$.data.items[0].endedBy").value("EXPIRED"))
+                .andExpect(jsonPath("$.data.items[0].liftedAt").doesNotExist());
+        mvc.perform(get("/api/admin/logs?category=SANCTION").cookie(admin))
+                .andExpect(jsonPath("$.data.items", hasSize(1)))
+                .andExpect(jsonPath("$.data.items[0].action").value("SANCTION_CREATE"));
+    }
+
+    // 이미 예약 취소한 소식을 또 내려도 「예약 취소」 기록은 한 줄
+    @Test
+    void 이미_내린_소식을_또_내려도_기록은_한_줄() throws Exception {
+        tick();
+        long news = idOf(postJson("/api/admin/announcements",
+                "{\"slot\":\"SPLASH\",\"kind\":\"NEWS\",\"title\":\"12월 정기검진 안내\",\"activeFrom\":\"2026-11-10T00:00:00Z\"}")
+                .andExpect(status().isCreated()));
+        tick();
+        mvc.perform(post("/api/admin/announcements/" + news + "/end").cookie(admin)).andExpect(status().isOk());
+        tick();
+        mvc.perform(post("/api/admin/announcements/" + news + "/end").cookie(admin)).andExpect(status().isOk());
+
+        mvc.perform(get("/api/admin/logs?category=ANNOUNCEMENT").cookie(admin))
+                .andExpect(jsonPath("$.data.items", hasSize(2)))
+                .andExpect(jsonPath("$.data.items[0].memo").value("예약 취소"))
+                .andExpect(jsonPath("$.data.items[1].action").value("ANNOUNCEMENT_CREATE"));
+    }
+
+    @Test
+    void page는_10000까지() throws Exception {
+        mvc.perform(get("/api/admin/logs?page=10001").cookie(admin))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("GLOBAL_40001"));
+        mvc.perform(get("/api/admin/logs?page=10000").cookie(admin)).andExpect(status().isOk());
+    }
 }

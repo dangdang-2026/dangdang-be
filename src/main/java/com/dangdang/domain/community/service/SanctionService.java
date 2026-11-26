@@ -104,11 +104,17 @@ public class SanctionService {
         return SanctionResponse.from(saved);
     }
 
+    // 걸려 있는 제한만 푼다. 이미 풀렸거나 기간이 끝난 제한은 그대로 두고 기록도 남기지 않는다 (PR #165 리뷰)
+    // 그래야 「푼 운영자」가 실제로 푼 사람으로 남고, 기간이 끝난 제한이 「운영자가 풂」으로 바뀌지 않는다
     @Transactional
     public SanctionResponse lift(Long adminId, Long sanctionId) {
-        UserSanction sanction = userSanctionRepository.findById(sanctionId)
+        UserSanction sanction = userSanctionRepository.findByIdForUpdate(sanctionId)
                 .orElseThrow(() -> new CustomException(CommunityErrorCode.SANCTION_NOT_FOUND));
-        sanction.lift(clock.instant());
+        Instant now = clock.instant();
+        if (!sanction.isActiveAt(now)) {
+            return SanctionResponse.from(sanction);
+        }
+        sanction.lift(now);
         log.info("[이용 제한] 풀림 - 제한: {}, 운영자: {}", sanctionId, adminId);
         adminLogService.record(adminId, AdminLogAction.SANCTION_LIFT, sanctionId, nameOf(sanction.getUser()),
                 sanction.getReason(), null);

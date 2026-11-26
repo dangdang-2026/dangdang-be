@@ -30,7 +30,9 @@ public class AdminSanctionQueryService {
             + " EXISTS (SELECT 1 FROM sanction_appeals ap WHERE ap.sanction_id = s.id) AS appealed,"
             // 누가 풀었는지는 처리 기록(admin_logs)에 남는다 — 가장 최근에 푼 사람
             + " (SELECT lu.display_name FROM admin_logs l JOIN users lu ON lu.id = l.admin_id"
-            + "  WHERE l.action = 'SANCTION_LIFT' AND l.target_id = s.id ORDER BY l.occurred_at DESC LIMIT 1) AS lifted_by_name"
+            // target_type을 먼저 걸어야 ix_admin_logs_target (target_type, target_id, occurred_at) 인덱스를 탄다 (PR #165 리뷰)
+            + "  WHERE l.target_type = 'SANCTION' AND l.target_id = s.id AND l.action = 'SANCTION_LIFT'"
+            + "  ORDER BY l.occurred_at DESC LIMIT 1) AS lifted_by_name"
             + " FROM user_sanctions s"
             + " JOIN users u ON u.id = s.user_id"
             + " LEFT JOIN community_profiles p ON p.user_id = s.user_id"

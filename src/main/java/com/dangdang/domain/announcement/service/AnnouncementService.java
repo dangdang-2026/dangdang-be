@@ -85,9 +85,13 @@ public class AnnouncementService {
                 .orElseThrow(() -> new CustomException(AnnouncementErrorCode.ANNOUNCEMENT_NOT_FOUND));
         Instant now = clock.instant();
         boolean beforeStart = a.getActiveFrom().isAfter(now);
+        Instant before = a.getActiveTo();
         a.end(now);
-        adminLogService.record(adminId, AdminLogAction.ANNOUNCEMENT_END, a.getId(), a.getTitle(),
-                null, beforeStart ? "예약 취소" : null);
+        // 이미 끝났거나 예약 취소한 소식이면 end가 아무것도 안 바꾼다. 그때는 기록도 남기지 않는다 (PR #165 리뷰)
+        if (!Objects.equals(before, a.getActiveTo())) {
+            adminLogService.record(adminId, AdminLogAction.ANNOUNCEMENT_END, a.getId(), a.getTitle(),
+                    null, beforeStart ? "예약 취소" : null);
+        }
         // 그 사이 카드가 내려갔으면 요약을 비운다 — 목록(active)과 같은 결과 (PR #120 리뷰)
         return AnnouncementResponse.from(a, a.getContentCardId() == null ? null
                 : contentCardRepository.findById(a.getContentCardId())
