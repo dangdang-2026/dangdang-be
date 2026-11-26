@@ -334,17 +334,22 @@ class MealItemFlowTest {
     void 항목의_주식_여부는_고른_음식을_따르고_직접_적은_음식은_false() throws Exception {
         add(access, mealId, "{\"foodCode\":\"" + JJOLMYEON + "\"}")                  // 쫄면 (면 및 만두류)
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.data.isStaple").value(true));
+                .andExpect(jsonPath("$.data.isStaple").value(true))
+                .andExpect(jsonPath("$.data.unitLabel").value("그릇"));
         add(access, mealId, "{\"foodCode\":\"D103-150030000-0001\"}")                 // 만두_군만두 (반찬)
-                .andExpect(jsonPath("$.data.isStaple").value(false));
+                .andExpect(jsonPath("$.data.isStaple").value(false))
+                .andExpect(jsonPath("$.data.unitLabel").value("인분"));
         add(access, mealId, "{\"name\":\"엄마표 잡채밥\"}")                              // 직접 적은 음식은 서버가 분류를 모름
-                .andExpect(jsonPath("$.data.isStaple").value(false));
+                .andExpect(jsonPath("$.data.isStaple").value(false))
+                .andExpect(jsonPath("$.data.unitLabel").value("인분"));
 
         // 식사 조회의 items[]에도 같은 값 (추가한 순서)
         mvc.perform(get("/api/meals/" + mealId).cookie(access))
                 .andExpect(jsonPath("$.data.items[0].isStaple").value(true))
                 .andExpect(jsonPath("$.data.items[1].isStaple").value(false))
-                .andExpect(jsonPath("$.data.items[2].isStaple").value(false));
+                .andExpect(jsonPath("$.data.items[2].isStaple").value(false))
+                .andExpect(jsonPath("$.data.items[0].unitLabel").value("그릇"))
+                .andExpect(jsonPath("$.data.items[2].unitLabel").value("인분"));
     }
 
     @Test

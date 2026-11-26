@@ -14,6 +14,7 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 // foods 테이블 한 줄 = 식약처 음식 하나. 마이그레이션으로만 넣는 공공 데이터라 앱에서는 읽기만 함
@@ -105,6 +106,74 @@ public class Food {
         return repName.contains("스프")
                 || (repName.contains("만두") && !repName.contains("만두국"))
                 || repName.equals("월남쌈");
+    }
+
+    // ---------- 표시 단위 (「밥 1공기」 「국 1그릇」) ----------
+    // 1인분 양(servingAmount)을 그 단위 하나로 보여 줘도 맞는 분류만 단위를 정함. 영양값 계산(1인분 × 먹은 양)은 그대로
+    // 분류 기준: 로컬·개발 DB 식약처 분류 25개 (2026-11-27 조회, 분류별 1인분 중앙값을 보고 정함)
+    public static final String DEFAULT_UNIT = "인분";
+    private static final Map<String, String> UNIT_BY_CATEGORY = Map.ofEntries(
+            Map.entry("밥류", "그릇"),               // 볶음밥·비빔밥·덮밥·국밥 (흰밥·잡곡밥은 아래에서 공기)
+            Map.entry("죽 및 스프류", "그릇"),
+            Map.entry("국 및 탕류", "그릇"),
+            Map.entry("찌개 및 전골류", "그릇"),     // 전골·샤브샤브는 같이 먹는 냄비라 인분
+            Map.entry("면 및 만두류", "그릇"),       // 라면·국수·떡국 (만두는 여러 개라 인분)
+            Map.entry("전·적 및 부침류", "접시"),    // 1인분 120~150g = 전 여러 조각이라 「조각」이 아니라 접시
+            Map.entry("볶음류", "접시"),
+            Map.entry("생채·무침류", "접시"),
+            Map.entry("나물·숙채류", "접시"),
+            Map.entry("조림류", "접시"),
+            Map.entry("김치류", "접시"),
+            Map.entry("장아찌·절임류", "접시"),
+            Map.entry("젓갈류", "접시"),
+            Map.entry("음료 및 차류", "잔"));        // g·ml은 바꾸지 않고 그대로 (servingUnit)
+    // 찜류·구이류·튀김류·빵·유제품·양념 등은 한 분류에 생선 한 마리·고기·치킨·피자 한 판이 섞여 있어 인분
+
+    // 밥류 중 흰밥·잡곡밥 (공기). 묵밥·연잎밥·자장밥·잡탕밥·채소밥은 그릇
+    private static final Set<String> PLAIN_RICE = Set.of(
+            "쌀밥", "찰밥", "콩밥", "팥밥", "밤밥", "감자밥", "귀리밥", "기장밥", "보리밥", "수수밥", "오곡밥", "잡곡밥",
+            "차조밥", "현미밥", "흑미밥", "강낭콩밥", "검정콩밥", "고구마밥", "옥수수밥", "완두콩밥", "혼합잡곡밥", "순 현미밥");
+    private static final Set<String> FRIED_EGGS = Set.of("달걀후라이", "달걀부침(달걀후라이)");   // 1인분 60~100g = 1개
+
+    public String unitLabel() {
+        return unitLabelOf(category, repName);
+    }
+
+    // 분류가 없거나 빈 값·모르는 분류면 인분. 대표식품명으로 분류 안의 예외를 먼저 봄
+    static String unitLabelOf(String category, String repName) {
+        if (category == null || category.isBlank()) {
+            return DEFAULT_UNIT;
+        }
+        String unit = UNIT_BY_CATEGORY.getOrDefault(category, DEFAULT_UNIT);
+        if (repName == null || repName.isBlank()) {
+            return unit;
+        }
+        if (FRIED_EGGS.contains(repName)) {
+            return "개";
+        }
+        if (repName.contains("달걀찜")) {      // 찜류(인분) 안의 달걀찜·두부 달걀찜은 뚝배기 한 그릇 (1인분 110g)
+            return "그릇";
+        }
+        return switch (category) {
+            case "밥류" -> riceUnit(repName);
+            case "찌개 및 전골류" -> repName.contains("전골") || repName.contains("샤브샤브") ? DEFAULT_UNIT : unit;
+            case "면 및 만두류" -> isSideInStapleCategory(repName) ? DEFAULT_UNIT : unit;   // 만두·월남쌈 (만두국은 그릇)
+            case "전·적 및 부침류" -> repName.equals("달걀말이") ? DEFAULT_UNIT : unit;      // 1인분 50g, 조각 수가 안 정해짐
+            default -> unit;
+        };
+    }
+
+    // 흰밥·잡곡밥은 공기, 김밥은 줄(1인분 400g = 한 줄), 삼각김밥은 개, 주먹밥·초밥·충무김밥·모듬 김밥은 여러 개라 인분
+    private static String riceUnit(String repName) {
+        if (PLAIN_RICE.contains(repName)) {
+            return "공기";
+        }
+        return switch (repName) {
+            case "김밥" -> "줄";
+            case "삼각김밥" -> "개";
+            case "주먹밥", "초밥", "충무김밥", "모듬 김밥" -> DEFAULT_UNIT;
+            default -> "그릇";
+        };
     }
 
     // 화면에 보여 줄 이름. 식약처 이름은 "종류_재료" 순서라서 사람이 부르는 순서로 바꿈

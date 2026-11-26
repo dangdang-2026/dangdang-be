@@ -45,8 +45,8 @@ public class FoodHistoryService {
         }
 
         // 식사마다 따로 조회하지 않고 항목·혈당을 한 번에 읽어서 식사 id별로 나눔
-        // 항목이 전부 같은 음식이라 주식 여부는 한 번만 봄
-        boolean staple = foodStapleReader.of(foodCode);
+        // 항목이 전부 같은 음식이라 주식 여부·단위는 한 번만 봄
+        FoodStapleReader.Traits staple = foodStapleReader.of(foodCode);
         Map<Long, List<MealItemSummaryResponse>> itemsByMeal = mealItemRepository
                 .findAllByMealIdInAndFoodCodeAndDeletedAtIsNullOrderByIdAsc(mealIds, foodCode).stream()
                 .collect(Collectors.groupingBy(i -> i.getMeal().getId(),

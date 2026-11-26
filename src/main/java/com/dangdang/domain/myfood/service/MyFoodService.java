@@ -40,8 +40,8 @@ public class MyFoodService {
                 ? myFoodRepository.findByUserIdOrderByUpdatedAtDescIdDesc(userId)
                 : myFoodRepository.findByUserIdAndNameContainingIgnoreCaseOrderByUpdatedAtDescIdDesc(userId, keyword.strip());
         // 주식 여부는 비슷한 음식(similarFoodCode)을 한 번에 읽어서 따름 (없으면 false)
-        Map<String, Boolean> staple = foodStapleReader.byCodes(foods.stream().map(MyFood::getSimilarFoodCode).toList());
-        return foods.stream().map(f -> MyFoodResponse.from(f, staple.getOrDefault(f.getSimilarFoodCode(), false))).toList();
+        Map<String, FoodStapleReader.Traits> staple = foodStapleReader.byCodes(foods.stream().map(MyFood::getSimilarFoodCode).toList());
+        return foods.stream().map(f -> MyFoodResponse.from(f, staple.getOrDefault(f.getSimilarFoodCode(), FoodStapleReader.Traits.NONE))).toList();
     }
 
     @Transactional
