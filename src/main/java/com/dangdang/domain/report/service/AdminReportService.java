@@ -23,15 +23,20 @@ import com.dangdang.domain.report.repository.ReportQueueRow;
 import com.dangdang.domain.report.repository.ReportRepository;
 import com.dangdang.global.exception.CustomException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Arrays;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -48,6 +53,7 @@ public class AdminReportService {
     private final PostRepository postRepository;
     private final CommentRepository commentRepository;
     private final Clock clock;
+    private final JdbcTemplate jdbc;
 
     public AdminReportListResponse list(ReportStatus status) {
         List<ReportQueueRow> rows = reportRepository.findQueue(status.name());
@@ -56,11 +62,13 @@ public class AdminReportService {
         Map<Long, Comment> comments = commentRepository.findAllById(idsOf(rows, ReportTargetType.COMMENT)).stream()
                 .collect(Collectors.toMap(Comment::getId, Function.identity()));
 
+        // 처리 전 탭은 아직 처리한 사람이 없다. 가린 글, 문제없음 탭만 마지막 처리를 붙인다
+        Map<String, Handled> handled = status == ReportStatus.RECEIVED ? Map.of() : lastHandled(rows);
         List<AdminReportItemResponse> items = rows.stream()
-                .map(row -> toItem(row, posts, comments))
+                .map(row -> toItem(row, posts, comments, handled.get(row.getTargetType() + ":" + row.getTargetId())))
                 .toList();
         long totalCount = rows.isEmpty() ? 0 : rows.get(0).getTotalCount();
-        return new AdminReportListResponse(items, totalCount);
+        return new AdminReportListResponse(items, totalCount, counts());
     }
 
     public AdminReportDetailResponse detail(ReportTargetType type, Long targetId) {
@@ -73,8 +81,9 @@ public class AdminReportService {
         List<ActionLine> actions = actionRepository.findByTargetTypeAndTargetIdOrderByOccurredAtDescIdDesc(type, targetId)
                 .stream()
                 .map(a -> new ActionLine(a.getAction().name(), a.getReason() == null ? null : a.getReason().name(),
-                        a.getMemo(), a.getAdminId(), a.getOccurredAt()))
+                        a.getMemo(), a.getAdminId(), null, a.getOccurredAt()))
                 .toList();
+        actions = withAdminNames(actions);
         CommunityProfile author = target.author();
         return new AdminReportDetailResponse(type.name(), String.valueOf(targetId), String.valueOf(target.postId()),
                 target.title(), target.content(),
@@ -167,7 +176,73 @@ public class AdminReportService {
         return rows.stream().filter(r -> r.getTargetType().equals(type.name())).map(ReportQueueRow::getTargetId).toList();
     }
 
-    private AdminReportItemResponse toItem(ReportQueueRow row, Map<Long, Post> posts, Map<Long, Comment> comments) {
+    // 탭 세 개 숫자. findQueue와 같은 기준 (상태마다 대상 묶음 수)
+    private AdminReportListResponse.Counts counts() {
+        Map<String, Long> byStatus = new HashMap<>();
+        jdbc.query("SELECT status, count(DISTINCT (target_type, target_id)) AS n FROM reports GROUP BY status",
+                rs -> {
+                    byStatus.put(rs.getString("status"), rs.getLong("n"));
+                });
+        return new AdminReportListResponse.Counts(byStatus.getOrDefault(ReportStatus.RECEIVED.name(), 0L),
+                byStatus.getOrDefault(ReportStatus.HIDDEN.name(), 0L),
+                byStatus.getOrDefault(ReportStatus.DISMISSED.name(), 0L));
+    }
+
+    private record Handled(Instant at, String adminName) {
+    }
+
+    // 대상마다 가장 최근 처리 (admin_actions) 한 줄과 운영자 이름. 목록 100줄을 한 번에 읽는다
+    private Map<String, Handled> lastHandled(List<ReportQueueRow> rows) {
+        Map<String, Handled> result = new HashMap<>();
+        for (ReportTargetType type : ReportTargetType.values()) {
+            List<Long> ids = idsOf(rows, type);
+            if (ids.isEmpty()) {
+                continue;
+            }
+            String in = String.join(",", ids.stream().map(id -> "?").toList());
+            Object[] args = new Object[ids.size() + 1];
+            args[0] = type.name();
+            for (int i = 0; i < ids.size(); i++) {
+                args[i + 1] = ids.get(i);
+            }
+            jdbc.query("SELECT DISTINCT ON (a.target_id) a.target_id, a.occurred_at, u.display_name"
+                            + " FROM admin_actions a LEFT JOIN users u ON u.id = a.admin_id"
+                            + " WHERE a.target_type = ? AND a.target_id IN (" + in + ")"
+                            + " ORDER BY a.target_id, a.occurred_at DESC, a.id DESC",
+                    rs -> {
+                        Timestamp at = rs.getTimestamp("occurred_at");
+                        result.put(type.name() + ":" + rs.getLong("target_id"),
+                                new Handled(at == null ? null : at.toInstant(), rs.getString("display_name")));
+                    }, args);
+        }
+        return result;
+    }
+
+    // 처리 기록에 운영자 이름 붙이기 (운영자 계정을 지웠으면 null)
+    private List<ActionLine> withAdminNames(List<ActionLine> actions) {
+        Set<Long> ids = actions.stream().map(ActionLine::adminId).filter(id -> id != null).collect(Collectors.toSet());
+        Map<Long, String> names = names(ids);
+        return actions.stream()
+                .map(a -> new ActionLine(a.action(), a.reason(), a.memo(), a.adminId(), names.get(a.adminId()),
+                        a.occurredAt()))
+                .toList();
+    }
+
+    private Map<Long, String> names(Collection<Long> userIds) {
+        Map<Long, String> names = new HashMap<>();
+        if (userIds.isEmpty()) {
+            return names;
+        }
+        String in = String.join(",", userIds.stream().map(id -> "?").toList());
+        jdbc.query("SELECT id, display_name FROM users WHERE id IN (" + in + ")",
+                rs -> {
+                    names.put(rs.getLong("id"), rs.getString("display_name"));
+                }, userIds.toArray());
+        return names;
+    }
+
+    private AdminReportItemResponse toItem(ReportQueueRow row, Map<Long, Post> posts, Map<Long, Comment> comments,
+                                           Handled handled) {
         Target target = row.getTargetType().equals(ReportTargetType.POST.name())
                 ? Target.of(posts.get(row.getTargetId()))
                 : Target.of(comments.get(row.getTargetId()));
@@ -176,7 +251,9 @@ public class AdminReportService {
                 target == null ? null : String.valueOf(target.postId()),
                 target == null ? null : target.preview(),
                 target == null ? "DELETED" : target.state(),     // 글이 통째로 지워져 행이 없으면
-                row.getReportCount(), row.getSystemReportCount(), reasons, row.getLastReportedAt());
+                row.getReportCount(), row.getSystemReportCount(), reasons, row.getLastReportedAt(),
+                target == null || target.author() == null ? null : target.author().getNickname(),
+                handled == null ? null : handled.at(), handled == null ? null : handled.adminName());
     }
 
     // 운영자는 지운 글도 본다 (deleted_at이 있어도 찾음)
