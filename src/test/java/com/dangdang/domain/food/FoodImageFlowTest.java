@@ -309,6 +309,42 @@ class FoodImageFlowTest {
     }
 
     @Test
+    void 위치도_후보도_없는_빈_음식만_오면_예전_candidates로_처리한다() throws Exception {
+        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(
+                List.of(new Candidate("김밥", 0.95)), List.of(new FoodImageClient.Item(null, List.of()))));   // {}
+
+        analyze(PHOTO)
+                .andExpect(jsonPath("$.data.fallback").value(false))
+                .andExpect(jsonPath("$.data.candidates[0].name").value("김밥"))
+                .andExpect(jsonPath("$.data.items", hasSize(1)));
+    }
+
+    @Test
+    void 끝이_1을_살짝_넘는_위치는_사진_경계에_맞게_줄인다() throws Exception {
+        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(List.of(),
+                List.of(new FoodImageClient.Item(new FoodImageClient.Box(0.6, 0.7, 0.4005, 0.3), List.of(new Candidate("김밥", 0.9))))));
+
+        analyze(PHOTO)
+                .andExpect(jsonPath("$.data.items[0].box.x").value(0.6))
+                .andExpect(jsonPath("$.data.items[0].box.width").value(org.hamcrest.Matchers.closeTo(0.4, 1e-9)))   // 1 - 0.6
+                .andExpect(jsonPath("$.data.items[0].box.height").value(org.hamcrest.Matchers.closeTo(0.3, 1e-9)));
+    }
+
+    @Test
+    void 이름_없는_후보의_높은_점수로는_6개_안에_못_든다() throws Exception {
+        List<FoodImageClient.Item> seven = new java.util.ArrayList<>();
+        seven.add(new FoodImageClient.Item(new FoodImageClient.Box(0.0, 0.0, 0.1, 0.1), List.of(new Candidate(" ", 0.99))));   // 이름 없음
+        for (int i = 1; i < 7; i++) {
+            seven.add(new FoodImageClient.Item(new FoodImageClient.Box(0.1 * i, 0.0, 0.1, 0.1), List.of(new Candidate("비빔밥", 0.8))));
+        }
+        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(List.of(), seven));
+
+        analyze(PHOTO)
+                .andExpect(jsonPath("$.data.items", hasSize(6)))
+                .andExpect(jsonPath("$.data.items[*].fallback", org.hamcrest.Matchers.everyItem(org.hamcrest.Matchers.is(false))));
+    }
+
+    @Test
     void items가_빈_값뿐이면_예전_candidates로_처리한다() throws Exception {
         given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(
                 List.of(new Candidate("김밥", 0.95)), java.util.Arrays.asList((FoodImageClient.Item) null)));

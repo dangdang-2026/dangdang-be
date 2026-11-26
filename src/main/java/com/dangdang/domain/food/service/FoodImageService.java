@@ -23,7 +23,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.IntStream;
@@ -86,10 +85,10 @@ public class FoodImageService {
         }
 
         // 한상 사진(F-13): AI가 음식마다 위치를 줬으면 그걸 쓰고, 아직 안 줬으면(예전 계약) 사진 전체를 음식 하나로 봄
-        // 빈 값을 먼저 걸러 낸 뒤 판단 → items가 [null]뿐이어도 예전 candidates로 처리
+        // 빈 값을 먼저 걸러 낸 뒤 판단 → items가 [null]이나 위치·후보가 둘 다 없는 [{}]뿐이어도 예전 candidates로 처리
         List<FoodImageClient.Item> aiItems = result == null || result.items() == null
                 ? List.of()
-                : topItems(result.items().stream().filter(Objects::nonNull).toList());
+                : topItems(result.items().stream().filter(FoodImageService::hasContent).toList());
         if (aiItems.isEmpty()) {
             aiItems = List.of(new FoodImageClient.Item(null, result == null ? null : result.candidates()));
         }
@@ -135,15 +134,28 @@ public class FoodImageService {
         return IntStream.range(0, items.size()).filter(keep::contains).mapToObj(items::get).toList();
     }
 
-    // 이 음식의 1등 확신도 (후보가 없거나 이상하면 0)
+    // 위치나 후보 중 하나라도 있는 음식만 (null이나 {}처럼 빈 음식은 뺌)
+    private static boolean hasContent(FoodImageClient.Item item) {
+        return item != null
+                && (item.box() != null || (item.candidates() != null && !item.candidates().isEmpty()));
+    }
+
+    // 이 음식의 1등 확신도 — cleanUp과 같은 기준(이름이 있고 0~1)으로 고른 후보만 셈. 남는 후보가 없으면 0
+    // (이름 없는 후보의 높은 점수로 뽑혔다가 cleanUp에서 다 빠져 「이름으로 적기」가 되는 일이 없게)
     private static double topConfidence(FoodImageClient.Item item) {
         if (item.candidates() == null) {
             return 0;
         }
         return item.candidates().stream()
-                .filter(c -> c != null && Double.isFinite(c.confidence()) && c.confidence() >= 0 && c.confidence() <= 1)
+                .filter(FoodImageService::isValidCandidate)
                 .mapToDouble(FoodImageClient.Candidate::confidence)
                 .max().orElse(0);
+    }
+
+    // 후보로 쓸 수 있는지: 이름이 있고 확신도가 0~1 (topConfidence·cleanUp이 같이 씀)
+    private static boolean isValidCandidate(FoodImageClient.Candidate c) {
+        return c != null && c.name() != null && !c.name().isBlank()
+                && Double.isFinite(c.confidence()) && c.confidence() >= 0 && c.confidence() <= 1;
     }
 
     // 위치도 그대로 믿지 않음: 빈 값이거나 숫자가 아니거나 0~1 밖이거나 넓이가 0이면 위치 없음(null)으로 → 화면은 표시만 안 함
@@ -160,7 +172,13 @@ public class FoodImageService {
         if (b.width() <= 0 || b.height() <= 0 || b.x() + b.width() > 1 + BOX_SLACK || b.y() + b.height() > 1 + BOX_SLACK) {
             return null;
         }
-        return new FoodImageAnalysisResponse.Box(b.x(), b.y(), b.width(), b.height());
+        // 소수 오차로 오른쪽·아래쪽 끝이 1을 살짝 넘으면 사진 경계(1)에 맞게 줄임. 줄인 뒤 넓이가 0이면 위치 없음
+        double width = Math.min(b.width(), 1 - b.x());
+        double height = Math.min(b.height(), 1 - b.y());
+        if (width <= 0 || height <= 0) {
+            return null;
+        }
+        return new FoodImageAnalysisResponse.Box(b.x(), b.y(), width, height);
     }
 
     // AI 응답을 그대로 믿지 않음: 이름이 비었거나 확신도가 0~1 밖(퍼센트 45, NaN 등)인 후보는 빼고,
@@ -171,8 +189,7 @@ public class FoodImageService {
             return List.of();
         }
         return raw.stream()
-                .filter(c -> c != null && c.name() != null && !c.name().isBlank())
-                .filter(c -> Double.isFinite(c.confidence()) && c.confidence() >= 0 && c.confidence() <= 1)
+                .filter(FoodImageService::isValidCandidate)
                 .sorted(Comparator.comparingDouble(FoodImageClient.Candidate::confidence).reversed())
                 .limit(MAX_CANDIDATES)
                 .toList();
