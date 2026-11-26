@@ -80,10 +80,11 @@ public class MealController {
             summary = "[ 사용자 | 토큰 O | 식사 기록 수정 ]",
             description =
                     """
-                    **Parameters** mealId + 바꿀 칸만: mealSlot, startedAt(지금 이전), note(255자, 비우려면 "")
+                    **Parameters** mealId + 바꿀 칸만: mealSlot, startedAt(지금 이전), note(255자, 비우려면 ""),
+                    expectedUpdatedAt(선택, 화면을 열 때 받은 식사 updatedAt 또는 항목 응답의 mealUpdatedAt. 안 보내면 확인 안 함)
                     **Returns** 수정된 식사. startedOffline은 바꿀 수 없음.
                     바꿀 값이 없으면 MEAL_40003, 이 식사에 붙은 식후 혈당보다 뒤 시각으로 startedAt을 옮기면 MEAL_40008(같은 시각은 됨),
-                    없거나 삭제됐거나 남의 기록이면 MEAL_40401
+                    없거나 삭제됐거나 남의 기록이면 MEAL_40401, expectedUpdatedAt이 지금 식사와 다르면(다른 기기에서 먼저 바꿈 · 항목을 더하거나 고쳐도 식사 updatedAt이 바뀜) MEAL_40901
                     """)
     @PatchMapping("/{mealId}")
     public ResponseEntity<BaseResponse<MealResponse>> update(

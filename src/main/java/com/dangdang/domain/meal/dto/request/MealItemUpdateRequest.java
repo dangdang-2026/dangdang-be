@@ -10,6 +10,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 
 // 식사 항목 수정 요청 (PATCH) — 보낸 칸만 바뀜, 안 보낸 칸은 그대로 둠
 // weightG만 "안 보냄(그대로)"과 "null을 보냄(무게를 지우고 인분으로 계산)"을 구분해야 해서 record 대신 class로 둠
@@ -34,6 +35,8 @@ public class MealItemUpdateRequest {
     @Size(max = 100, message = "음식 이름은 100자까지예요.")
     private String name;             // 직접 적은 음식만 바꿀 수 있음
 
+    private Instant expectedUpdatedAt;   // 화면을 열 때 받은 이 항목의 updatedAt (선택). 그 사이 다른 곳에서 바뀌었으면 409 (#172)
+
     public void setServings(BigDecimal servings) {
         this.servings = servings;
     }
@@ -48,12 +51,16 @@ public class MealItemUpdateRequest {
         this.name = name;
     }
 
+    public void setExpectedUpdatedAt(Instant expectedUpdatedAt) {
+        this.expectedUpdatedAt = expectedUpdatedAt;
+    }
+
     // 앞뒤 공백 뺀 이름 (빈 이름은 안 보낸 것으로 봄)
     public String trimmedName() {
         return name == null || name.isBlank() ? null : name.trim();
     }
 
-    // 바꿀 값이 하나도 없는 요청인지. Swagger·JSON에 "empty" 칸으로 안 보이게 뺌
+    // 바꿀 값이 하나도 없는 요청인지 (expectedUpdatedAt은 바꿀 값이 아님). Swagger·JSON에 "empty" 칸으로 안 보이게 뺌
     @JsonIgnore
     public boolean isEmpty() {
         return servings == null && !weightGSent && trimmedName() == null;

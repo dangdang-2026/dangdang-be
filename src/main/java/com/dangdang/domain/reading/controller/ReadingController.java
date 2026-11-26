@@ -129,13 +129,14 @@ public class ReadingController {
             summary = "[ 사용자 | 토큰 O | 혈당 기록 수정 ]",
             description =
                     """
-                    **Parameters** readingId + 바꿀 칸만: value(20~600) 또는 meterLimit(HI·LO), measuredAt(지금 이전), readingType, slot, mealId
+                    **Parameters** readingId + 바꿀 칸만: value(20~600) 또는 meterLimit(HI·LO), measuredAt(지금 이전), readingType, slot, mealId,
+                    expectedUpdatedAt(선택, 화면을 열 때 받은 이 기록의 updatedAt. 안 보내면 확인 안 함)
                     **Returns** 수정된 기록. 잰 시각을 바꾸면 그 날짜의 병원 기준이 다시 붙고 enteredLate도 다시 계산됨.
                     식후 → 공복·기타로 바꾸면서 mealId를 안 보내면 식사 연결이 끊김(mealId null).
                     값·HI·LO·시점·잰 때·시각을 실제로 바꿨을 때만 editedAt이 바뀜(식사만 붙이거나 같은 값이면 안 바뀜). 처음 값은 originalValue·originalMeterLimit(처음이 HI·LO였으면 그 글자). 값을 안 고쳤거나 처음 값(숫자·HI·LO까지 같게)으로 되돌리면 둘 다 null, editedAt은 남음.
                     바꿀 값이 없으면 READING_40003, value와 meterLimit을 같이 보내면 READING_40004, 고친 뒤 식후 혈당이 식사 시작보다 앞이면 READING_40005,
                     없거나 삭제됐거나 남의 기록이면 READING_40401, mealId가 내 식사가 아니면 MEAL_40401,
-                    같은 기록을 다른 곳에서 동시에 먼저 고쳤으면 READING_40903(새로고침 뒤 다시)
+                    expectedUpdatedAt이 지금 기록과 다르거나(다른 기기에서 먼저 고침) 같은 기록을 동시에 먼저 고쳤으면 READING_40903(새로고침 뒤 다시)
                     """)
     @PatchMapping("/{readingId}")
     public ResponseEntity<BaseResponse<ReadingResponse>> update(

@@ -95,11 +95,13 @@ public class InsulinLogController {
             summary = "[ 사용자 | 토큰 O | 인슐린 투여 기록 수정 ]",
             description =
                     """
-                    **Parameters** insulinLogId + 바꿀 칸만: insulinType, mealSlot, units(0 초과 999.9 이하, 소수 한 자리), takenAt(2000년 이후 ~ 지금)
+                    **Parameters** insulinLogId + 바꿀 칸만: insulinType, mealSlot, units(0 초과 999.9 이하, 소수 한 자리), takenAt(2000년 이후 ~ 지금),
+                    expectedUpdatedAt(선택, 화면을 열 때 받은 이 기록의 updatedAt. 안 보내면 확인 안 함)
                     안 보내거나 null을 보낸 칸은 그대로 둠 (비우기 없음). 종류를 BEDTIME으로 바꾸면 mealSlot은 서버가 지움
                     **Returns** 수정된 기록. 값이 실제로 바뀌면 editedAt이 찍힘. 바꿀 값이 없으면 INSULIN_40002, 범위 밖이면 GLOBAL_40001,
                     MEAL인데 끼니가 없으면(BEDTIME → MEAL로 바꾸며 끼니를 안 보냄 등) INSULIN_40003, BEDTIME에 끼니를 보내면 INSULIN_40004,
-                    끼니가 SNACK이면 INSULIN_40005, 없거나 삭제됐거나 남의 기록이면 INSULIN_40401
+                    끼니가 SNACK이면 INSULIN_40005, 없거나 삭제됐거나 남의 기록이면 INSULIN_40401,
+                    expectedUpdatedAt이 지금 기록과 다르면(다른 기기에서 먼저 고침) INSULIN_40901
                     """)
     @PatchMapping("/{insulinLogId}")
     public ResponseEntity<BaseResponse<InsulinLogResponse>> update(

@@ -15,6 +15,7 @@ import com.dangdang.domain.user.repository.UserRepository;
 import com.dangdang.domain.user.service.SensitiveConsentGuard;
 import com.dangdang.global.common.KoreanTime;
 import com.dangdang.global.common.QueryParams;
+import com.dangdang.global.common.UpdatedAtCheck;
 import com.dangdang.global.exception.CustomException;
 import com.dangdang.global.exception.GlobalErrorCode;
 import lombok.RequiredArgsConstructor;
@@ -89,6 +90,10 @@ public class InsulinLogService {
         sensitiveConsentGuard.require(userId);
         checkTakenAt(req.takenAt());
         InsulinLog log = findMine(userId, insulinLogId);
+        // 화면을 연 뒤 다른 기기에서 먼저 고쳤으면 409 (#172). 줄을 잠근 뒤 보니까 확인과 쓰기 사이에 다른 수정이 끼지 못함
+        if (UpdatedAtCheck.isStale(req.expectedUpdatedAt(), log.getUpdatedAt())) {
+            throw new CustomException(InsulinErrorCode.VERSION_CONFLICT);
+        }
         InsulinType type = req.insulinType() != null ? req.insulinType() : log.getInsulinType();
         MealSlot mealSlot = mealSlotFor(type, req.mealSlot(), log.getMealSlot());
 

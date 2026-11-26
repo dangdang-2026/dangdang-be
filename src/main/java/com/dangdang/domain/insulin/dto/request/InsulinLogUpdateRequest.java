@@ -24,9 +24,11 @@ public record InsulinLogUpdateRequest(
         BigDecimal units,
 
         @PastOrPresent(message = "맞은 시각은 지금보다 뒤일 수 없어요.")
-        Instant takenAt) {
+        Instant takenAt,
 
-    // 바꿀 값이 하나도 없는 요청인지. Swagger·JSON에 "empty" 칸으로 안 보이게 뺌
+        Instant expectedUpdatedAt) {   // 화면을 열 때 받은 이 기록의 updatedAt (선택). 그 사이 다른 곳에서 고쳤으면 409 (#172)
+
+    // 바꿀 값이 하나도 없는 요청인지 (expectedUpdatedAt은 바꿀 값이 아님). Swagger·JSON에 "empty" 칸으로 안 보이게 뺌
     @JsonIgnore
     public boolean isEmpty() {
         return insulinType == null && mealSlot == null && units == null && takenAt == null;

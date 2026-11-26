@@ -243,6 +243,31 @@ class MealItemFlowTest {
     }
 
     @Test
+    void 화면을_연_뒤_다른_기기에서_항목을_먼저_고쳤으면_409이고_덮어쓰지_않는다() throws Exception {   // #172
+        long itemId = addAndGetId(mealId, "{\"name\":\"떡\"}");
+        jdbc.update("UPDATE meal_items SET updated_at = '2026-01-01T00:00:00Z' WHERE id = ?", itemId);   // 두 수정 사이 시각 차이를 분명하게
+        String seenByA = JsonPath.read(mvc.perform(get("/api/meals/" + mealId).cookie(access))
+                .andReturn().getResponse().getContentAsString(), "$.data.items[0].updatedAt");
+
+        // 기기 B가 먼저 고침 (expectedUpdatedAt 없이 → 지금처럼 됨)
+        String afterB = JsonPath.read(patchItem(access, mealId, itemId, "{\"servings\":2}")
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(), "$.data.updatedAt");
+
+        // 기기 A가 옛 화면 값으로 고치면 409, 양은 B가 고친 그대로
+        patchItem(access, mealId, itemId, "{\"servings\":3,\"expectedUpdatedAt\":\"" + seenByA + "\"}")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.errorCode").value("MEAL_40906"));
+        mvc.perform(get("/api/meals/" + mealId).cookie(access))
+                .andExpect(jsonPath("$.data.items[0].servings").value(2));
+
+        // 수정 응답의 updatedAt을 다음 수정에 그대로 쓸 수 있음
+        patchItem(access, mealId, itemId, "{\"servings\":3,\"expectedUpdatedAt\":\"" + afterB + "\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.servings").value(3));
+    }
+
+    @Test
     void 인분을_바꾸면_영양값도_다시_계산된다() throws Exception {
         long itemId = addAndGetId(mealId, "{\"foodCode\":\"" + JJOLMYEON + "\"}");
         patchItem(access, mealId, itemId, "{\"servings\":2}")

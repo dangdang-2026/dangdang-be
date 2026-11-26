@@ -15,13 +15,13 @@ import com.dangdang.domain.meal.exception.MealErrorCode;
 import com.dangdang.domain.meal.repository.MealItemRepository;
 import com.dangdang.domain.meal.repository.MealRepository;
 import com.dangdang.domain.user.service.SensitiveConsentGuard;
+import com.dangdang.global.common.UpdatedAtCheck;
 import com.dangdang.global.exception.CustomException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
-import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Collection;
@@ -77,7 +77,11 @@ public class MealItemService {
         if (req.isEmpty()) {
             throw new CustomException(MealErrorCode.NOTHING_TO_UPDATE);
         }
-        MealItem item = findMyItem(userId, mealId, itemId);
+        MealItem item = findMyItem(userId, mealId, itemId);   // 식사 줄을 잠근 뒤 읽음 → 확인과 쓰기 사이에 다른 수정이 끼지 못함
+        // 화면을 연 뒤 다른 기기에서 이 항목을 먼저 고쳤으면 409 (#172)
+        if (UpdatedAtCheck.isStale(req.getExpectedUpdatedAt(), item.getUpdatedAt())) {
+            throw new CustomException(MealErrorCode.ITEM_CHANGED);
+        }
         String name = req.trimmedName();
         if (name != null && !item.isCustom()) {
             throw new CustomException(MealErrorCode.ITEM_NAME_OF_FOOD);
@@ -96,7 +100,7 @@ public class MealItemService {
         }
         // 식사 줄을 잠그고 확인해서, 확인한 뒤 쓰기 전에 다른 요청이 끼어들지 못하게 함 (두 요청이 동시에 와도 하나는 409)
         Meal meal = findMyMeal(userId, mealId);
-        if (!sameMoment(meal.getUpdatedAt(), req.getExpectedUpdatedAt())) {
+        if (!UpdatedAtCheck.sameMoment(meal.getUpdatedAt(), req.getExpectedUpdatedAt())) {   // 같은 비교를 기록 수정들과 같이 씀 (#172)
             throw new CustomException(MealErrorCode.MEAL_CHANGED);
         }
         MealItem item = findItemOf(mealId, itemId);
@@ -155,13 +159,6 @@ public class MealItemService {
         Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
         mealRepository.touch(mealId, now);
         return now;
-    }
-
-    // 두 시각이 같은지 (1밀리초 안쪽 차이는 같다고 봄)
-    // 식사 수정 응답의 updatedAt은 메모리 값(나노초)이고 DB는 마이크로초로 반올림해 저장해서, 아래 자릿수가 조금 다를 수 있음
-    //   밀리초로 잘라 비교하면 반올림이 밀리초 경계를 넘을 때 멀쩡한 요청도 409가 남
-    private static boolean sameMoment(Instant a, Instant b) {
-        return Duration.between(a, b).abs().compareTo(Duration.ofMillis(1)) < 0;
     }
 
     // 내 식사의 살아 있는 항목. 식사·항목이 없거나 남의 것이면 404

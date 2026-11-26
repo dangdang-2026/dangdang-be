@@ -20,6 +20,7 @@ import com.dangdang.domain.user.repository.UserRepository;
 import com.dangdang.domain.user.service.SensitiveConsentGuard;
 import com.dangdang.global.common.KoreanTime;
 import com.dangdang.global.common.UndoWindow;
+import com.dangdang.global.common.UpdatedAtCheck;
 import com.dangdang.global.exception.CustomException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Limit;
@@ -113,6 +114,10 @@ public class ReadingService {
             throw new CustomException(ReadingErrorCode.VALUE_OR_METER_LIMIT);
         }
         Reading reading = findMine(userId, readingId);
+        // 화면을 연 뒤 다른 기기에서 먼저 고쳤으면 409 (#172). 읽은 뒤 쓰기 전에 끼어든 수정은 row_version이 막음(아래 flush)
+        if (UpdatedAtCheck.isStale(req.expectedUpdatedAt(), reading.getUpdatedAt())) {
+            throw new CustomException(ReadingErrorCode.VERSION_CONFLICT);
+        }
         Meal meal = mealIfMine(userId, req.mealId());
         CriteriaVersion criteria = req.measuredAt() != null
                 ? criteriaService.onDateOrEmpty(userId, KoreanTime.dateOf(req.measuredAt()))

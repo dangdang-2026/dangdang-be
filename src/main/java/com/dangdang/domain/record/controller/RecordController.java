@@ -35,7 +35,8 @@ public class RecordController {
                     **Parameters** from·to(한국 날짜 yyyy-MM-dd, 필수, 둘 다 포함, 최대 31일)
                     **Returns** 날짜별 days[]. 기록 없는 날도 events=[]로 들어감. events는 시각 오래된 순이고
                     type=READING이면 reading, type=MEAL이면 meal, type=INSULIN이면 insulin{insulinType, mealSlot, units} 칸만 들어감.
-                    같은 시각이면 MEAL → READING → INSULIN 순. modified는 사용자가 저장 후 고친 적이 있는지
+                    같은 시각이면 MEAL → READING → INSULIN 순. updatedAt은 그 기록의 마지막 수정 시각(고치기의 expectedUpdatedAt으로 그대로 보냄).
+                    modified는 사용자가 저장 후 고친 적이 있는지
                     (혈당은 값·시점·시각을 고쳤을 때만, 지우기·되돌리기·식사만 붙이기는 안 셈.
                     인슐린은 종류·끼니·단위·시각이 실제로 바뀌었을 때만 (InsulinLog.update)).
                     고친 시각(editedAt)을 남기기 전에 고친 혈당은 modified=false·originalValue=null로 나옴 (예전 기록은 식사만 붙인 것과 진짜 고친 것을 가릴 수 없어서 비워 둠).
