@@ -24,7 +24,7 @@ public class AiFoodImageClient implements FoodImageClient {
         this.properties = properties;
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(2_000);  // 연결 2초
-        factory.setReadTimeout(10_000);    // 응답 10초 (사진 1장 약 0.1초라 넉넉함, 명세 권장값)
+        factory.setReadTimeout(10_000);    // 응답 10초 (한상 사진은 그릇 찾기 + 그릇마다 분류라 1~3초, 명세 권장값)
         this.restClient = RestClient.builder().baseUrl(properties.baseUrl()).requestFactory(factory).build();
     }
 

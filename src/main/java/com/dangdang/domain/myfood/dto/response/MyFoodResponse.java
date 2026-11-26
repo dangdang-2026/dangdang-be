@@ -14,10 +14,12 @@ public record MyFoodResponse(
         @Schema(example = "ONE") UsualQuantity usualQuantity,
         @Schema(description = "보통 먹는 양 g (없으면 null)", example = "250") Integer usualGrams,
         MealNutrition nutritionOverride,
-        Instant updatedAt) {
+        Instant updatedAt,
+        @Schema(description = "주식인지 — 비슷한 음식(similarFoodCode)을 따름, 없으면 false", example = "true") boolean isStaple) {
 
-    public static MyFoodResponse from(MyFood f) {
+    // isStaple은 음식 DB를 봐야 해서 부르는 쪽이 넘김 (FoodStapleReader)
+    public static MyFoodResponse from(MyFood f, boolean isStaple) {
         return new MyFoodResponse(f.getId(), f.getName(), f.getSimilarFoodCode(), f.getUsualQuantity(), f.getUsualGrams(),
-                f.getNutritionOverride(), f.getUpdatedAt());
+                f.getNutritionOverride(), f.getUpdatedAt(), isStaple);
     }
 }

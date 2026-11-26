@@ -21,12 +21,14 @@ public record MealItemResponse(
         MealNutrition nutritionOverride, // 사용자가 직접 적은 값만 (어느 칸을 고쳤는지 표시용). 없으면 null
         Instant createdAt,
         Instant updatedAt,
-        Instant mealUpdatedAt) {         // 바뀐 뒤 식사의 수정 시각. 다음 영양값 직접 입력의 expectedUpdatedAt으로 씀
+        Instant mealUpdatedAt,           // 바뀐 뒤 식사의 수정 시각. 다음 영양값 직접 입력의 expectedUpdatedAt으로 씀
+        boolean isStaple) {              // 주식인지 (식사 응답 items[]와 같은 값). 직접 적은 음식은 false
 
-    public static MealItemResponse from(MealItem i, Instant mealUpdatedAt) {
+    public static MealItemResponse from(MealItem i, Instant mealUpdatedAt, boolean isStaple) {
         return new MealItemResponse(
                 i.getId(), i.getMeal().getId(), i.getFoodCode(), i.getName(),
                 i.getServings(), i.getWeight(), i.getUnit(), i.getNutritionSource(),
-                i.eatenNutrition(), i.getNutritionOverride(), i.getCreatedAt(), i.getUpdatedAt(), mealUpdatedAt);
+                i.eatenNutrition(), i.getNutritionOverride(), i.getCreatedAt(), i.getUpdatedAt(), mealUpdatedAt,
+                isStaple);
     }
 }

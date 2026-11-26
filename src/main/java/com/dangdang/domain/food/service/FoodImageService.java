@@ -1,6 +1,7 @@
 package com.dangdang.domain.food.service;
 
 import com.dangdang.domain.food.dto.response.FoodImageAnalysisResponse;
+import com.dangdang.domain.food.dto.response.FoodResponse;
 import com.dangdang.domain.food.exception.FoodErrorCode;
 import com.dangdang.domain.food.infra.FoodImageClient;
 import com.dangdang.domain.user.enums.ConsentType;
@@ -18,8 +19,13 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.IntStream;
 
 // 음식 사진 AI 분석: AI 서버에서 후보를 받고, 후보 이름을 식약처 음식(foods)과 맞춤
 // DB에 쓰지 않아서 @Transactional 이 필요 없음
@@ -33,6 +39,8 @@ public class FoodImageService {
     static final double MIN_CONFIDENCE = 0.7;                // 1등이 이보다 낮으면 「이름으로 적기」 (명세 2026-11-14 기준)
     private static final int MAX_CANDIDATES = 3;             // 돌려줄 후보 수
     private static final int FOODS_PER_CANDIDATE = 3;        // 후보 하나에 붙일 식약처 음식 수
+    static final int MAX_ITEMS = 6;                           // 한상 사진에서 돌려줄 최대 음식 수 (AI 순서대로 앞에서부터)
+    private static final double BOX_SLACK = 0.001;            // 위치 비율의 소수 오차 (x + width가 1.0000001처럼 살짝 넘는 것)
     private static final int MAX_LOGGED_BODY = 300;          // AI 오류 응답 본문을 로그에 남길 최대 글자 수
 
     private final FoodImageClient foodImageClient;
@@ -76,30 +84,120 @@ public class FoodImageService {
             return FoodImageAnalysisResponse.fallbackToName();
         }
 
-        List<FoodImageClient.Candidate> candidates = cleanUp(result);
-        if (candidates.isEmpty() || candidates.get(0).confidence() < MIN_CONFIDENCE) {
-            log.info("[FoodImage] 사용자: {}, 확신 낮음 - 이름으로 적기 requestId={}", userId, requestId);
-            return FoodImageAnalysisResponse.fallbackToName();
+        // 한상 사진(F-13): AI가 음식마다 위치를 줬으면 그걸 쓰고, 아직 안 줬으면(예전 계약) 사진 전체를 음식 하나로 봄
+        // 빈 값을 먼저 걸러 낸 뒤 판단 → items가 [null]이나 위치·후보가 둘 다 없는 [{}]뿐이어도 예전 candidates로 처리
+        List<FoodImageClient.Item> aiItems = result == null || result.items() == null
+                ? List.of()
+                : topItems(result.items().stream().filter(FoodImageService::hasContent).toList());
+        if (aiItems.isEmpty()) {
+            aiItems = List.of(new FoodImageClient.Item(null, result == null ? null : result.candidates()));
         }
-        log.info("[FoodImage] 사용자: {}, 후보 {}개 requestId={}", userId, candidates.size(), requestId);
 
-        // AI 이름(AI Hub)으로 음식 검색을 그대로 씀 → 이름이 똑같은 음식이 맨 앞, 그다음 가정식·외식 순
-        return FoodImageAnalysisResponse.of(candidates.stream()
+        // 같은 이름은 한 번만 검색 (한상이면 음식 6개 × 후보 3개라 겹치는 이름이 많음)
+        Map<String, List<FoodResponse>> searched = new HashMap<>();
+        List<FoodImageAnalysisResponse.Item> items = aiItems.stream().map(i -> toItem(i, searched)).toList();
+        FoodImageAnalysisResponse response = FoodImageAnalysisResponse.of(items);
+        // 음식마다 확신이 다 낮아도 사진 전체 후보 1등이 기준 이상이면 예전 칸(fallback·candidates)은 그걸로 채움
+        // (잘라 낸 그릇보다 사진 전체 분류가 더 잘 맞는 편 — dangdang-ai #40. items는 음식마다 판단 그대로)
+        if (response.fallback() && result != null) {
+            FoodImageAnalysisResponse.Item whole = toItem(new FoodImageClient.Item(null, result.candidates()), searched);
+            if (!whole.fallback()) {
+                response = new FoodImageAnalysisResponse(false, whole.candidates(), items);
+            }
+        }
+        if (response.fallback()) {
+            log.info("[FoodImage] 사용자: {}, 확신 낮음 - 이름으로 적기 requestId={}", userId, requestId);
+        } else {
+            log.info("[FoodImage] 사용자: {}, 음식 {}개 requestId={}", userId, items.size(), requestId);
+        }
+        return response;
+    }
+
+    // 사진 속 음식 하나 → 후보를 정리하고, 1등 확신도가 낮으면 이 음식만 「이름으로 적기」
+    // AI 이름(AI Hub)으로 음식 검색을 그대로 씀 → 이름이 똑같은 음식이 맨 앞, 그다음 가정식·외식 순
+    private FoodImageAnalysisResponse.Item toItem(FoodImageClient.Item aiItem, Map<String, List<FoodResponse>> searched) {
+        FoodImageAnalysisResponse.Box box = cleanBox(aiItem.box());
+        List<FoodImageClient.Candidate> candidates = cleanUp(aiItem.candidates());
+        if (candidates.isEmpty() || candidates.get(0).confidence() < MIN_CONFIDENCE) {
+            return FoodImageAnalysisResponse.Item.of(box, true, List.of());
+        }
+        return FoodImageAnalysisResponse.Item.of(box, false, candidates.stream()
                 .map(c -> new FoodImageAnalysisResponse.Candidate(c.name(), c.confidence(),
-                        foodService.search(c.name(), 0, FOODS_PER_CANDIDATE).items()))
+                        searched.computeIfAbsent(c.name(),
+                                name -> foodService.search(name, 0, FOODS_PER_CANDIDATE).items())))
                 .toList());
+    }
+
+    // 음식이 6개보다 많으면 1등 확신도가 높은 6개를 남김 (AI가 보낸 순서대로 자르면 확신 높은 음식이 빠질 수 있어서)
+    // 남긴 음식은 AI가 보낸 순서 그대로 둠 (화면의 번호가 사진 위치 순서와 맞게)
+    private static List<FoodImageClient.Item> topItems(List<FoodImageClient.Item> items) {
+        if (items.size() <= MAX_ITEMS) {
+            return items;
+        }
+        // 순서 번호로 고름 (위치·후보가 똑같은 음식이 여러 개면 값으로 비교할 때 같은 것으로 취급돼서)
+        Set<Integer> keep = new HashSet<>(IntStream.range(0, items.size()).boxed()
+                .sorted(Comparator.comparingDouble((Integer i) -> topConfidence(items.get(i))).reversed())
+                .limit(MAX_ITEMS)
+                .toList());
+        return IntStream.range(0, items.size()).filter(keep::contains).mapToObj(items::get).toList();
+    }
+
+    // 위치나 후보 중 하나라도 있는 음식만 (null이나 {}처럼 빈 음식은 뺌)
+    private static boolean hasContent(FoodImageClient.Item item) {
+        return item != null
+                && (item.box() != null || (item.candidates() != null && !item.candidates().isEmpty()));
+    }
+
+    // 이 음식의 1등 확신도 — cleanUp과 같은 기준(이름이 있고 0~1)으로 고른 후보만 셈. 남는 후보가 없으면 0
+    // (이름 없는 후보의 높은 점수로 뽑혔다가 cleanUp에서 다 빠져 「이름으로 적기」가 되는 일이 없게)
+    private static double topConfidence(FoodImageClient.Item item) {
+        if (item.candidates() == null) {
+            return 0;
+        }
+        return item.candidates().stream()
+                .filter(FoodImageService::isValidCandidate)
+                .mapToDouble(FoodImageClient.Candidate::confidence)
+                .max().orElse(0);
+    }
+
+    // 후보로 쓸 수 있는지: 이름이 있고 확신도가 0~1 (topConfidence·cleanUp이 같이 씀)
+    private static boolean isValidCandidate(FoodImageClient.Candidate c) {
+        return c != null && c.name() != null && !c.name().isBlank()
+                && Double.isFinite(c.confidence()) && c.confidence() >= 0 && c.confidence() <= 1;
+    }
+
+    // 위치도 그대로 믿지 않음: 빈 값이거나 숫자가 아니거나 0~1 밖이거나 넓이가 0이면 위치 없음(null)으로 → 화면은 표시만 안 함
+    private static FoodImageAnalysisResponse.Box cleanBox(FoodImageClient.Box b) {
+        if (b == null || b.x() == null || b.y() == null || b.width() == null || b.height() == null) {
+            return null;
+        }
+        double[] v = {b.x(), b.y(), b.width(), b.height()};
+        for (double d : v) {
+            if (!Double.isFinite(d) || d < 0 || d > 1) {
+                return null;
+            }
+        }
+        if (b.width() <= 0 || b.height() <= 0 || b.x() + b.width() > 1 + BOX_SLACK || b.y() + b.height() > 1 + BOX_SLACK) {
+            return null;
+        }
+        // 소수 오차로 오른쪽·아래쪽 끝이 1을 살짝 넘으면 사진 경계(1)에 맞게 줄임. 줄인 뒤 넓이가 0이면 위치 없음
+        double width = Math.min(b.width(), 1 - b.x());
+        double height = Math.min(b.height(), 1 - b.y());
+        if (width <= 0 || height <= 0) {
+            return null;
+        }
+        return new FoodImageAnalysisResponse.Box(b.x(), b.y(), width, height);
     }
 
     // AI 응답을 그대로 믿지 않음: 이름이 비었거나 확신도가 0~1 밖(퍼센트 45, NaN 등)인 후보는 빼고,
     // 확신도 높은 순으로 다시 세운 뒤 3개까지만
     // (명세상 AI가 정렬된 3개를 주지만, AI 서버가 바뀌어도 500이나 엉뚱한 판단이 나지 않게)
-    private List<FoodImageClient.Candidate> cleanUp(FoodImageClient.Result result) {
-        if (result == null || result.candidates() == null) {
+    private List<FoodImageClient.Candidate> cleanUp(List<FoodImageClient.Candidate> raw) {
+        if (raw == null) {
             return List.of();
         }
-        return result.candidates().stream()
-                .filter(c -> c != null && c.name() != null && !c.name().isBlank())
-                .filter(c -> Double.isFinite(c.confidence()) && c.confidence() >= 0 && c.confidence() <= 1)
+        return raw.stream()
+                .filter(FoodImageService::isValidCandidate)
                 .sorted(Comparator.comparingDouble(FoodImageClient.Candidate::confidence).reversed())
                 .limit(MAX_CANDIDATES)
                 .toList();

@@ -16,6 +16,7 @@ class FoodStapleTest {
         assertThat(Food.isStaple("빵 및 과자류", "소세지빵")).isFalse();
         assertThat(Food.isStaple("빵 및 과자류", "감자샐러드 샌드위치")).isTrue();  // 샌드위치는 포함 검사
         assertThat(Food.isStaple("빵 및 과자류", "케이크")).isFalse();
+        assertThat(Food.isStaple("빵 및 과자류", "시리얼")).isTrue();               // 아침 끼니 (프론트 요청)
     }
 
     @Test
