@@ -7,7 +7,6 @@ import jakarta.servlet.DispatcherType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -41,7 +40,6 @@ public class SecurityConfig {
                         .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
                         .requestMatchers("/actuator/health/**", "/error").permitAll()
                         .requestMatchers("/api/auth/**").permitAll() // 가입·로그인·재발급·로그아웃
-                        .requestMatchers(HttpMethod.GET, "/shop/**").permitAll() // 상점 예시 상품 사진 (static/shop, <img> 라서 쿠키 없이도)
                         .requestMatchers("/api/admin/**").hasRole("ADMIN") // 운영자 화면 (나중)
                         .anyRequest().authenticated()); // 나머지는 로그인해야
         return http.build();
