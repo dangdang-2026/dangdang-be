@@ -2,6 +2,7 @@ package com.dangdang.domain.visit.repository;
 
 import com.dangdang.domain.visit.entity.VisitQuestion;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
@@ -16,6 +17,8 @@ import java.util.Optional;
 public interface VisitQuestionRepository extends JpaRepository<VisitQuestion, Long> {
 
     // 이 일정의 살아 있는 질문 전부: 정렬 순서 → 먼저 만든 순
+    // 출처 카드도 같이 가져옴 (응답의 sourceCardWithdrawn을 질문마다 카드를 또 조회해서 만들지 않게)
+    @EntityGraph(attributePaths = "sourceCard")
     List<VisitQuestion> findAllByVisitIdAndDeletedAtIsNullOrderBySortOrderAscIdAsc(Long visitId);
 
     // 이 일정의 살아 있는 질문 수 (리포트 「물어볼 것 N개」)

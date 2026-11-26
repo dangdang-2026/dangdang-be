@@ -1,5 +1,7 @@
 package com.dangdang.domain.visit.entity;
 
+import com.dangdang.domain.card.entity.ContentCard;
+import com.dangdang.domain.card.enums.CardStatus;
 import com.dangdang.domain.visit.enums.QuestionSource;
 import com.dangdang.global.common.BaseTimeEntity;
 import jakarta.persistence.*;
@@ -35,6 +37,10 @@ public class VisitQuestion extends BaseTimeEntity {
     @Column(nullable = false)
     private int sortOrder;                   // 작을수록 위, 같으면 먼저 만든 순
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "source_card_id")
+    private ContentCard sourceCard;          // 카드뉴스에서 담은 질문이면 그 카드 (U-28). 아니면 null
+
     private Instant deletedAt;               // null = 살아 있음, 값 있음 = 삭제됨
 
     // 사용자가 직접 적은 질문
@@ -52,6 +58,23 @@ public class VisitQuestion extends BaseTimeEntity {
         VisitQuestion q = ofUser(visit, content, sortOrder);
         q.source = QuestionSource.CHATBOT;
         return q;
+    }
+
+    // 카드뉴스 「물어볼 것에 적기」(U-28)에서 담은 질문. 서버가 카드 질문과 같은지 확인한 뒤에만 만든다
+    public static VisitQuestion ofCard(Visit visit, String content, int sortOrder, ContentCard card) {
+        VisitQuestion q = ofUser(visit, content, sortOrder);
+        q.source = QuestionSource.CARD;
+        q.sourceCard = card;
+        return q;
+    }
+
+    // 출처 카드가 내려갔는지 (U-26c 「출처 카드가 내려갔어요」). 카드 상태로만 정한다
+    // 카드 줄이 지워져 null이 된 CARD 질문도 내려간 것으로 본다. 카드를 읽으니 트랜잭션 안에서 부른다
+    public boolean isSourceCardWithdrawn() {
+        if (source != QuestionSource.CARD) {
+            return false;
+        }
+        return sourceCard == null || sourceCard.getStatus() == CardStatus.WITHDRAWN;
     }
 
     // 삭제 (soft delete). 이미 지웠으면 처음 지운 시각을 그대로 둠 (여러 번 지워도 같은 결과)
