@@ -18,17 +18,7 @@ public interface FoodImageClient {
     }
 
     // name은 AI Hub 음식 이름 (식약처 foods.name과 다를 수 있음), confidence는 0~1
-    // searchName은 식약처에서 찾을 이름 (AI 서버가 이름 꼴을 맞춰 줌, 계란찜 → 달걀찜, ai #44). 예전 AI 서버면 null
-    record Candidate(String name, double confidence, String searchName) {
-        public Candidate(String name, double confidence) {
-            this(name, confidence, null);
-        }
-
-        // 찾을 이름이 없으면(예전 AI 서버) AI 이름 그대로
-        public String nameToSearch() {
-            return searchName == null || searchName.isBlank() ? name : searchName;
-        }
-    }
+    record Candidate(String name, double confidence) {}
 
     // 사진 속 음식 하나
     record Item(Box box, List<Candidate> candidates) {}

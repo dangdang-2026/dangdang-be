@@ -101,21 +101,6 @@ class AiFoodImageClientTest {
     }
 
     @Test
-    void 후보의_searchName을_읽고_없으면_null() {
-        // dangdang-ai #44: 후보마다 식약처에서 찾을 이름. 예전 AI 서버는 이 칸이 없음
-        response.set("""
-                {"candidates":[{"name":"계란찜","confidence":0.93,"searchName":"달걀찜"},{"name":"김밥","confidence":0.05}]}
-                """);
-
-        FoodImageClient.Result result = client.candidates("req-1", new byte[]{1}, "image/jpeg");
-
-        assertThat(result.candidates().get(0).searchName()).isEqualTo("달걀찜");
-        assertThat(result.candidates().get(0).nameToSearch()).isEqualTo("달걀찜");
-        assertThat(result.candidates().get(1).searchName()).isNull();
-        assertThat(result.candidates().get(1).nameToSearch()).isEqualTo("김밥");
-    }
-
-    @Test
     void 형식_값이_깨졌거나_없으면_그냥_파일로_보낸다() {
         client.candidates("req-1", new byte[]{1}, "jpeg;;");
         assertThat(body.get()).contains("Content-Type: application/octet-stream");

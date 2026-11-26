@@ -111,7 +111,7 @@ public class FoodController {
             description =
                     """
                     **Parameters** multipart/form-data, image(사진 1장, 필수, 10MB까지, JPG·PNG 등. HEIC는 JPEG로 바꿔서 보냄. 긴 변 1600px 정도로 줄여 보내기 권장)
-                    **Returns** fallback, candidates[]{name, confidence(0~1), foods[](AI가 알려 준 찾을 이름 searchName(없으면 name)으로 음식 검색한 앞쪽 3개, 검색 결과와 같은 모양 · unitLabel 포함, 못 찾으면 [])},
+                    **Returns** fallback, candidates[]{name, confidence(0~1), foods[](그 이름으로 음식 검색한 앞쪽 3개, 검색 결과와 같은 모양 · unitLabel 포함, 못 찾으면 [])},
                     items[]{box{x, y, width, height}(사진 기준 0~1, x·y는 왼쪽 위, 위치를 모르면 null), point{x, y}(box 가운데, 사진 위 번호 표시용), fallback(이 음식만 「이름으로 적기」), candidates[]}(한상 사진 F-13: 사진 속 음식마다, 최대 6개. AI가 위치를 안 주면 위치 없는 1개, AI 서버 실패면 []).
                     fallback·candidates는 items 중 1등 확신도가 가장 높은 음식 기준 (예전 화면 그대로).
                     candidates는 확신도 높은 순 최대 3개. name은 AI 음식 이름이라 식약처 이름과 다를 수 있어서 foods에서 골라 씀.
