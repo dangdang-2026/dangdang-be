@@ -76,7 +76,7 @@ class MyPageFlowTest extends ReminderTestBase {
                 .andExpect(jsonPath("$.data[0].isStaple").value(false))   // 비슷한 음식이 없으면 서버가 분류를 모름
                 .andExpect(jsonPath("$.data[1].isStaple").value(true))    // 비슷한 음식 볶음밥_김치(밥류)를 따름
                 .andExpect(jsonPath("$.data[0].unitLabel").value("인분"))
-                .andExpect(jsonPath("$.data[1].unitLabel").value("그릇"));
+                .andExpect(jsonPath("$.data[1].unitLabel").value("공기"));   // 볶음밥_김치 330g
         mvc.perform(get("/api/me/foods").param("q", "볶음").cookie(jisu))
                 .andExpect(jsonPath("$.data.length()").value(1))
                 .andExpect(jsonPath("$.data[0].name").value("우리 집 김치볶음밥"));
