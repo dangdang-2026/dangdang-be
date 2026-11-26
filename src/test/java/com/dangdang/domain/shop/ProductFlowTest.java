@@ -145,8 +145,9 @@ class ProductFlowTest extends ShopTestBase {
     }
 
     @Test
-    void 사진_칸에_null이_섞여도_500이_아니다() throws Exception {
-        jdbc.update("UPDATE products SET image_urls = '[null, \"\", \"https://img.example.com/ok.png\"]'::jsonb WHERE id = ?", granola);
+    // null·숫자는 DB CHECK 가 막는다 (ShopSeedFlowTest)
+    void 사진_칸에_빈_글자가_섞여도_빼고_준다() throws Exception {
+        jdbc.update("UPDATE products SET image_urls = '[\"\", \"  \", \"https://img.example.com/ok.png\"]'::jsonb WHERE id = ?", granola);
 
         mvc.perform(get("/api/products/" + granola).cookie(jisu))
                 .andExpect(status().isOk())

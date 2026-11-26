@@ -10,6 +10,7 @@ import org.springframework.core.io.ClassPathResource;
 import java.nio.charset.StandardCharsets;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -62,6 +63,8 @@ class ShopSeedFlowTest extends ReminderTestBase {
                 .andExpect(jsonPath("$.data.url").value("https://www.kurly.com"));
         assertThat(jdbc.queryForList("SELECT DISTINCT seller_name FROM products", String.class))
                 .containsExactlyInAnyOrder("컬리", "널담", "그리팅");
+        assertThat(jdbc.queryForList("SELECT DISTINCT affiliate FROM products", Boolean.class))
+                .containsExactly(false);                                // 쇼핑몰 메인 주소라 「제휴」 표시 안 함
 
         mvc.perform(get("/api/products/" + yogurt).cookie(jisu))        // P-02 「1 | 3」
                 .andExpect(jsonPath("$.data.imageUrls", hasSize(3)))
@@ -73,5 +76,14 @@ class ShopSeedFlowTest extends ReminderTestBase {
         for (String url : jdbc.queryForList("SELECT jsonb_array_elements_text(image_urls) FROM products", String.class)) {
             assertThat(url).startsWith("https://dangdang-2026-assets.s3.ap-northeast-2.amazonaws.com/shop/");
         }
+    }
+
+    @Test
+    void 사진_칸에_글자_배열이_아니면_DB가_막는다() {
+        for (String bad : new String[]{"[1]", "[{\"url\": \"x\"}]", "null", "{}", "[\"a\", null]"}) {
+            assertThatThrownBy(() -> jdbc.update("UPDATE products SET image_urls = ?::jsonb WHERE pick", bad))
+                    .as(bad).isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+        }
+        jdbc.update("UPDATE products SET image_urls = '[]'::jsonb WHERE pick");     // 빈 배열은 된다 (사진 없음 = 회색 자리)
     }
 }

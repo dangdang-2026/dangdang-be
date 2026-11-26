@@ -86,7 +86,7 @@ public class Product extends BaseTimeEntity {
     @Column(nullable = false)
     private boolean active;                  // 내린 상품 = false (지우지 않음)
 
-    // 사진들. 운영자가 SQL로 넣다가 null·빈 칸이 섞여도 응답이 500 나지 않게 걸러서 준다
+    // 사진들. 글자가 아닌 값은 DB CHECK 가 막고, 빈 글자가 섞여도 응답에서 걸러서 준다
     public List<String> images() {
         return imageUrls == null ? List.of()
                 : imageUrls.stream().filter(Objects::nonNull).filter(u -> !u.isBlank()).toList();
