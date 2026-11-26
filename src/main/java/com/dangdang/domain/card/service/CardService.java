@@ -6,6 +6,7 @@ import com.dangdang.domain.announcement.service.AnnouncementService;
 import com.dangdang.domain.card.dto.request.CardCorrectRequest;
 import com.dangdang.domain.card.dto.request.CardCreateRequest;
 import com.dangdang.domain.card.dto.request.CardReviewRequest;
+import com.dangdang.domain.card.dto.response.AdminCardItemResponse;
 import com.dangdang.domain.card.dto.response.CardDetailResponse;
 import com.dangdang.domain.card.dto.response.CardSummaryResponse;
 import com.dangdang.domain.card.entity.ContentCard;
@@ -102,9 +103,15 @@ public class CardService {
 
     // 운영자 목록 — 쓰는 중 카드의 id도 여기서 다시 찾는다
     @Transactional(readOnly = true)
-    public List<CardSummaryResponse> adminList() {
+    public List<AdminCardItemResponse> adminList() {
         return contentCardRepository.findAllByOrderByCreatedAtDescIdDesc().stream()
-                .map(CardSummaryResponse::forAdmin).toList();
+                .map(AdminCardItemResponse::of).toList();
+    }
+
+    // 운영자 상세 — 정정할 때 지금 슬라이드를 불러와 고친 장만 바꿔 보낸다
+    public CardDetailResponse adminDetail(Long cardId) {
+        return CardDetailResponse.forAdmin(contentCardRepository.findById(cardId)
+                .orElseThrow(() -> new CustomException(CardErrorCode.CARD_NOT_FOUND)));
     }
 
     @Transactional

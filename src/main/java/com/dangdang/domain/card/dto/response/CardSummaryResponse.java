@@ -22,10 +22,6 @@ public record CardSummaryResponse(Long id, String title, String series,
         return of(c, status, saved, status == CardStatus.WITHDRAWN);
     }
 
-    // 운영자 목록 — 상태를 바꾸지 않고 그대로 (DRAFT·RECHECK도 보인다). 내린 카드도 실제 장 수·출처 수 (PR #120 리뷰)
-    public static CardSummaryResponse forAdmin(ContentCard c) {
-        return of(c, c.getStatus(), false, false);
-    }
 
     private static CardSummaryResponse of(ContentCard c, CardStatus status, boolean saved, boolean gone) {
         return new CardSummaryResponse(c.getId(), c.getTitle(), c.getSeries(), CardSeries.labelOf(c.getSeries()),

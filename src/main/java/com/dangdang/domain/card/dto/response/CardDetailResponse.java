@@ -39,4 +39,12 @@ public record CardDetailResponse(
     public static CardDetailResponse of(ContentCard c) {
         return of(c, false, false);
     }
+
+    // 운영자 상세 — 상태를 바꾸지 않고(DRAFT·RECHECK 그대로), 내린 카드도 내용까지 보여 준다
+    public static CardDetailResponse forAdmin(ContentCard c) {
+        return new CardDetailResponse(c.getId(), c.getTitle(), c.getSeries(), CardSeries.labelOf(c.getSeries()),
+                c.getStatus(), c.getBody(), c.getSources(), c.getQuestions(), c.getCheckedOn(), c.getReviewer(),
+                c.getReviewedOn(), c.getCorrectionSummary(), c.getCorrectionNote(), c.getCorrectedAt(),
+                c.getWithdrawnAt(), false, false);
+    }
 }
