@@ -347,6 +347,15 @@ class MealItemFlowTest {
                 .andReturn().getResponse().getContentAsString();
         Instant afterOverride = Instant.parse(JsonPath.read(body, "$.data.items[0].updatedAt"));
         assertThat(afterOverride).isAfter(Instant.parse("2026-01-01T00:00:00Z"));   // 다른 기기가 고친 걸 알 수 있음
+
+        // 공공 값으로 되돌릴 때도 바뀜 (다시 예전 시각으로 돌려 둔 뒤 확인)
+        jdbc.update("UPDATE meal_items SET updated_at = ? WHERE id = ?",
+                Timestamp.from(Instant.parse("2026-01-01T00:00:00Z")), itemId);
+        revert(access, mealId, itemId).andExpect(status().isOk());
+        String reverted = mvc.perform(get("/api/meals/" + mealId).cookie(access))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(Instant.parse(JsonPath.read(reverted, "$.data.items[0].updatedAt")))
+                .isAfter(Instant.parse("2026-01-01T00:00:00Z"));
     }
 
     @Test

@@ -21,6 +21,8 @@ import java.time.Clock;
 @RequiredArgsConstructor
 public class MealPlanService {
 
+    private static final int MAX_PLACE_NAME = 50;   // meal_plans.place_name VARCHAR(50)
+
     private final MealPlanRepository mealPlanRepository;
     private final CareSiteRepository careSiteRepository;
     private final UserRepository userRepository;
@@ -36,6 +38,7 @@ public class MealPlanService {
     @Transactional
     public MealPlanResponse save(Long userId, MealPlanRequest req) {
         sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403
+        checkPlaceNameLength(req.placeName());
         if (req.careSiteId() != null
                 && careSiteRepository.findByIdAndUserIdAndDeletedAtIsNull(req.careSiteId(), userId).isEmpty()) {
             throw new CustomException(GlobalErrorCode.INVALID_INPUT);   // 남의 병원·지운 병원
@@ -43,7 +46,7 @@ public class MealPlanService {
         if (!userRepository.existsById(userId)) {
             throw new CustomException(UserErrorCode.USER_NOT_FOUND);
         }
-        mealPlanRepository.upsert(userId, req.careSiteId(), strip(req.placeName()), req.receivedOn(),
+        mealPlanRepository.upsert(userId, req.careSiteId(), req.placeName(), req.receivedOn(),   // placeName은 요청에서 이미 정리됨
                 strip(req.mealGuide()), strip(req.snackGuide()), clock.instant());
         MealPlan plan = mealPlanRepository.findByUserId(userId).orElseThrow();
         return toResponse(userId, plan);
@@ -63,6 +66,13 @@ public class MealPlanService {
         return careSiteRepository.findByIdAndUserId(p.getCareSiteId(), userId)
                 .map(site -> MealPlanResponse.from(p, site.getDeletedAt() == null ? site.getId() : null, site.getName()))
                 .orElseGet(() -> MealPlanResponse.from(p, null, null));
+    }
+
+    // 받은 곳 글자 수는 DB(VARCHAR(50))처럼 글자(코드 포인트)로 셈 → 이모지가 섞여도 50자까지 (연락 기준 메모와 같은 방식)
+    private static void checkPlaceNameLength(String placeName) {
+        if (placeName != null && placeName.codePointCount(0, placeName.length()) > MAX_PLACE_NAME) {
+            throw new CustomException(GlobalErrorCode.INVALID_INPUT, "받은 곳은 " + MAX_PLACE_NAME + "자까지 적을 수 있어요.");
+        }
     }
 
     private static String strip(String s) {

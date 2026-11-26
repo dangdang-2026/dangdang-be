@@ -236,6 +236,16 @@ class MyPageFlowTest extends ReminderTestBase {
                 .andExpect(jsonPath("$.data.placeName").doesNotExist());
         json(put("/api/me/meal-plan"), jisu, "{\"placeName\":\"" + "가".repeat(51) + "\",\"mealGuide\":\"안내\"}")
                 .andExpect(status().isBadRequest());
+
+        // 글자 수는 앞뒤 공백을 지운 뒤 글자(코드 포인트)로 셈 → 이모지가 섞인 50자, 공백 붙은 50자는 됨
+        String emoji50 = "🏥".repeat(25) + "가".repeat(25);
+        json(put("/api/me/meal-plan"), jisu, "{\"placeName\":\"" + emoji50 + "\",\"mealGuide\":\"안내\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.placeName").value(emoji50));
+        json(put("/api/me/meal-plan"), jisu, "{\"placeName\":\"  " + "가".repeat(50) + "  \",\"mealGuide\":\"안내\"}")
+                .andExpect(status().isOk());
+        json(put("/api/me/meal-plan"), jisu, "{\"placeName\":\"보건소\\n영양 교실\",\"mealGuide\":\"안내\"}")   // 한 줄만
+                .andExpect(status().isBadRequest());
     }
 
     // ── 식사 기록 설정 (M-20) ──
