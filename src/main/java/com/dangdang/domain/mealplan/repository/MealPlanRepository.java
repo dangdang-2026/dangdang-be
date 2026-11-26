@@ -18,14 +18,17 @@ public interface MealPlanRepository extends JpaRepository<MealPlan, Long> {
     // CAST: 값이 null일 때도 칸 타입을 DB가 알 수 있게
     @Modifying(clearAutomatically = true)
     @Query(nativeQuery = true, value = """
-            INSERT INTO meal_plans (user_id, care_site_id, received_on, meal_guide, snack_guide, created_at, updated_at)
-            VALUES (:userId, CAST(:careSiteId AS BIGINT), CAST(:receivedOn AS DATE),
+            INSERT INTO meal_plans (user_id, care_site_id, place_name, received_on, meal_guide, snack_guide,
+                                    created_at, updated_at)
+            VALUES (:userId, CAST(:careSiteId AS BIGINT), CAST(:placeName AS VARCHAR), CAST(:receivedOn AS DATE),
                     CAST(:mealGuide AS VARCHAR), CAST(:snackGuide AS VARCHAR), :now, :now)
             ON CONFLICT (user_id) DO UPDATE SET care_site_id = EXCLUDED.care_site_id,
+                    place_name = EXCLUDED.place_name,
                     received_on = EXCLUDED.received_on, meal_guide = EXCLUDED.meal_guide,
                     snack_guide = EXCLUDED.snack_guide, updated_at = EXCLUDED.updated_at
             """)
     void upsert(@Param("userId") Long userId, @Param("careSiteId") Long careSiteId,
+                @Param("placeName") String placeName,
                 @Param("receivedOn") LocalDate receivedOn, @Param("mealGuide") String mealGuide,
                 @Param("snackGuide") String snackGuide, @Param("now") Instant now);
 }

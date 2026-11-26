@@ -25,6 +25,9 @@ public class MealPlan {
 
     private Long careSiteId;
 
+    @Column(length = 50)
+    private String placeName;                // 받은 곳을 글로 적은 것 (병원 목록에 없는 곳). 없으면 null
+
     private LocalDate receivedOn;
 
     @Column(length = 2000)

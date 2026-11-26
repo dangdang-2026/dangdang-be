@@ -331,6 +331,34 @@ class MealItemFlowTest {
     }
 
     @Test
+    void 식사_조회의_항목에_updatedAt이_있고_내가_잰_값을_적으면_바뀐다() throws Exception {
+        Object[] added = addWithMealTime("{\"foodCode\":\"" + JJOLMYEON + "\"}");
+        long itemId = (long) added[0];
+        jdbc.update("UPDATE meal_items SET updated_at = ? WHERE id = ?",
+                Timestamp.from(Instant.parse("2026-01-01T00:00:00Z")), itemId);   // 예전 시각으로 돌려 둠
+
+        mvc.perform(get("/api/meals/" + mealId).cookie(access))
+                .andExpect(jsonPath("$.data.items[0].updatedAt").value("2026-01-01T00:00:00Z"));
+
+        postNutrition(access, mealId, itemId,
+                "{\"nutritionOverride\":{\"carbG\":45},\"expectedUpdatedAt\":\"" + added[1] + "\"}")
+                .andExpect(status().isOk());
+        String body = mvc.perform(get("/api/meals/" + mealId).cookie(access))
+                .andReturn().getResponse().getContentAsString();
+        Instant afterOverride = Instant.parse(JsonPath.read(body, "$.data.items[0].updatedAt"));
+        assertThat(afterOverride).isAfter(Instant.parse("2026-01-01T00:00:00Z"));   // 다른 기기가 고친 걸 알 수 있음
+
+        // 공공 값으로 되돌릴 때도 바뀜 (다시 예전 시각으로 돌려 둔 뒤 확인)
+        jdbc.update("UPDATE meal_items SET updated_at = ? WHERE id = ?",
+                Timestamp.from(Instant.parse("2026-01-01T00:00:00Z")), itemId);
+        revert(access, mealId, itemId).andExpect(status().isOk());
+        String reverted = mvc.perform(get("/api/meals/" + mealId).cookie(access))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(Instant.parse(JsonPath.read(reverted, "$.data.items[0].updatedAt")))
+                .isAfter(Instant.parse("2026-01-01T00:00:00Z"));
+    }
+
+    @Test
     void 남의_항목이나_다른_식사의_항목이나_지운_항목은_404() throws Exception {
         long itemId = addAndGetId(mealId, "{\"name\":\"떡\"}");
         patchItem(other, mealId, itemId, "{\"servings\":2}")                  // 남의 식사

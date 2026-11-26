@@ -73,6 +73,40 @@ public class Food {
     // 이름 뒤 조각 중 이것들은 재료가 아니라 양념이라 괄호로 뺌 (쑥갓나물_고춧가루 → 쑥갓나물 (고춧가루))
     private static final Set<String> SEASONINGS = Set.of("간장", "소금", "된장", "고추장", "고춧가루", "양념");
 
+    // 주식 여부 (밥·면·빵 칩, 「1공기」 같은 단위 말). 식품대분류만으로는 안 돼서 대표식품명을 같이 봄
+    // 이 분류는 주식 (단, 그 안의 반찬·국물(스프·만두·월남쌈)은 isSideInStapleCategory로 뺌)
+    private static final Set<String> STAPLE_CATEGORIES = Set.of("밥류", "면 및 만두류", "죽 및 스프류");
+    // 「빵 및 과자류」는 피자·버거·식빵 같은 끼니와 케이크·도넛·쿠키 같은 간식이 섞여 있어서 대표식품명으로 나눔
+    private static final String BREAD_CATEGORY = "빵 및 과자류";
+    private static final Set<String> STAPLE_BREADS = Set.of(
+            "피자", "버거", "햄버거", "식빵", "토스트", "토스트(식빵)", "베이글", "바게트", "번", "모닝빵", "롤빵",
+            "또띠아", "치아바타", "호밀빵", "핫도그");
+
+    // 주식 여부 (분류·대표식품명이 없으면 false). 식약처 동기화로 분류 값이 늘면 위 목록에 더함
+    public boolean isStaple() {
+        return isStaple(category, repName);
+    }
+
+    static boolean isStaple(String category, String repName) {
+        if (category == null) {
+            return false;
+        }
+        if (STAPLE_CATEGORIES.contains(category)) {
+            return repName == null || !isSideInStapleCategory(repName);
+        }
+        if (BREAD_CATEGORY.equals(category) && repName != null) {
+            return STAPLE_BREADS.contains(repName) || repName.contains("샌드위치");   // 햄샌드위치·소고기 샌드위치 등
+        }
+        return false;
+    }
+
+    // 주식 분류 안의 반찬·국물: 스프, 만두(군만두·물만두·만두탕수 등, 만두국·떡만두국은 끼니라 주식), 월남쌈
+    private static boolean isSideInStapleCategory(String repName) {
+        return repName.contains("스프")
+                || (repName.contains("만두") && !repName.contains("만두국"))
+                || repName.equals("월남쌈");
+    }
+
     // 화면에 보여 줄 이름. 식약처 이름은 "종류_재료" 순서라서 사람이 부르는 순서로 바꿈
     //   재료 하나: 볶음밥_김치 → 김치볶음밥 (붙여 씀. 원래 이름에 띄어쓰기가 있으면 띄움: 김치 볶음밥_모듬 → 모듬 김치 볶음밥)
     //   재료 둘 이상: 샌드위치_햄_치즈 → 샌드위치 (햄, 치즈) (앞에 다 붙이면 "햄치즈채소샌드위치"처럼 길어져서)
