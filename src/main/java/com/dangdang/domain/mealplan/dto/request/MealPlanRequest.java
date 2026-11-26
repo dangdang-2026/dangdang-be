@@ -9,6 +9,8 @@ import java.time.LocalDate;
 // 받은 표현 그대로 (MEAL-09). 계산·비교·달성 표시 없음
 public record MealPlanRequest(
         @Schema(description = "받은 곳 — 내 병원 번호 (선택)", example = "3") Long careSiteId,
+        @Schema(description = "받은 곳 — 병원 목록에 없는 곳을 글로 (선택, 50자, 병원 번호와 같이 보내도 됨)", example = "○○보건소 영양 교실")
+        @Size(max = 50, message = "받은 곳은 50자까지 적을 수 있어요.") String placeName,
         @Schema(description = "받은 날 (선택)", example = "2026-11-10") LocalDate receivedOn,
         @Schema(description = "끼니 안내 원문 (2000자)", example = "아침: 잡곡밥 2/3공기, 나물 반찬 두 가지…")
         @Size(max = 2000, message = "끼니 안내는 2000자까지 적을 수 있어요.") String mealGuide,

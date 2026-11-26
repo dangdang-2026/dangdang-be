@@ -43,7 +43,7 @@ public class MealPlanService {
         if (!userRepository.existsById(userId)) {
             throw new CustomException(UserErrorCode.USER_NOT_FOUND);
         }
-        mealPlanRepository.upsert(userId, req.careSiteId(), req.receivedOn(),
+        mealPlanRepository.upsert(userId, req.careSiteId(), strip(req.placeName()), req.receivedOn(),
                 strip(req.mealGuide()), strip(req.snackGuide()), clock.instant());
         MealPlan plan = mealPlanRepository.findByUserId(userId).orElseThrow();
         return toResponse(userId, plan);

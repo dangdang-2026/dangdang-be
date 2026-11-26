@@ -217,6 +217,27 @@ class MyPageFlowTest extends ReminderTestBase {
                 .andExpect(jsonPath("$.data.careSiteName").value("지수 병원"));   // C-20 「받은 곳은 그대로」
     }
 
+    @Test
+    void 받은_곳은_병원_번호와_글을_둘_다_적을_수_있고_빈_글은_null() throws Exception {
+        Long site = jdbc.queryForObject("INSERT INTO care_sites (user_id, name, department) VALUES (?, '지수 병원', 'OBGYN') RETURNING id",
+                Long.class, jisuId);
+        json(put("/api/me/meal-plan"), jisu, "{\"careSiteId\":" + site + ",\"placeName\":\"  보건소 영양 교실 \",\"mealGuide\":\"안내\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.careSiteId").value(site))
+                .andExpect(jsonPath("$.data.careSiteName").value("지수 병원"))
+                .andExpect(jsonPath("$.data.placeName").value("보건소 영양 교실"));   // 앞뒤 공백 지움
+
+        json(put("/api/me/meal-plan"), jisu, "{\"placeName\":\"보건소\",\"mealGuide\":\"안내\"}")   // 병원 없이 글만
+                .andExpect(jsonPath("$.data.careSiteId").doesNotExist())
+                .andExpect(jsonPath("$.data.placeName").value("보건소"));
+        mvc.perform(get("/api/me/meal-plan").cookie(jisu)).andExpect(jsonPath("$.data.placeName").value("보건소"));
+
+        json(put("/api/me/meal-plan"), jisu, "{\"placeName\":\"   \",\"mealGuide\":\"안내\"}")   // 빈 글이면 지움
+                .andExpect(jsonPath("$.data.placeName").doesNotExist());
+        json(put("/api/me/meal-plan"), jisu, "{\"placeName\":\"" + "가".repeat(51) + "\",\"mealGuide\":\"안내\"}")
+                .andExpect(status().isBadRequest());
+    }
+
     // ── 식사 기록 설정 (M-20) ──
 
     @Test
