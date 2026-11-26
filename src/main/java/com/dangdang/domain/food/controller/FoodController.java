@@ -43,7 +43,7 @@ public class FoodController {
             description =
                     """
                     **Parameters** q(필수, 1~100자, 식품명·대표식품명 부분 검색, 띄어쓰기 무시, "볶음밥_김치"처럼 순서가 바뀐 이름도 "김치볶음밥"으로 찾음), page(기본 0, 0~10000), size(기본 20, 1~100)
-                    **Returns** items[]{foodCode, name, displayName, origin, maker, servingG, servingUnit(g·ml), kcal, carbG, proteinG, fatG, sugarG, sourceVersion, isStaple(주식 여부: 밥류·면·죽, 빵 중 피자·버거·식빵·샌드위치 등)}·page·size·totalElements·hasNext.
+                    **Returns** items[]{foodCode, name, displayName, origin, maker, servingG, servingUnit(g·ml), kcal, carbG, proteinG, fatG, sugarG, sourceVersion, isStaple(주식 여부: 밥류·면·죽, 빵 중 피자·버거·식빵·샌드위치 등), unitLabel(1인분을 부르는 말: 공기·그릇·접시·잔·줄·개, 맞는 말이 없으면 인분)}·page·size·totalElements·hasNext.
                     name은 식약처 원래 이름(볶음밥_김치), displayName은 화면용 이름(김치 볶음밥). 화면에는 displayName을 씀.
                     origin(HOME 가정식 · RESTAURANT 외식 · MEAL_SERVICE 급식 · FRANCHISE 프랜차이즈)은 같은 이름이 여러 줄일 때 구분용, maker는 프랜차이즈 업체명(나머지 null).
                     영양값은 1인분 기준(소수 첫째 자리). servingG가 null이면 1인분 양을 몰라서 영양값은 100g(ml)당. 모르는 영양값은 null(0과 다름).
@@ -70,7 +70,7 @@ public class FoodController {
             description =
                     """
                     **Parameters** code(식약처 식품코드, 1~30자, 검색 결과의 foodCode 그대로)
-                    **Returns** foodCode, name, displayName, origin, maker, servingG, servingUnit(g·ml), kcal, carbG, proteinG, fatG, sugarG, sourceVersion, isStaple(주식 여부).
+                    **Returns** foodCode, name, displayName, origin, maker, servingG, servingUnit(g·ml), kcal, carbG, proteinG, fatG, sugarG, sourceVersion, isStaple(주식 여부), unitLabel(1인분을 부르는 말, 없으면 인분).
                     displayName·origin·maker와 영양값 규칙은 검색과 같음 (1인분 기준, servingG가 null이면 100g(ml)당, 모르는 값은 null).
                     없는 코드면 FOOD_40401, 30자를 넘으면 GLOBAL_40001
                     """)
@@ -111,7 +111,7 @@ public class FoodController {
             description =
                     """
                     **Parameters** multipart/form-data, image(사진 1장, 필수, 10MB까지, JPG·PNG 등. HEIC는 JPEG로 바꿔서 보냄. 긴 변 1600px 정도로 줄여 보내기 권장)
-                    **Returns** fallback, candidates[]{name, confidence(0~1), foods[](그 이름으로 음식 검색한 앞쪽 3개, 검색 결과와 같은 모양, 못 찾으면 [])},
+                    **Returns** fallback, candidates[]{name, confidence(0~1), foods[](그 이름으로 음식 검색한 앞쪽 3개, 검색 결과와 같은 모양 · unitLabel 포함, 못 찾으면 [])},
                     items[]{box{x, y, width, height}(사진 기준 0~1, x·y는 왼쪽 위, 위치를 모르면 null), point{x, y}(box 가운데, 사진 위 번호 표시용), fallback(이 음식만 「이름으로 적기」), candidates[]}(한상 사진 F-13: 사진 속 음식마다, 최대 6개. AI가 위치를 안 주면 위치 없는 1개, AI 서버 실패면 []).
                     fallback·candidates는 items 중 1등 확신도가 가장 높은 음식 기준 (예전 화면 그대로).
                     candidates는 확신도 높은 순 최대 3개. name은 AI 음식 이름이라 식약처 이름과 다를 수 있어서 foods에서 골라 씀.

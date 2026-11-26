@@ -280,6 +280,24 @@ class FoodFlowTest {
     }
 
     @Test
+    void 음식_상세와_검색에_표시_단위가_온다() throws Exception {
+        String[][] cases = {
+                {"D103-173000000-0001", "그릇"},    // 쫄면 (면 및 만두류)
+                {"D103-150030000-0001", "인분"},    // 만두_군만두 (여러 개)
+                {"D105-199000000-0001", "그릇"},    // 갈비탕 (국 및 탕류)
+                {"D102-110110000-0001", "개"},      // 케이크_롤케이크 (빵 및 과자류)
+                {"D301-022000000-0001", "인분"},    // 쌀밥이지만 1인분 100g (반 공기라 공기 아님, PR #178 리뷰)
+        };
+        for (String[] c : cases) {
+            mvc.perform(get("/api/foods/" + c[0]).cookie(access))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.unitLabel").value(c[1]));
+        }
+        mvc.perform(get("/api/foods").param("q", "식빵").cookie(access))
+                .andExpect(jsonPath("$.data.items[0].unitLabel").value("개"));       // 식빵 (빵 및 과자류)
+    }
+
+    @Test
     void 상세는_검색_결과와_같은_모양() throws Exception {
         mvc.perform(get("/api/foods/D103-173000000-0001").cookie(access))
                 .andExpect(status().isOk())

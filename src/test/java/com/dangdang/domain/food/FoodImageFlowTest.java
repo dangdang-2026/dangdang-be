@@ -85,6 +85,7 @@ class FoodImageFlowTest {
                 .andExpect(jsonPath("$.data.candidates[0].foods", not(empty())))
                 .andExpect(jsonPath("$.data.candidates[0].foods.length()").value(org.hamcrest.Matchers.lessThanOrEqualTo(3)))
                 .andExpect(jsonPath("$.data.candidates[0].foods[0].foodCode").exists())
+                .andExpect(jsonPath("$.data.candidates[0].foods[0].unitLabel").exists())   // 사진 후보 음식에도 표시 단위
                 .andExpect(jsonPath("$.data.candidates[1].name").value("김치볶음밥"));
     }
 

@@ -1,5 +1,6 @@
 package com.dangdang.domain.meal.dto.response;
 
+import com.dangdang.domain.food.service.FoodStapleReader;
 import com.dangdang.domain.meal.entity.MealItem;
 import com.dangdang.domain.meal.entity.MealNutrition;
 import com.dangdang.domain.meal.enums.NutritionSource;
@@ -22,13 +23,14 @@ public record MealItemResponse(
         Instant createdAt,
         Instant updatedAt,
         Instant mealUpdatedAt,           // 바뀐 뒤 식사의 수정 시각. 다음 영양값 직접 입력의 expectedUpdatedAt으로 씀
-        boolean isStaple) {              // 주식인지 (식사 응답 items[]와 같은 값). 직접 적은 음식은 false
+        boolean isStaple,                // 주식인지 (식사 응답 items[]와 같은 값). 직접 적은 음식은 false
+        String unitLabel) {              // servings를 부르는 말 (공기·그릇·접시·잔·줄·개·인분). 직접 적은 음식은 인분
 
-    public static MealItemResponse from(MealItem i, Instant mealUpdatedAt, boolean isStaple) {
+    public static MealItemResponse from(MealItem i, Instant mealUpdatedAt, FoodStapleReader.Traits traits) {
         return new MealItemResponse(
                 i.getId(), i.getMeal().getId(), i.getFoodCode(), i.getName(),
                 i.getServings(), i.getWeight(), i.getUnit(), i.getNutritionSource(),
                 i.eatenNutrition(), i.getNutritionOverride(), i.getCreatedAt(), i.getUpdatedAt(), mealUpdatedAt,
-                isStaple);
+                traits.isStaple(), traits.unitLabel());
     }
 }

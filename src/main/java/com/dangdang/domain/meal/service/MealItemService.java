@@ -136,11 +136,11 @@ public class MealItemService {
         }
         List<MealItem> items = mealItemRepository.findAllByMealIdInAndDeletedAtIsNullOrderByIdAsc(mealIds);
         // 주식 여부는 음식을 한 번에 읽어서 붙임 (항목마다 음식을 따로 조회하지 않게)
-        Map<String, Boolean> staple = foodStapleReader.byCodes(items.stream().map(MealItem::getFoodCode).toList());
+        Map<String, FoodStapleReader.Traits> staple = foodStapleReader.byCodes(items.stream().map(MealItem::getFoodCode).toList());
         return items.stream()
                 .collect(Collectors.groupingBy(i -> i.getMeal().getId(),
                         Collectors.mapping(i -> MealItemSummaryResponse.from(i,
-                                staple.getOrDefault(i.getFoodCode(), false)), Collectors.toList())));
+                                staple.getOrDefault(i.getFoodCode(), FoodStapleReader.Traits.NONE)), Collectors.toList())));
     }
 
     // 식사 하나의 항목
