@@ -1,6 +1,8 @@
 package com.dangdang.domain.food;
 
+import com.dangdang.domain.food.infra.FoodEmbeddingClient;
 import com.dangdang.domain.food.infra.FoodImageClient;
+import com.dangdang.domain.food.repository.FoodEmbeddingRepository;
 import com.dangdang.domain.food.infra.FoodImageClient.Candidate;
 import com.dangdang.domain.user.entity.User;
 import com.dangdang.domain.user.repository.UserRepository;
@@ -51,6 +53,8 @@ class FoodImageFlowTest {
     @Autowired JdbcTemplate jdbc;
 
     @MockitoBean FoodImageClient foodImageClient;   // 진짜 AI 서버 대신
+    @MockitoBean FoodEmbeddingClient foodEmbeddingClient;   // 이름 임베딩도 가짜 (안 정하면 빈 목록 → 뜻 검색 0건)
+    @Autowired FoodEmbeddingRepository foodEmbeddingRepository;
 
     static final MockMultipartFile PHOTO =
             new MockMultipartFile("image", "lunch.jpg", "image/jpeg", new byte[]{1, 2, 3});
@@ -69,6 +73,7 @@ class FoodImageFlowTest {
     @AfterEach
     void clean() {
         jdbc.update("DELETE FROM users");
+        jdbc.update("UPDATE foods SET name_embedding = NULL WHERE name_embedding IS NOT NULL");
         redis.getConnectionFactory().getConnection().serverCommands().flushDb();
     }
 
@@ -491,6 +496,64 @@ class FoodImageFlowTest {
         analyze(PHOTO)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.fallback").value(true));
+    }
+
+    @Test
+    void 글자로_0건이면_이름_뜻이_가까운_음식을_붙인다() throws Exception {
+        // 「두부 달걀찜」에만 벡터를 넣어 두고, AI 이름도 같은 벡터로 바뀌게 함 (거리 0)
+        foodEmbeddingRepository.save("두부 달걀찜", unit(0));
+        foodEmbeddingRepository.save("김밥", unit(1));   // 먼 음식 (거리 1)은 안 붙어야 함
+        given(foodEmbeddingClient.embed(List.of("없는음식이름쀍"))).willReturn(List.of(unit(0)));
+        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(List.of(
+                new Candidate("없는음식이름쀍", 0.95))));
+
+        analyze(PHOTO)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.candidates[0].name").value("없는음식이름쀍"))   // 화면 이름은 AI 이름 그대로
+                .andExpect(jsonPath("$.data.candidates[0].foods", hasSize(3)))
+                .andExpect(jsonPath("$.data.candidates[0].foods[0].foodCode").value("D407-360000000-0001"))   // 같은 거리면 외식 먼저
+                .andExpect(jsonPath("$.data.candidates[0].foods[*].name",
+                        org.hamcrest.Matchers.everyItem(containsString("달걀찜"))));
+    }
+
+    @Test
+    void 글자로_찾으면_임베딩을_부르지_않는다() throws Exception {
+        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(List.of(
+                new Candidate("김밥", 0.95))));
+
+        analyze(PHOTO)
+                .andExpect(jsonPath("$.data.candidates[0].foods", not(empty())));
+        verify(foodEmbeddingClient, never()).embed(any());
+    }
+
+    @Test
+    void 임베딩_AI_서버가_실패해도_사진_분석은_되고_foods는_빈_배열() throws Exception {
+        given(foodEmbeddingClient.embed(any())).willThrow(new ResourceAccessException("timeout"));
+        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(List.of(
+                new Candidate("없는음식이름쀍", 0.95))));
+
+        analyze(PHOTO)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.fallback").value(false))
+                .andExpect(jsonPath("$.data.candidates[0].foods", hasSize(0)));
+    }
+
+    @Test
+    void 임베딩_차원이_다르면_DB에_보내지_않고_빈_배열() throws Exception {
+        given(foodEmbeddingClient.embed(any())).willReturn(List.of(new float[]{1f, 0f, 0f}));
+        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(List.of(
+                new Candidate("없는음식이름쀍", 0.95))));
+
+        analyze(PHOTO)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.candidates[0].foods", hasSize(0)));
+    }
+
+    // i번째 칸만 1인 1536차원 벡터 (서로 다른 i끼리는 코사인 거리 1)
+    private static float[] unit(int i) {
+        float[] v = new float[1536];
+        v[i] = 1f;
+        return v;
     }
 
     private void consent(String type, boolean granted) throws Exception {
