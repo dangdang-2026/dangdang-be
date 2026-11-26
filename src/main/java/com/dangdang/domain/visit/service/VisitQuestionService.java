@@ -65,7 +65,8 @@ public class VisitQuestionService {
                     : VisitQuestion.ofUser(visit, content, sortOrder);
         } else if (req.cardId() != null) {
             // 올라가 있는 카드만 (내려간 카드·쓰는 중 카드는 사용자 화면에 「물어볼 것에 적기」가 없음)
-            ContentCard card = contentCardRepository.findById(req.cardId())
+            // 공유 잠금으로 읽어서, 운영자가 그 카드를 내리는 중이면 끝난 뒤의 상태를 보고 막는다 (소식 걸기와 같음)
+            ContentCard card = contentCardRepository.findByIdForShare(req.cardId())
                     .filter(c -> CardStatus.LIVE.contains(c.getStatus()))
                     .orElseThrow(() -> new CustomException(VisitErrorCode.CARD_NOT_FOUND));
             // 카드 질문 그대로일 때만 CARD. 고쳐 적었으면 사용자 질문(USER) (챗봇 질문과 같은 규칙)
