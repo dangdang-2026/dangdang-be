@@ -53,10 +53,12 @@ public class MealItemController {
             description =
                     """
                     **Parameters** mealId, itemId, 보낸 칸만 바뀜: servings(인분, 0 초과 20 이하),
-                    weightG(직접 잰 무게. null을 보내면 무게를 지우고 servings로 계산), name(직접 적은 음식만, 100자)
+                    weightG(직접 잰 무게. null을 보내면 무게를 지우고 servings로 계산), name(직접 적은 음식만, 100자),
+                    expectedUpdatedAt(선택, 화면을 열 때 받은 이 항목의 updatedAt. 안 보내면 확인 안 함)
                     **Returns** 바뀐 항목 (추가 응답과 같은 모양). 음식 자체(foodCode)는 못 바꿈 — 다른 음식이면 지우고 새로 추가.
                     아무 칸도 안 보내면 MEAL_40003, 고른 음식의 이름을 바꾸려 하면 MEAL_40006,
-                    식사가 없거나 남의 것이면 MEAL_40401, 항목이 없거나 지워졌거나 다른 식사의 항목이면 MEAL_40402, 값 범위가 틀리면 GLOBAL_40001
+                    식사가 없거나 남의 것이면 MEAL_40401, 항목이 없거나 지워졌거나 다른 식사의 항목이면 MEAL_40402, 값 범위가 틀리면 GLOBAL_40001,
+                    expectedUpdatedAt이 지금 항목과 다르면(다른 기기에서 먼저 고침) MEAL_40906
                     """)
     @PatchMapping("/{itemId}")
     public ResponseEntity<BaseResponse<MealItemResponse>> update(
