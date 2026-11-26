@@ -24,7 +24,7 @@ public class ProductVisitController {
     @Operation(summary = "[ 사용자 | 토큰 O | 판매처로 이동 (P-06 「○○몰로 이동하기」 · M-22 「다시 가기」) ]",
             description = """
                     **Returns** url (DB에 있는 판매처 https 주소). 「판매처로 간 기록」을 남기고 주소를 돌려준다 → 프론트는 받은 url 로 이동
-                    10분 안에 같은 상품을 또 누르면(동시에 눌러도) 기록은 한 줄로 합치고 시각·가격·판매처 이름만 새로. 없거나 판매 끝난 상품 404 SHOP_40401
+                    마지막으로 누른 뒤 10분 안에 같은 상품을 또 누르면(동시에 눌러도) 기록은 한 줄로 합치고 시각·가격·판매처 이름만 새로 (9분마다 누르면 계속 한 줄). 없거나 판매 끝난 상품 404 SHOP_40401
                     """)
     @PostMapping("/api/products/{productId}/visits")
     public ResponseEntity<BaseResponse<ProductOutboundResponse>> visit(

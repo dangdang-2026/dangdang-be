@@ -26,7 +26,7 @@ import java.util.List;
 public class ProductVisitService {
 
     private static final String VISITS = "shop.visits";
-    private static final Duration MERGE_WITHIN = Duration.ofMinutes(10);   // 10분 안에 같은 상품을 또 누르면 한 줄로
+    private static final Duration MERGE_WITHIN = Duration.ofMinutes(10);   // 마지막으로 누른 뒤 10분 안에 같은 상품을 또 누르면 한 줄로 (시각은 마지막 것으로)
 
     private final ProductService productService;
     private final ProductVisitRepository productVisitRepository;

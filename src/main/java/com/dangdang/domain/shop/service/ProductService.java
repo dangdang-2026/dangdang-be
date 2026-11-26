@@ -54,7 +54,7 @@ public class ProductService {
     }
 
     // 판매 중인 상품. 없거나 내린 상품이면 404 (찜하기·판매처로 이동도 같이 쓴다)
-    Product onSale(Long productId) {
+    public Product onSale(Long productId) {   // 다른 서비스가 @Transactional 프록시를 거쳐 부르므로 public
         return productRepository.findByIdAndActiveTrue(productId)
                 .orElseThrow(() -> new CustomException(ShopErrorCode.PRODUCT_NOT_FOUND));
     }
