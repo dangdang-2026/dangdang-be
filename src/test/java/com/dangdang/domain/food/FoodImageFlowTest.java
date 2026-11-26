@@ -29,6 +29,7 @@ import java.util.List;
 
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
@@ -87,6 +88,34 @@ class FoodImageFlowTest {
                 .andExpect(jsonPath("$.data.candidates[0].foods[0].foodCode").exists())
                 .andExpect(jsonPath("$.data.candidates[0].foods[0].unitLabel").exists())   // 사진 후보 음식에도 표시 단위
                 .andExpect(jsonPath("$.data.candidates[1].name").value("김치볶음밥"));
+    }
+
+    @Test
+    void AI가_찾을_이름을_주면_그_이름으로_식약처를_찾고_화면_이름은_AI_이름() throws Exception {
+        // dangdang-ai #44: DB엔 계란찜이 없고 달걀찜만 있음 → searchName으로 찾아야 음식이 붙음
+        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(List.of(
+                new Candidate("계란찜", 0.93, "달걀찜"), new Candidate("김밥", 0.05, " "))));   // 빈 찾을 이름은 AI 이름으로
+
+        analyze(PHOTO)
+                .andExpect(jsonPath("$.data.fallback").value(false))
+                .andExpect(jsonPath("$.data.candidates[0].name").value("계란찜"))
+                .andExpect(jsonPath("$.data.candidates[0].foods", not(empty())))
+                .andExpect(jsonPath("$.data.candidates[0].foods[0].name").value(containsString("달걀찜")))
+                .andExpect(jsonPath("$.data.candidates[1].name").value("김밥"))
+                .andExpect(jsonPath("$.data.candidates[1].foods", not(empty())));
+    }
+
+    @Test
+    void 찾을_이름으로_못_찾으면_AI_이름으로_한_번_더_찾는다() throws Exception {
+        // AI 대응표에 오타가 들어가도 원래 이름으로 찾을 수 있으면 빈 칸이 되지 않게 (PR #179 리뷰)
+        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(List.of(
+                new Candidate("김밥", 0.93, "없는음식이름쀍"), new Candidate("없는음식이름쀍2", 0.05, "없는음식이름쀍3"))));
+
+        analyze(PHOTO)
+                .andExpect(jsonPath("$.data.candidates[0].name").value("김밥"))
+                .andExpect(jsonPath("$.data.candidates[0].foods", not(empty())))
+                .andExpect(jsonPath("$.data.candidates[0].foods[0].name").value(containsString("김밥")))
+                .andExpect(jsonPath("$.data.candidates[1].foods", hasSize(0)));   // 둘 다 없으면 지금처럼 빈 배열
     }
 
     @Test

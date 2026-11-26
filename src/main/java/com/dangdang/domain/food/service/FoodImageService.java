@@ -122,10 +122,23 @@ public class FoodImageService {
             return FoodImageAnalysisResponse.Item.of(box, true, List.of());
         }
         return FoodImageAnalysisResponse.Item.of(box, false, candidates.stream()
-                .map(c -> new FoodImageAnalysisResponse.Candidate(c.name(), c.confidence(),
-                        searched.computeIfAbsent(c.name(),
-                                name -> foodService.search(name, 0, FOODS_PER_CANDIDATE).items())))
+                // 식약처는 AI가 알려 준 이름(searchName)으로 찾는다 (계란찜 → 달걀찜). 화면에 보일 이름은 AI 이름 그대로
+                .map(c -> new FoodImageAnalysisResponse.Candidate(c.name(), c.confidence(), foodsFor(c, searched)))
                 .toList());
+    }
+
+    // 찾을 이름으로 0건이면 AI 이름으로 한 번 더 (AI 대응표에 오타가 들어가도 빈 칸이 되지 않게, PR #179 리뷰)
+    // 같은 이름은 한 번만 검색 (searched에 이름별로 남김)
+    private List<FoodResponse> foodsFor(FoodImageClient.Candidate c, Map<String, List<FoodResponse>> searched) {
+        List<FoodResponse> foods = search(c.nameToSearch(), searched);
+        if (foods.isEmpty() && !c.nameToSearch().equals(c.name())) {
+            foods = search(c.name(), searched);
+        }
+        return foods;
+    }
+
+    private List<FoodResponse> search(String name, Map<String, List<FoodResponse>> searched) {
+        return searched.computeIfAbsent(name, n -> foodService.search(n, 0, FOODS_PER_CANDIDATE).items());
     }
 
     // 음식이 6개보다 많으면 1등 확신도가 높은 6개를 남김 (AI가 보낸 순서대로 자르면 확신 높은 음식이 빠질 수 있어서)
