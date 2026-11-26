@@ -1,5 +1,8 @@
 package com.dangdang.domain.visit.service;
 
+import com.dangdang.domain.card.entity.ContentCard;
+import com.dangdang.domain.card.enums.CardStatus;
+import com.dangdang.domain.card.repository.ContentCardRepository;
 import com.dangdang.domain.chat.entity.ChatMessage;
 import com.dangdang.domain.chat.enums.ChatKind;
 import com.dangdang.domain.chat.repository.ChatMessageRepository;
@@ -30,6 +33,7 @@ public class VisitQuestionService {
     private final ChatMessageRepository chatMessageRepository;
     private final Clock clock;
     private final SensitiveConsentGuard sensitiveConsentGuard;
+    private final ContentCardRepository contentCardRepository;
 
     // 목록: 정렬 순서 → 먼저 만든 순. 없으면 []
     public List<VisitQuestionResponse> list(Long userId, Long visitId) {
@@ -41,6 +45,7 @@ public class VisitQuestionService {
 
     // 등록. source는 클라이언트가 글자로 정하지 않는다
     // chatMessageId가 오면 내 대화 중 「물어볼 말 정리」(QUESTION_DRAFT) 답인지 확인하고 CHATBOT, 아니면 USER
+    // cardId가 오면 올라가 있는 카드의 질문 중 하나와 같은지 확인하고 CARD, 아니면 USER (U-28)
     // 정렬 순서를 안 보내면 맨 뒤 = 지금 가장 큰 정렬 순서 + 1 (개수로 정하면 앞 질문이 10처럼 큰 값일 때 그 앞에 끼어듦)
     @Transactional
     public VisitQuestionResponse create(Long userId, Long visitId, VisitQuestionCreateRequest req) {
@@ -48,17 +53,28 @@ public class VisitQuestionService {
         // 일정 줄을 FOR SHARE로 잡는다 → 일정·병원 지우기와 겹쳐도 지운 일정에 살아 있는 질문·메모가 남지 않는다
         Visit visit = visitService.findMineForShare(userId, visitId);
         int sortOrder = req.sortOrder() != null ? req.sortOrder() : nextSortOrder(visitId);
-        boolean fromChatbot = false;
+        String content = req.trimmedContent();
+        VisitQuestion question;
         if (req.chatMessageId() != null) {
             ChatMessage draft = chatMessageRepository.findByIdAndUserId(req.chatMessageId(), userId)
                     .filter(m -> m.getKind() == ChatKind.QUESTION_DRAFT)
                     .orElseThrow(() -> new CustomException(VisitErrorCode.CHAT_DRAFT_NOT_FOUND));
             // 초안과 같은 글일 때만 CHATBOT — 사용자가 고쳐 적었으면 사용자 질문(USER) (PR #120 리뷰: 아무 글이나 CHATBOT으로 꾸미지 못하게)
-            fromChatbot = matchesDraft(draft, req.trimmedContent());
+            question = matchesDraft(draft, content)
+                    ? VisitQuestion.ofChatbot(visit, content, sortOrder)
+                    : VisitQuestion.ofUser(visit, content, sortOrder);
+        } else if (req.cardId() != null) {
+            // 올라가 있는 카드만 (내려간 카드·쓰는 중 카드는 사용자 화면에 「물어볼 것에 적기」가 없음)
+            ContentCard card = contentCardRepository.findById(req.cardId())
+                    .filter(c -> CardStatus.LIVE.contains(c.getStatus()))
+                    .orElseThrow(() -> new CustomException(VisitErrorCode.CARD_NOT_FOUND));
+            // 카드 질문 그대로일 때만 CARD. 고쳐 적었으면 사용자 질문(USER) (챗봇 질문과 같은 규칙)
+            question = matchesCard(card, content)
+                    ? VisitQuestion.ofCard(visit, content, sortOrder, card)
+                    : VisitQuestion.ofUser(visit, content, sortOrder);
+        } else {
+            question = VisitQuestion.ofUser(visit, content, sortOrder);
         }
-        VisitQuestion question = fromChatbot
-                ? VisitQuestion.ofChatbot(visit, req.trimmedContent(), sortOrder)
-                : VisitQuestion.ofUser(visit, req.trimmedContent(), sortOrder);
         VisitQuestion saved = visitQuestionRepository.saveAndFlush(question);
         return VisitQuestionResponse.from(saved);
     }
@@ -90,6 +106,13 @@ public class VisitQuestionService {
             }
         }
         return false;
+    }
+
+    // 카드 질문 중 하나와 글자가 같으면 카드 질문으로 본다 (앞뒤 공백, 띄어쓰기 여러 칸 차이는 봐줌)
+    static boolean matchesCard(ContentCard card, String content) {
+        String target = normalize(content);
+        return card.getQuestions().stream()
+                .anyMatch(q -> q != null && normalize(q).equals(target));
     }
 
     private static String normalize(String text) {
