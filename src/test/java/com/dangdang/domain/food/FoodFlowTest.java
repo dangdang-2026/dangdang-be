@@ -255,6 +255,28 @@ class FoodFlowTest {
     }
 
     @Test
+    void 주식_여부는_분류와_대표식품명으로_정한다() throws Exception {
+        // {식품코드, 주식 여부}
+        String[][] cases = {
+                {"D101-004160000-0001", "true"},    // 국밥_돼지머리 (밥류)
+                {"D103-173000000-0001", "true"},    // 쫄면 (면 및 만두류)
+                {"D102-100000000-0001", "true"},    // 식빵 (빵 및 과자류 중 끼니 빵)
+                {"D102-096060000-0001", "true"},    // 샌드위치_닭가슴살
+                {"D102-110110000-0001", "false"},   // 케이크_롤케이크 (빵 및 과자류지만 간식)
+                {"D104-185060000-0001", "false"},   // 스프_양송이버섯 (죽 및 스프류지만 국물)
+                {"D105-199000000-0001", "false"},   // 갈비탕 (국 및 탕류)
+        };
+        for (String[] c : cases) {
+            mvc.perform(get("/api/foods/" + c[0]).cookie(access))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.isStaple").value(Boolean.parseBoolean(c[1])));
+        }
+        // 검색 결과에도 같은 칸
+        mvc.perform(get("/api/foods").param("q", "식빵").cookie(access))
+                .andExpect(jsonPath("$.data.items[0].isStaple").value(true));
+    }
+
+    @Test
     void 상세는_검색_결과와_같은_모양() throws Exception {
         mvc.perform(get("/api/foods/D103-173000000-0001").cookie(access))
                 .andExpect(status().isOk())
