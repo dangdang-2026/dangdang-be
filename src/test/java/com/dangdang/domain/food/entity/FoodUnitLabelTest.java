@@ -2,6 +2,8 @@ package com.dangdang.domain.food.entity;
 
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 // 표시 단위 규칙 (분류별 단위 + 대표식품명 예외). DB 없이 규칙만 봄
@@ -59,6 +61,29 @@ class FoodUnitLabelTest {
         assertThat(Food.unitLabelOf("전·적 및 부침류", "달걀말이")).isEqualTo("인분");
         assertThat(Food.unitLabelOf("찜류", "달걀찜")).isEqualTo("그릇");
         assertThat(Food.unitLabelOf("찜류", "두부 달걀찜")).isEqualTo("그릇");
+    }
+
+    @Test
+    void 일인분_양을_모르면_인분() {
+        assertThat(Food.unitLabelOf("국 및 탕류", "미역국", null)).isEqualTo("인분");   // servings 1 = 100g이라 「1그릇」이 안 맞음
+        assertThat(Food.unitLabelOf("볶음류", "감자볶음", null)).isEqualTo("인분");
+        assertThat(Food.unitLabelOf("국 및 탕류", "미역국", new BigDecimal("240"))).isEqualTo("그릇");
+    }
+
+    @Test
+    void 공기_줄_개는_일인분_양이_그_개수에_맞을_때만() {
+        assertThat(Food.unitLabelOf("밥류", "쌀밥", new BigDecimal("100"))).isEqualTo("인분");     // 반 공기
+        assertThat(Food.unitLabelOf("밥류", "쌀밥", new BigDecimal("150"))).isEqualTo("공기");     // 경계 포함
+        assertThat(Food.unitLabelOf("밥류", "잡곡밥", new BigDecimal("300"))).isEqualTo("공기");
+        assertThat(Food.unitLabelOf("밥류", "잡곡밥", new BigDecimal("350"))).isEqualTo("공기");
+        assertThat(Food.unitLabelOf("밥류", "잡곡밥", new BigDecimal("450"))).isEqualTo("인분");   // 두 공기 가까이
+        assertThat(Food.unitLabelOf("밥류", "김밥", new BigDecimal("100"))).isEqualTo("인분");     // 김밥_참치 100g
+        assertThat(Food.unitLabelOf("밥류", "김밥", new BigDecimal("250"))).isEqualTo("줄");
+        assertThat(Food.unitLabelOf("밥류", "김밥", new BigDecimal("400"))).isEqualTo("줄");
+        assertThat(Food.unitLabelOf("밥류", "삼각김밥", new BigDecimal("100"))).isEqualTo("개");
+        assertThat(Food.unitLabelOf("밥류", "삼각김밥", new BigDecimal("200"))).isEqualTo("인분");  // 두 개
+        assertThat(Food.unitLabelOf("전·적 및 부침류", "달걀후라이", new BigDecimal("60"))).isEqualTo("개");
+        assertThat(Food.unitLabelOf("볶음류", "감자볶음", new BigDecimal("1100"))).isEqualTo("접시"); // 그릇·접시·잔은 양을 안 봄
     }
 
     @Test

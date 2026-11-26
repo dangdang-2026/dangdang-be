@@ -136,7 +136,27 @@ public class Food {
     private static final Set<String> FRIED_EGGS = Set.of("달걀후라이", "달걀부침(달걀후라이)");   // 1인분 60~100g = 1개
 
     public String unitLabel() {
-        return unitLabelOf(category, repName);
+        return unitLabelOf(category, repName, servingAmount);
+    }
+
+    // 1인분 양까지 본 최종 단위 (PR #178 리뷰)
+    // - 1인분 양을 모르면 servings 1이 기준량(100g·ml)이라 「1그릇」이 100g이 됨 → 인분
+    // - 공기·줄·개는 개수라서, 1인분 양이 한 공기·한 줄·한 개와 많이 다르면 「1공기」를 눌렀을 때 기록 양이 틀어짐 → 인분
+    //   범위는 DB 분포로 정함 (2026-11-27): 공기 중앙값 280 · 100g 3줄, 370~450ml 17줄은 뺌 / 김밥 일반 230~400 · 100g, 168ml는 뺌
+    //   / 삼각김밥·달걀후라이 60~100 · 200g은 뺌. ml로 적힌 밥도 숫자만 봄 (g·ml은 바꾸지 않음)
+    static String unitLabelOf(String category, String repName, BigDecimal servingAmount) {
+        if (servingAmount == null) {
+            return DEFAULT_UNIT;
+        }
+        String unit = unitLabelOf(category, repName);
+        double s = servingAmount.doubleValue();
+        boolean fits = switch (unit) {
+            case "공기" -> s >= 150 && s <= 350;
+            case "줄" -> s >= 200 && s <= 450;
+            case "개" -> s >= 40 && s <= 150;
+            default -> true;
+        };
+        return fits ? unit : DEFAULT_UNIT;
     }
 
     // 분류가 없거나 빈 값·모르는 분류면 인분. 대표식품명으로 분류 안의 예외를 먼저 봄
