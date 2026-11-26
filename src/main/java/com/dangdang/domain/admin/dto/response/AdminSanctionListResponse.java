@@ -22,6 +22,7 @@ public record AdminSanctionListResponse(
             @Schema(description = "null = 운영자가 풀 때까지") Instant endsAt,
             Instant liftedAt,
             @Schema(description = "제한을 건 운영자 이름. 운영자 계정이 지워졌으면 null") String createdByName,
+            @Schema(description = "제한을 푼 운영자 이름 (처리 기록에서). 기간이 끝났거나 기록이 생기기 전에 풀었으면 null") String liftedByName,
             @Schema(description = "이 제한에 이의 신청이 있는지") boolean appealed,
             @Schema(description = "끝난 제한만 — LIFTED(운영자가 풂) · EXPIRED(기간 끝남)") String endedBy,
             @Schema(description = "끝난 제한만 — 끝난 시각") Instant endedAt) {

@@ -27,7 +27,10 @@ public class AdminSanctionQueryService {
 
     private static final String SELECT = "SELECT s.id, s.user_id, p.nickname, u.display_name, s.reason, s.starts_at, s.ends_at, s.lifted_at,"
             + " a.display_name AS created_by_name,"
-            + " EXISTS (SELECT 1 FROM sanction_appeals ap WHERE ap.sanction_id = s.id) AS appealed"
+            + " EXISTS (SELECT 1 FROM sanction_appeals ap WHERE ap.sanction_id = s.id) AS appealed,"
+            // 누가 풀었는지는 처리 기록(admin_logs)에 남는다 — 가장 최근에 푼 사람
+            + " (SELECT lu.display_name FROM admin_logs l JOIN users lu ON lu.id = l.admin_id"
+            + "  WHERE l.action = 'SANCTION_LIFT' AND l.target_id = s.id ORDER BY l.occurred_at DESC LIMIT 1) AS lifted_by_name"
             + " FROM user_sanctions s"
             + " JOIN users u ON u.id = s.user_id"
             + " LEFT JOIN community_profiles p ON p.user_id = s.user_id"
@@ -59,7 +62,7 @@ public class AdminSanctionQueryService {
         Instant endedAt = !ended ? null : liftedAt != null ? liftedAt : endsAt;
         return new Item(rs.getLong("id"), rs.getLong("user_id"), rs.getString("nickname"), rs.getString("display_name"),
                 rs.getString("reason"), instant(rs.getTimestamp("starts_at")), endsAt, liftedAt,
-                rs.getString("created_by_name"), rs.getBoolean("appealed"), endedBy, endedAt);
+                rs.getString("created_by_name"), rs.getString("lifted_by_name"), rs.getBoolean("appealed"), endedBy, endedAt);
     }
 
     private long count(String sql, Object... args) {
