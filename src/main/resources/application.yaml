@@ -94,6 +94,13 @@ vapid:
   private-key: ${VAPID_PRIVATE_KEY:}
   subject: ${VAPID_SUBJECT:}
 
+card-image:
+  storage: ${CARD_IMAGE_STORAGE:off}             # off = 카드 이미지 올리기 막음(로컬·테스트) / s3 = 진짜 S3
+s3:                                              # 키는 AWS_ACCESS_KEY_ID·AWS_SECRET_ACCESS_KEY 환경 변수로 (여기 안 씀)
+  bucket: ${S3_BUCKET:}
+  region: ${S3_REGION:ap-northeast-2}
+  public-base-url: ${S3_PUBLIC_BASE_URL:}        # 비우면 https://{bucket}.s3.{region}.amazonaws.com
+
 front:
   base-url: ${FRONT_BASE_URL:http://localhost:5173}   # 메일 속 링크가 열 프론트 주소
 cors:
