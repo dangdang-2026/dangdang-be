@@ -379,6 +379,50 @@ class ReadingFlowTest {
                 .andExpect(jsonPath("$.data.originalValue").value((Object) null));
     }
 
+    // ---------- 다른 기기에서 먼저 고친 기록 (#172) ----------
+
+    @Test
+    void 화면을_연_뒤_다른_기기에서_먼저_고쳤으면_409이고_덮어쓰지_않는다() throws Exception {
+        long id = create(95, Instant.now());
+        jdbc.update("UPDATE readings SET updated_at = '2026-01-01T00:00:00Z' WHERE id = ?", id);   // 두 수정 사이 시각 차이를 분명하게
+        String seenByA = JsonPath.read(mvc.perform(get("/api/readings/" + id).cookie(access))
+                .andReturn().getResponse().getContentAsString(), "$.data.updatedAt");
+
+        // 기기 B가 먼저 고침 (expectedUpdatedAt 없이 → 지금처럼 됨)
+        String afterB = JsonPath.read(mvc.perform(patch("/api/readings/" + id).cookie(access)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"value\":120}"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(), "$.data.updatedAt");
+
+        // 기기 A가 옛 화면 값으로 고치면 409, 값은 B가 고친 그대로
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"value\":80,\"expectedUpdatedAt\":\"" + seenByA + "\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.errorCode").value("READING_40903"));
+        mvc.perform(get("/api/readings/" + id).cookie(access))
+                .andExpect(jsonPath("$.data.value").value(120));
+
+        // 새로 받은 값(B의 수정 응답)으로 보내면 됨 → 수정 응답의 updatedAt을 다음 수정에 그대로 쓸 수 있음
+        String afterA = JsonPath.read(mvc.perform(patch("/api/readings/" + id).cookie(access)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"value\":80,\"expectedUpdatedAt\":\"" + afterB + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.value").value(80))
+                .andReturn().getResponse().getContentAsString(), "$.data.updatedAt");
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"value\":85,\"expectedUpdatedAt\":\"" + afterA + "\"}"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void expectedUpdatedAt만_보내면_바꿀_값이_없어서_400() throws Exception {
+        long id = create(95, Instant.now());
+        mvc.perform(patch("/api/readings/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedUpdatedAt\":\"" + Instant.now() + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("READING_40003"));
+    }
+
     // ---------- HI·LO (G-11) ----------
 
     @Test

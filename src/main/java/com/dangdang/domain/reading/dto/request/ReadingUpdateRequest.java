@@ -24,9 +24,11 @@ public record ReadingUpdateRequest(
 
         Long mealId,                 // 다른 식사로 바꿀 때
 
-        MeterLimit meterLimit) {     // HI·LO로 고칠 때. value와 같이 오면 400
+        MeterLimit meterLimit,       // HI·LO로 고칠 때. value와 같이 오면 400
 
-    // 바꿀 값이 하나도 없는 요청인지
+        Instant expectedUpdatedAt) { // 화면을 열 때 받은 이 기록의 updatedAt (선택). 그 사이 다른 곳에서 고쳤으면 409 (#172)
+
+    // 바꿀 값이 하나도 없는 요청인지 (expectedUpdatedAt은 바꿀 값이 아님)
     public boolean isEmpty() {
         return value == null && measuredAt == null && readingType == null && slot == null && mealId == null
                 && meterLimit == null;
