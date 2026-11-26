@@ -3,6 +3,7 @@ package com.dangdang.domain.card.controller;
 import com.dangdang.domain.card.dto.request.CardCorrectRequest;
 import com.dangdang.domain.card.dto.request.CardCreateRequest;
 import com.dangdang.domain.card.dto.request.CardReviewRequest;
+import com.dangdang.domain.card.dto.response.AdminCardItemResponse;
 import com.dangdang.domain.card.dto.response.CardDetailResponse;
 import com.dangdang.domain.card.dto.response.CardSummaryResponse;
 import com.dangdang.domain.card.service.CardService;
@@ -83,42 +84,53 @@ public class CardController {
 
     // ── 운영자 (/api/admin/** = ADMIN만) ──
 
-    @Operation(summary = "[ 운영자 | 카드 목록 ]", description = "**Returns** 최신순 전체 (DRAFT·RECHECK·WITHDRAWN도 상태 그대로)")
+    @Operation(summary = "[ 운영자 | 카드 목록 ]",
+            description = "**Returns** 최신순 전체 (DRAFT·RECHECK·WITHDRAWN도 상태 그대로). 검수 reviewer·reviewedOn, 정정 correctedAt, 내린 시각 withdrawnAt")
     @GetMapping("/api/admin/cards")
-    public ResponseEntity<BaseResponse<List<CardSummaryResponse>>> adminList() {
+    public ResponseEntity<BaseResponse<List<AdminCardItemResponse>>> adminList() {
         return ResponseEntity.ok(BaseResponse.success(200, "카드 목록 조회에 성공했습니다.", cardService.adminList()));
+    }
+
+    @Operation(summary = "[ 운영자 | 카드 상세 ]",
+            description = "**Returns** 상태 그대로(DRAFT·RECHECK 포함), 내린 카드도 슬라이드·출처·질문까지. 정정할 때 지금 슬라이드를 불러오는 데 쓴다. 없으면 CARD_40401")
+    @GetMapping("/api/admin/cards/{cardId}")
+    public ResponseEntity<BaseResponse<CardDetailResponse>> adminDetail(@PathVariable Long cardId) {
+        return ResponseEntity.ok(BaseResponse.success(200, "카드 조회에 성공했습니다.", cardService.adminDetail(cardId)));
     }
 
     @Operation(summary = "[ 운영자 | 카드 만들기 (DRAFT) ]", description = "출처 1개 이상·원문 확인일 필수. 공식 지침 문장만")
     @PostMapping("/api/admin/cards")
-    public ResponseEntity<BaseResponse<CardDetailResponse>> create(@Valid @RequestBody CardCreateRequest request) {
+    public ResponseEntity<BaseResponse<CardDetailResponse>> create(
+            @AuthenticationPrincipal AuthPrincipal principal, @Valid @RequestBody CardCreateRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(BaseResponse.success(201, "카드를 만들었습니다.",
-                cardService.create(request)));
+                cardService.create(principal.userId(), request)));
     }
 
     @Operation(summary = "[ 운영자 | 카드 올리기 ]", description = "DRAFT → PUBLISHED. 다른 상태면 409 CARD_40902")
     @PostMapping("/api/admin/cards/{cardId}/publish")
-    public ResponseEntity<BaseResponse<CardDetailResponse>> publish(@PathVariable Long cardId) {
-        return ResponseEntity.ok(BaseResponse.success(200, "카드를 올렸습니다.", cardService.publish(cardId)));
+    public ResponseEntity<BaseResponse<CardDetailResponse>> publish(
+            @AuthenticationPrincipal AuthPrincipal principal, @PathVariable Long cardId) {
+        return ResponseEntity.ok(BaseResponse.success(200, "카드를 올렸습니다.", cardService.publish(principal.userId(), cardId)));
     }
 
     @Operation(summary = "[ 운영자 | 카드 정정 (U-26b) ]", description = "**Parameters** summary(필수, 40자) · note(자세한 내용) · body · questions · checkedOn → CORRECTED")
     @PostMapping("/api/admin/cards/{cardId}/correct")
     public ResponseEntity<BaseResponse<CardDetailResponse>> correct(
-            @PathVariable Long cardId, @Valid @RequestBody CardCorrectRequest request) {
-        return ResponseEntity.ok(BaseResponse.success(200, "카드를 정정했습니다.", cardService.correct(cardId, request)));
+            @AuthenticationPrincipal AuthPrincipal principal, @PathVariable Long cardId, @Valid @RequestBody CardCorrectRequest request) {
+        return ResponseEntity.ok(BaseResponse.success(200, "카드를 정정했습니다.", cardService.correct(principal.userId(), cardId, request)));
     }
 
     @Operation(summary = "[ 운영자 | 검수자 적기 ]", description = "**Parameters** reviewer · reviewedOn (둘 다 필수). 내려간 카드면 409 CARD_40902")
     @PostMapping("/api/admin/cards/{cardId}/review")
     public ResponseEntity<BaseResponse<CardDetailResponse>> review(
-            @PathVariable Long cardId, @Valid @RequestBody CardReviewRequest request) {
-        return ResponseEntity.ok(BaseResponse.success(200, "검수자를 적었습니다.", cardService.review(cardId, request)));
+            @AuthenticationPrincipal AuthPrincipal principal, @PathVariable Long cardId, @Valid @RequestBody CardReviewRequest request) {
+        return ResponseEntity.ok(BaseResponse.success(200, "검수자를 적었습니다.", cardService.review(principal.userId(), cardId, request)));
     }
 
-    @Operation(summary = "[ 운영자 | 카드 내리기 (U-26c) ]", description = "→ WITHDRAWN. 목록에서 빠지고 저장한 사람에겐 「내려간 카드」. 이 카드를 가리키는 소식 카드도 안 보임")
+    @Operation(summary = "[ 운영자 | 카드 내리기 (U-26c) ]", description = "→ WITHDRAWN. 목록에서 빠지고 저장한 사람에겐 「내려간 카드」. 이 카드를 건 소식 카드(스플래시·커뮤니티)도 지금 시각으로 끝남 (시작 전이면 끝 = 시작, 이미 끝난 소식은 그대로)")
     @PostMapping("/api/admin/cards/{cardId}/withdraw")
-    public ResponseEntity<BaseResponse<CardDetailResponse>> withdraw(@PathVariable Long cardId) {
-        return ResponseEntity.ok(BaseResponse.success(200, "카드를 내렸습니다.", cardService.withdraw(cardId)));
+    public ResponseEntity<BaseResponse<CardDetailResponse>> withdraw(
+            @AuthenticationPrincipal AuthPrincipal principal, @PathVariable Long cardId) {
+        return ResponseEntity.ok(BaseResponse.success(200, "카드를 내렸습니다.", cardService.withdraw(principal.userId(), cardId)));
     }
 }

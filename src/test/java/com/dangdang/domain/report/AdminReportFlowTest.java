@@ -426,4 +426,37 @@ class AdminReportFlowTest extends ReminderTestBase {
             throw new IllegalStateException(e);
         }
     }
+
+    // admin #5 신고 처리 화면: 탭 숫자, 글쓴이 닉네임, 처리한 운영자 (be #167)
+    @Test
+    void 처리함에_탭_숫자와_글쓴이와_처리한_운영자가_온다() throws Exception {
+        String a = write(jisu, "이 약 두 알 먹으면 괜찮아요");
+        String b = write(minji, "혈당 패치 공동구매 하실 분");
+        String c = write(jisu, "오늘 수치 공유해요");
+        report(minji, "POST", a, "MEDICAL_ADVICE");
+        report(hana, "POST", a, "MEDICAL_ADVICE");
+        report(jisu, "POST", b, "AD_SALES");
+        report(hana, "POST", c, "NUMBER_COMPARE");
+        clock.set(NOW.plusSeconds(600));
+        postJson(admin, "/api/admin/reports/POST/" + b + "/hide", "{\"reason\":\"AD_SALES\",\"memo\":\"광고\"}")
+                .andExpect(status().isOk());
+        postJson(admin, "/api/admin/reports/POST/" + c + "/dismiss", "{}").andExpect(status().isOk());
+
+        mvc.perform(get("/api/admin/reports").cookie(admin))
+                .andExpect(jsonPath("$.data.counts.received").value(1))
+                .andExpect(jsonPath("$.data.counts.hidden").value(1))
+                .andExpect(jsonPath("$.data.counts.dismissed").value(1))
+                .andExpect(jsonPath("$.data.items[0].authorNickname").value("말랑한 두부"))
+                .andExpect(jsonPath("$.data.items[0].handledAt").doesNotExist());
+        mvc.perform(get("/api/admin/reports?status=HIDDEN").cookie(admin))
+                .andExpect(jsonPath("$.data.items[0].authorNickname").value("포근한 고구마"))
+                .andExpect(jsonPath("$.data.items[0].handledAt").value(NOW.plusSeconds(600).toString()))
+                .andExpect(jsonPath("$.data.items[0].handledByName").value("운영자"));
+        // 문제없음 탭도 마지막 처리가 붙는다 (PR #168 리뷰)
+        mvc.perform(get("/api/admin/reports?status=DISMISSED").cookie(admin))
+                .andExpect(jsonPath("$.data.items[0].handledAt").value(NOW.plusSeconds(600).toString()))
+                .andExpect(jsonPath("$.data.items[0].handledByName").value("운영자"));
+        mvc.perform(get("/api/admin/reports/POST/" + b).cookie(admin))
+                .andExpect(jsonPath("$.data.actions[0].adminName").value("운영자"));
+    }
 }

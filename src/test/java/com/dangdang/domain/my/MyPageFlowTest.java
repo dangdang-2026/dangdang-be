@@ -72,7 +72,11 @@ class MyPageFlowTest extends ReminderTestBase {
                 .andExpect(jsonPath("$.data[0].name").value("엄마표 잡곡밥"))         // 최근에 고친 순
                 .andExpect(jsonPath("$.data[1].usualQuantity").value("ONE"))
                 .andExpect(jsonPath("$.data[1].nutritionOverride.carbG").value(45))
-                .andExpect(jsonPath("$.data[1].nutritionOverride.proteinG").value(nullValue()));
+                .andExpect(jsonPath("$.data[1].nutritionOverride.proteinG").value(nullValue()))
+                .andExpect(jsonPath("$.data[0].isStaple").value(false))   // 비슷한 음식이 없으면 서버가 분류를 모름
+                .andExpect(jsonPath("$.data[1].isStaple").value(true))    // 비슷한 음식 볶음밥_김치(밥류)를 따름
+                .andExpect(jsonPath("$.data[0].unitLabel").value("인분"))
+                .andExpect(jsonPath("$.data[1].unitLabel").value("공기"));   // 볶음밥_김치 330g
         mvc.perform(get("/api/me/foods").param("q", "볶음").cookie(jisu))
                 .andExpect(jsonPath("$.data.length()").value(1))
                 .andExpect(jsonPath("$.data[0].name").value("우리 집 김치볶음밥"));
@@ -215,6 +219,37 @@ class MyPageFlowTest extends ReminderTestBase {
                 .andExpect(jsonPath("$.data.mealGuide").value("안내"))
                 .andExpect(jsonPath("$.data.careSiteId").doesNotExist())
                 .andExpect(jsonPath("$.data.careSiteName").value("지수 병원"));   // C-20 「받은 곳은 그대로」
+    }
+
+    @Test
+    void 받은_곳은_병원_번호와_글을_둘_다_적을_수_있고_빈_글은_null() throws Exception {
+        Long site = jdbc.queryForObject("INSERT INTO care_sites (user_id, name, department) VALUES (?, '지수 병원', 'OBGYN') RETURNING id",
+                Long.class, jisuId);
+        json(put("/api/me/meal-plan"), jisu, "{\"careSiteId\":" + site + ",\"placeName\":\"  보건소 영양 교실 \",\"mealGuide\":\"안내\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.careSiteId").value(site))
+                .andExpect(jsonPath("$.data.careSiteName").value("지수 병원"))
+                .andExpect(jsonPath("$.data.placeName").value("보건소 영양 교실"));   // 앞뒤 공백 지움
+
+        json(put("/api/me/meal-plan"), jisu, "{\"placeName\":\"보건소\",\"mealGuide\":\"안내\"}")   // 병원 없이 글만
+                .andExpect(jsonPath("$.data.careSiteId").doesNotExist())
+                .andExpect(jsonPath("$.data.placeName").value("보건소"));
+        mvc.perform(get("/api/me/meal-plan").cookie(jisu)).andExpect(jsonPath("$.data.placeName").value("보건소"));
+
+        json(put("/api/me/meal-plan"), jisu, "{\"placeName\":\"   \",\"mealGuide\":\"안내\"}")   // 빈 글이면 지움
+                .andExpect(jsonPath("$.data.placeName").doesNotExist());
+        json(put("/api/me/meal-plan"), jisu, "{\"placeName\":\"" + "가".repeat(51) + "\",\"mealGuide\":\"안내\"}")
+                .andExpect(status().isBadRequest());
+
+        // 글자 수는 앞뒤 공백을 지운 뒤 글자(코드 포인트)로 셈 → 이모지가 섞인 50자, 공백 붙은 50자는 됨
+        String emoji50 = "🏥".repeat(25) + "가".repeat(25);
+        json(put("/api/me/meal-plan"), jisu, "{\"placeName\":\"" + emoji50 + "\",\"mealGuide\":\"안내\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.placeName").value(emoji50));
+        json(put("/api/me/meal-plan"), jisu, "{\"placeName\":\"  " + "가".repeat(50) + "  \",\"mealGuide\":\"안내\"}")
+                .andExpect(status().isOk());
+        json(put("/api/me/meal-plan"), jisu, "{\"placeName\":\"보건소\\n영양 교실\",\"mealGuide\":\"안내\"}")   // 한 줄만
+                .andExpect(status().isBadRequest());
     }
 
     // ── 식사 기록 설정 (M-20) ──

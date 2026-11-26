@@ -1,5 +1,7 @@
 package com.dangdang.domain.announcement.service;
 
+import com.dangdang.domain.admin.enums.AdminLogAction;
+import com.dangdang.domain.admin.service.AdminLogService;
 import com.dangdang.domain.announcement.dto.request.AnnouncementCreateRequest;
 import com.dangdang.domain.announcement.dto.response.AnnouncementResponse;
 import com.dangdang.domain.announcement.entity.Announcement;
@@ -31,6 +33,7 @@ public class AnnouncementService {
 
     private final AnnouncementRepository announcementRepository;
     private final ContentCardRepository contentCardRepository;
+    private final AdminLogService adminLogService;
     private final Clock clock;
 
     @Transactional(readOnly = true)
@@ -48,11 +51,13 @@ public class AnnouncementService {
     }
 
     @Transactional
-    public AnnouncementResponse create(AnnouncementCreateRequest req) {
+    public AnnouncementResponse create(Long adminId, AnnouncementCreateRequest req) {
         String linkUrl = req.linkUrl();
         ContentCard card = null;
         if (req.contentCardId() != null) {
-            card = contentCardRepository.findById(req.contentCardId())
+            // 카드 줄을 공유 잠금으로 읽는다. 운영자가 그 카드를 내리는 중이면 끝난 뒤의 상태를 보고 막는다
+            // (안 잠그면 내리기의 endAllForCard가 아직 안 들어온 이 소식을 못 보고, 내린 카드에 열린 소식이 남는다)
+            card = contentCardRepository.findByIdForShare(req.contentCardId())
                     .orElseThrow(() -> new CustomException(CardErrorCode.CARD_NOT_FOUND));
             // 쓰는 중(DRAFT)·내려간 카드를 걸면 스플래시에서 눌렀을 때 404·「내려간 카드」가 뜬다
             if (!CardStatus.LIVE.contains(card.getStatus())) {
@@ -69,17 +74,52 @@ public class AnnouncementService {
         Announcement saved = announcementRepository.save(Announcement.of(req.slot(), req.kind(), req.title().strip(),
                 req.imageUrl(), linkUrl, req.contentCardId(), from, req.activeTo(),
                 req.reviewedBy() == null ? null : req.reviewedBy().strip(), now));
+        adminLogService.record(adminId, AdminLogAction.ANNOUNCEMENT_CREATE, saved.getId(), saved.getTitle(),
+                null, placeOf(saved) + (from.isAfter(now) ? " · 예약" : ""));
         return AnnouncementResponse.from(saved, card);
     }
 
     @Transactional
-    public AnnouncementResponse end(Long id) {
-        Announcement a = announcementRepository.findById(id)
+    public AnnouncementResponse end(Long adminId, Long id) {
+        Announcement a = announcementRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new CustomException(AnnouncementErrorCode.ANNOUNCEMENT_NOT_FOUND));
-        a.end(clock.instant());
+        Instant now = clock.instant();
+        boolean beforeStart = a.getActiveFrom().isAfter(now);
+        Instant before = a.getActiveTo();
+        a.end(now);
+        // 이미 끝났거나 예약 취소한 소식이면 end가 아무것도 안 바꾼다. 그때는 기록도 남기지 않는다 (PR #165 리뷰)
+        if (!Objects.equals(before, a.getActiveTo())) {
+            adminLogService.record(adminId, AdminLogAction.ANNOUNCEMENT_END, a.getId(), a.getTitle(),
+                    null, beforeStart ? "예약 취소" : null);
+        }
         // 그 사이 카드가 내려갔으면 요약을 비운다 — 목록(active)과 같은 결과 (PR #120 리뷰)
         return AnnouncementResponse.from(a, a.getContentCardId() == null ? null
                 : contentCardRepository.findById(a.getContentCardId())
                         .filter(c -> CardStatus.LIVE.contains(c.getStatus())).orElse(null));
+    }
+
+    /**
+     * 카드를 내릴 때 같이 부른다 (CardService.withdraw). now는 카드를 내린 시각(앱 시계)을 그대로 받아서,
+     * 카드 withdrawnAt과 소식 끝 시각이 같게 한다.
+     * <p>
+     * 카드 줄을 여기서 직접 FOR UPDATE로 잡는다. create가 같은 카드 줄을 FOR SHARE로 잡으니, 걸던 소식이
+     * 커밋된 뒤에 끝내서 내린 카드에 열린 소식이 남지 않는다. withdraw처럼 이미 잡은 트랜잭션이면 다시 잡아도
+     * 그대로 지나간다. 잠금 순서는 카드 줄 → 소식 줄 (end는 소식 줄만 잡으니 거꾸로 기다리는 경우가 없다).
+     * <p>
+     * 주의: 벌크 UPDATE가 영속성 컨텍스트를 비운다(clearAutomatically). 이 호출 전에 읽은 엔티티는 호출 뒤
+     * detached가 되어, 그 뒤에 고친 값은 저장되지 않는다. 엔티티 변경은 이 호출 전에 끝내거나, 뒤에 다시 읽어서 고친다.
+     */
+    @Transactional
+    public void endAllForCard(Long cardId, Instant now) {
+        contentCardRepository.findByIdForUpdate(cardId)
+                .orElseThrow(() -> new CustomException(CardErrorCode.CARD_NOT_FOUND));
+        announcementRepository.endAllForCard(cardId, now);
+    }
+
+    // 처리 기록에 보일 자리·종류 (사람이 읽는 말)
+    private static String placeOf(Announcement a) {
+        String slot = a.getSlot() == com.dangdang.domain.announcement.enums.AnnouncementSlot.SPLASH ? "앱 첫 화면" : "커뮤니티 위";
+        String kind = a.getKind() == com.dangdang.domain.announcement.enums.AnnouncementKind.AD ? "광고" : "소식";
+        return slot + " · " + kind;
     }
 }

@@ -1,6 +1,7 @@
 package com.dangdang.domain.myfood.service;
 
 import com.dangdang.domain.food.repository.FoodRepository;
+import com.dangdang.domain.food.service.FoodStapleReader;
 import com.dangdang.domain.meal.dto.request.MealNutritionRequest;
 import com.dangdang.domain.meal.entity.MealNutrition;
 import com.dangdang.domain.myfood.dto.request.MyFoodCreateRequest;
@@ -20,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.util.List;
+import java.util.Map;
 
 // 내 음식 (MY-04b). 나만 보인다. 지워도 지난 끼니 기록은 그대로 — 끼니(meal_items, 언니)는 이름&값을 따로 저장한다
 @Service
@@ -28,6 +30,7 @@ public class MyFoodService {
 
     private final MyFoodRepository myFoodRepository;
     private final FoodRepository foodRepository;
+    private final FoodStapleReader foodStapleReader;
     private final UserRepository userRepository;
     private final Clock clock;
 
@@ -36,7 +39,9 @@ public class MyFoodService {
         List<MyFood> foods = keyword == null || keyword.isBlank()
                 ? myFoodRepository.findByUserIdOrderByUpdatedAtDescIdDesc(userId)
                 : myFoodRepository.findByUserIdAndNameContainingIgnoreCaseOrderByUpdatedAtDescIdDesc(userId, keyword.strip());
-        return foods.stream().map(MyFoodResponse::from).toList();
+        // 주식 여부는 비슷한 음식(similarFoodCode)을 한 번에 읽어서 따름 (없으면 false)
+        Map<String, FoodStapleReader.Traits> staple = foodStapleReader.byCodes(foods.stream().map(MyFood::getSimilarFoodCode).toList());
+        return foods.stream().map(f -> MyFoodResponse.from(f, staple.getOrDefault(f.getSimilarFoodCode(), FoodStapleReader.Traits.NONE))).toList();
     }
 
     @Transactional
@@ -55,7 +60,7 @@ public class MyFoodService {
         } catch (DataIntegrityViolationException e) {
             throw new CustomException(MyFoodErrorCode.DUPLICATE_NAME);
         }
-        return MyFoodResponse.from(food);
+        return MyFoodResponse.from(food, foodStapleReader.of(food.getSimilarFoodCode()));
     }
 
     @Transactional
@@ -80,7 +85,7 @@ public class MyFoodService {
         } catch (DataIntegrityViolationException e) {
             throw new CustomException(MyFoodErrorCode.DUPLICATE_NAME);
         }
-        return MyFoodResponse.from(food);
+        return MyFoodResponse.from(food, foodStapleReader.of(food.getSimilarFoodCode()));
     }
 
     @Transactional

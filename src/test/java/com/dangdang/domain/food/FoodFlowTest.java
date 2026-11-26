@@ -255,6 +255,49 @@ class FoodFlowTest {
     }
 
     @Test
+    void 주식_여부는_분류와_대표식품명으로_정한다() throws Exception {
+        // {식품코드, 주식 여부}
+        String[][] cases = {
+                {"D101-004160000-0001", "true"},    // 국밥_돼지머리 (밥류)
+                {"D103-173000000-0001", "true"},    // 쫄면 (면 및 만두류)
+                {"D102-100000000-0001", "true"},    // 식빵 (빵 및 과자류 중 끼니 빵)
+                {"D102-096060000-0001", "true"},    // 샌드위치_닭가슴살
+                {"D102-110110000-0001", "false"},   // 케이크_롤케이크 (빵 및 과자류지만 간식)
+                {"D104-185060000-0001", "false"},   // 스프_양송이버섯 (죽 및 스프류지만 국물)
+                {"D105-199000000-0001", "false"},   // 갈비탕 (국 및 탕류)
+                {"D103-150030000-0001", "false"},   // 만두_군만두 (면 및 만두류지만 반찬)
+                {"D103-167000000-0001", "false"},   // 월남쌈 (면 및 만두류지만 반찬)
+                {"D103-146000000-0001", "true"},    // 떡만두국 (만두가 들어가도 국은 끼니)
+        };
+        for (String[] c : cases) {
+            mvc.perform(get("/api/foods/" + c[0]).cookie(access))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.isStaple").value(Boolean.parseBoolean(c[1])));
+        }
+        // 검색 결과에도 같은 칸
+        mvc.perform(get("/api/foods").param("q", "식빵").cookie(access))
+                .andExpect(jsonPath("$.data.items[0].isStaple").value(true));
+    }
+
+    @Test
+    void 음식_상세와_검색에_표시_단위가_온다() throws Exception {
+        String[][] cases = {
+                {"D103-173000000-0001", "그릇"},    // 쫄면 (면 및 만두류)
+                {"D103-150030000-0001", "인분"},    // 만두_군만두 (여러 개)
+                {"D105-199000000-0001", "그릇"},    // 갈비탕 (국 및 탕류)
+                {"D102-110110000-0001", "개"},      // 케이크_롤케이크 (빵 및 과자류)
+                {"D301-022000000-0001", "인분"},    // 쌀밥이지만 1인분 100g (반 공기라 공기 아님, PR #178 리뷰)
+        };
+        for (String[] c : cases) {
+            mvc.perform(get("/api/foods/" + c[0]).cookie(access))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data.unitLabel").value(c[1]));
+        }
+        mvc.perform(get("/api/foods").param("q", "식빵").cookie(access))
+                .andExpect(jsonPath("$.data.items[0].unitLabel").value("개"));       // 식빵 (빵 및 과자류)
+    }
+
+    @Test
     void 상세는_검색_결과와_같은_모양() throws Exception {
         mvc.perform(get("/api/foods/D103-173000000-0001").cookie(access))
                 .andExpect(status().isOk())

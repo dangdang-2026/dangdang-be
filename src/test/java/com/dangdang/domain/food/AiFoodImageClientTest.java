@@ -22,6 +22,9 @@ class AiFoodImageClientTest {
     final AtomicReference<String> requestId = new AtomicReference<>();
     final AtomicReference<String> contentType = new AtomicReference<>();
     final AtomicReference<String> body = new AtomicReference<>();
+    // 가짜 AI 서버가 돌려줄 응답 (테스트마다 바꿀 수 있음)
+    final AtomicReference<String> response =
+            new AtomicReference<>("{\"candidates\":[{\"name\":\"김밥\",\"confidence\":0.9972}]}");
     AiFoodImageClient client;
 
     @BeforeEach
@@ -32,7 +35,7 @@ class AiFoodImageClientTest {
             requestId.set(exchange.getRequestHeaders().getFirst("X-Request-Id"));
             contentType.set(exchange.getRequestHeaders().getFirst("Content-Type"));
             body.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.ISO_8859_1));
-            byte[] res = "{\"candidates\":[{\"name\":\"김밥\",\"confidence\":0.9972}]}".getBytes(StandardCharsets.UTF_8);
+            byte[] res = response.get().getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, res.length);
             exchange.getResponseBody().write(res);
@@ -62,6 +65,54 @@ class AiFoodImageClientTest {
         assertThat(result.candidates()).hasSize(1);
         assertThat(result.candidates().get(0).name()).isEqualTo("김밥");
         assertThat(result.candidates().get(0).confidence()).isEqualTo(0.9972);
+    }
+
+    @Test
+    void 한상_응답의_items를_읽고_좌표가_빈_값이어도_응답_전체를_버리지_않는다() {
+        response.set("""
+                {"candidates":[{"name":"김치찌개","confidence":0.6}],
+                 "items":[
+                   {"box":{"x":0.05,"y":0.1,"width":0.4,"height":0.3},"candidates":[{"name":"김치찌개","confidence":0.81}]},
+                   {"box":{"x":null,"y":0.6,"width":0.2,"height":0.2},"candidates":[{"name":"배추김치","confidence":0.9}]}
+                 ]}
+                """);
+
+        FoodImageClient.Result result = client.candidates("req-1", new byte[]{1}, "image/jpeg");
+
+        assertThat(result.items()).hasSize(2);
+        assertThat(result.items().get(0).box().x()).isEqualTo(0.05);
+        assertThat(result.items().get(1).box().x()).isNull();   // 그 좌표만 비고, 나머지는 그대로 읽힘
+        assertThat(result.items().get(1).candidates().get(0).name()).isEqualTo("배추김치");
+    }
+
+    @Test
+    void 그릇을_못_찾은_AI_응답은_box가_null인_음식_하나로_읽는다() {
+        // dangdang-ai #40: 그릇이 0개거나 그릇 찾기 모델이 없으면 items 1개, box null, 후보는 사진 전체 후보와 같음
+        response.set("""
+                {"candidates":[{"name":"김밥","confidence":0.92}],
+                 "items":[{"box":null,"candidates":[{"name":"김밥","confidence":0.92}]}]}
+                """);
+
+        FoodImageClient.Result result = client.candidates("req-1", new byte[]{1}, "image/jpeg");
+
+        assertThat(result.items()).hasSize(1);
+        assertThat(result.items().get(0).box()).isNull();
+        assertThat(result.items().get(0).candidates().get(0).name()).isEqualTo("김밥");
+    }
+
+    @Test
+    void 후보의_searchName을_읽고_없으면_null() {
+        // dangdang-ai #44: 후보마다 식약처에서 찾을 이름. 예전 AI 서버는 이 칸이 없음
+        response.set("""
+                {"candidates":[{"name":"계란찜","confidence":0.93,"searchName":"달걀찜"},{"name":"김밥","confidence":0.05}]}
+                """);
+
+        FoodImageClient.Result result = client.candidates("req-1", new byte[]{1}, "image/jpeg");
+
+        assertThat(result.candidates().get(0).searchName()).isEqualTo("달걀찜");
+        assertThat(result.candidates().get(0).nameToSearch()).isEqualTo("달걀찜");
+        assertThat(result.candidates().get(1).searchName()).isNull();
+        assertThat(result.candidates().get(1).nameToSearch()).isEqualTo("김밥");
     }
 
     @Test

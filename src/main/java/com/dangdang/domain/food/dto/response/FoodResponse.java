@@ -23,7 +23,9 @@ public record FoodResponse(
         BigDecimal proteinG,
         BigDecimal fatG,
         BigDecimal sugarG,
-        LocalDate sourceVersion) {
+        LocalDate sourceVersion,
+        boolean isStaple,           // 주식(밥·면·빵 끼니)인지. 밥류·면·죽 분류와 빵 중 피자·버거·식빵·샌드위치 등 (케이크·도넛·쿠키는 false)
+        String unitLabel) {         // 1인분(servingG)을 부르는 말: 공기·그릇·접시·잔·줄·개, 맞는 말이 없으면 인분 (Food.unitLabelOf)
 
     private static final BigDecimal BASE = BigDecimal.valueOf(100);
 
@@ -42,7 +44,9 @@ public record FoodResponse(
                 perServing(f.getProteinG(), serving),
                 perServing(f.getFatG(), serving),
                 perServing(f.getSugarG(), serving),
-                f.getSourceVersion());
+                f.getSourceVersion(),
+                f.isStaple(),
+                f.unitLabel());
     }
 
     private static BigDecimal perServing(BigDecimal perBase, BigDecimal serving) {

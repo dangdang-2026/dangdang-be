@@ -331,6 +331,56 @@ class MealItemFlowTest {
     }
 
     @Test
+    void 항목의_주식_여부는_고른_음식을_따르고_직접_적은_음식은_false() throws Exception {
+        add(access, mealId, "{\"foodCode\":\"" + JJOLMYEON + "\"}")                  // 쫄면 (면 및 만두류)
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.isStaple").value(true))
+                .andExpect(jsonPath("$.data.unitLabel").value("그릇"));
+        add(access, mealId, "{\"foodCode\":\"D103-150030000-0001\"}")                 // 만두_군만두 (반찬)
+                .andExpect(jsonPath("$.data.isStaple").value(false))
+                .andExpect(jsonPath("$.data.unitLabel").value("인분"));
+        add(access, mealId, "{\"name\":\"엄마표 잡채밥\"}")                              // 직접 적은 음식은 서버가 분류를 모름
+                .andExpect(jsonPath("$.data.isStaple").value(false))
+                .andExpect(jsonPath("$.data.unitLabel").value("인분"));
+
+        // 식사 조회의 items[]에도 같은 값 (추가한 순서)
+        mvc.perform(get("/api/meals/" + mealId).cookie(access))
+                .andExpect(jsonPath("$.data.items[0].isStaple").value(true))
+                .andExpect(jsonPath("$.data.items[1].isStaple").value(false))
+                .andExpect(jsonPath("$.data.items[2].isStaple").value(false))
+                .andExpect(jsonPath("$.data.items[0].unitLabel").value("그릇"))
+                .andExpect(jsonPath("$.data.items[2].unitLabel").value("인분"));
+    }
+
+    @Test
+    void 식사_조회의_항목에_updatedAt이_있고_내가_잰_값을_적으면_바뀐다() throws Exception {
+        Object[] added = addWithMealTime("{\"foodCode\":\"" + JJOLMYEON + "\"}");
+        long itemId = (long) added[0];
+        jdbc.update("UPDATE meal_items SET updated_at = ? WHERE id = ?",
+                Timestamp.from(Instant.parse("2026-01-01T00:00:00Z")), itemId);   // 예전 시각으로 돌려 둠
+
+        mvc.perform(get("/api/meals/" + mealId).cookie(access))
+                .andExpect(jsonPath("$.data.items[0].updatedAt").value("2026-01-01T00:00:00Z"));
+
+        postNutrition(access, mealId, itemId,
+                "{\"nutritionOverride\":{\"carbG\":45},\"expectedUpdatedAt\":\"" + added[1] + "\"}")
+                .andExpect(status().isOk());
+        String body = mvc.perform(get("/api/meals/" + mealId).cookie(access))
+                .andReturn().getResponse().getContentAsString();
+        Instant afterOverride = Instant.parse(JsonPath.read(body, "$.data.items[0].updatedAt"));
+        assertThat(afterOverride).isAfter(Instant.parse("2026-01-01T00:00:00Z"));   // 다른 기기가 고친 걸 알 수 있음
+
+        // 공공 값으로 되돌릴 때도 바뀜 (다시 예전 시각으로 돌려 둔 뒤 확인)
+        jdbc.update("UPDATE meal_items SET updated_at = ? WHERE id = ?",
+                Timestamp.from(Instant.parse("2026-01-01T00:00:00Z")), itemId);
+        revert(access, mealId, itemId).andExpect(status().isOk());
+        String reverted = mvc.perform(get("/api/meals/" + mealId).cookie(access))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(Instant.parse(JsonPath.read(reverted, "$.data.items[0].updatedAt")))
+                .isAfter(Instant.parse("2026-01-01T00:00:00Z"));
+    }
+
+    @Test
     void 남의_항목이나_다른_식사의_항목이나_지운_항목은_404() throws Exception {
         long itemId = addAndGetId(mealId, "{\"name\":\"떡\"}");
         patchItem(other, mealId, itemId, "{\"servings\":2}")                  // 남의 식사

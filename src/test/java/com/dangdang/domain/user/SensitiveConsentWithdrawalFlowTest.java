@@ -30,11 +30,13 @@ class SensitiveConsentWithdrawalFlowTest extends ReminderTestBase {
             """;
     static final String READING = "{\"value\":92,\"measuredAt\":\"2026-11-09T07:00:00+09:00\",\"readingType\":\"FASTING\"}";
 
-    // user_id가 있지만 철회해도 남기는 표 — 건강정보가 아니거나(계정·커뮤니티·설정·기기), 따로 정한 것(내 음식)
+    // user_id가 있지만 철회해도 남기는 표 — 건강정보가 아니거나(계정·커뮤니티·설정·기기·상점), 따로 정한 것(내 음식)
+    // 상점 찜·판매처로 간 기록·최근 본 상품은 건강정보가 아니라 남긴다 (탈퇴하면 CASCADE로 지워짐, 화면에서 직접 지울 수 있음)
     // 새 표를 만들면 철회 목록(ERASED_TABLES)이나 여기 중 하나에 넣어야 아래 테스트가 통과한다
     static final Set<String> KEPT_TABLES = Set.of(
             "consent_events", "notification_preferences", "push_subscriptions", "meal_settings", "my_foods",
-            "community_profiles", "user_sanctions", "sanction_appeals", "card_reactions", "card_saves");
+            "community_profiles", "user_sanctions", "sanction_appeals", "card_reactions", "card_saves",
+            "product_likes", "product_visits", "product_views");
 
     Cookie jisu;
     Cookie minji;

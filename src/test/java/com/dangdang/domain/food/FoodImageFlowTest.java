@@ -29,6 +29,7 @@ import java.util.List;
 
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
@@ -85,7 +86,36 @@ class FoodImageFlowTest {
                 .andExpect(jsonPath("$.data.candidates[0].foods", not(empty())))
                 .andExpect(jsonPath("$.data.candidates[0].foods.length()").value(org.hamcrest.Matchers.lessThanOrEqualTo(3)))
                 .andExpect(jsonPath("$.data.candidates[0].foods[0].foodCode").exists())
+                .andExpect(jsonPath("$.data.candidates[0].foods[0].unitLabel").exists())   // 사진 후보 음식에도 표시 단위
                 .andExpect(jsonPath("$.data.candidates[1].name").value("김치볶음밥"));
+    }
+
+    @Test
+    void AI가_찾을_이름을_주면_그_이름으로_식약처를_찾고_화면_이름은_AI_이름() throws Exception {
+        // dangdang-ai #44: DB엔 계란찜이 없고 달걀찜만 있음 → searchName으로 찾아야 음식이 붙음
+        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(List.of(
+                new Candidate("계란찜", 0.93, "달걀찜"), new Candidate("김밥", 0.05, " "))));   // 빈 찾을 이름은 AI 이름으로
+
+        analyze(PHOTO)
+                .andExpect(jsonPath("$.data.fallback").value(false))
+                .andExpect(jsonPath("$.data.candidates[0].name").value("계란찜"))
+                .andExpect(jsonPath("$.data.candidates[0].foods", not(empty())))
+                .andExpect(jsonPath("$.data.candidates[0].foods[0].name").value(containsString("달걀찜")))
+                .andExpect(jsonPath("$.data.candidates[1].name").value("김밥"))
+                .andExpect(jsonPath("$.data.candidates[1].foods", not(empty())));
+    }
+
+    @Test
+    void 찾을_이름으로_못_찾으면_AI_이름으로_한_번_더_찾는다() throws Exception {
+        // AI 대응표에 오타가 들어가도 원래 이름으로 찾을 수 있으면 빈 칸이 되지 않게 (PR #179 리뷰)
+        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(List.of(
+                new Candidate("김밥", 0.93, "없는음식이름쀍"), new Candidate("없는음식이름쀍2", 0.05, "없는음식이름쀍3"))));
+
+        analyze(PHOTO)
+                .andExpect(jsonPath("$.data.candidates[0].name").value("김밥"))
+                .andExpect(jsonPath("$.data.candidates[0].foods", not(empty())))
+                .andExpect(jsonPath("$.data.candidates[0].foods[0].name").value(containsString("김밥")))
+                .andExpect(jsonPath("$.data.candidates[1].foods", hasSize(0)));   // 둘 다 없으면 지금처럼 빈 배열
     }
 
     @Test
@@ -233,6 +263,200 @@ class FoodImageFlowTest {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.errorCode").value("FOOD_40301"));
         verify(foodImageClient, never()).candidates(any(), any(), any());
+    }
+
+    // ---------- 한상 사진 (F-13) ----------
+
+    @Test
+    void AI가_위치를_안_주면_사진_전체를_음식_하나로_본다() throws Exception {
+        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(List.of(
+                new Candidate("김밥", 0.95))));
+
+        analyze(PHOTO)
+                .andExpect(jsonPath("$.data.fallback").value(false))
+                .andExpect(jsonPath("$.data.candidates[0].name").value("김밥"))   // 예전 칸 그대로
+                .andExpect(jsonPath("$.data.items", hasSize(1)))
+                .andExpect(jsonPath("$.data.items[0].box").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.data.items[0].fallback").value(false))
+                .andExpect(jsonPath("$.data.items[0].candidates[0].name").value("김밥"));
+    }
+
+    @Test
+    void AI가_그릇을_하나만_찾으면_그_위치와_사진_전체_후보로_음식_하나() throws Exception {
+        // dangdang-ai #40: 그릇이 1개면 items 1개에 그 위치, 후보는 사진 전체 후보와 같음
+        List<Candidate> whole = List.of(new Candidate("김밥", 0.92));
+        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(whole,
+                List.of(new FoodImageClient.Item(new FoodImageClient.Box(0.2, 0.3, 0.5, 0.4), whole))));
+
+        analyze(PHOTO)
+                .andExpect(jsonPath("$.data.fallback").value(false))
+                .andExpect(jsonPath("$.data.candidates[0].name").value("김밥"))
+                .andExpect(jsonPath("$.data.items", hasSize(1)))
+                .andExpect(jsonPath("$.data.items[0].box.x").value(0.2))
+                .andExpect(jsonPath("$.data.items[0].box.height").value(0.4))
+                .andExpect(jsonPath("$.data.items[0].candidates[0].name").value("김밥"));
+    }
+
+    @Test
+    void AI가_그릇을_못_찾으면_box_null인_음식_하나() throws Exception {
+        // dangdang-ai #40: 그릇이 0개거나 그릇 찾기 모델이 없으면 items 1개, box null
+        List<Candidate> whole = List.of(new Candidate("김밥", 0.92));
+        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(whole,
+                List.of(new FoodImageClient.Item(null, whole))));
+
+        analyze(PHOTO)
+                .andExpect(jsonPath("$.data.fallback").value(false))
+                .andExpect(jsonPath("$.data.items", hasSize(1)))
+                .andExpect(jsonPath("$.data.items[0].box").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.data.items[0].candidates[0].name").value("김밥"));
+    }
+
+    @Test
+    void 한상_사진이면_음식마다_위치와_후보를_주고_예전_칸은_가장_확신_높은_음식() throws Exception {
+        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(
+                List.of(new Candidate("김치찌개", 0.5)),
+                List.of(new FoodImageClient.Item(new FoodImageClient.Box(0.05, 0.1, 0.4, 0.3),
+                                List.of(new Candidate("비빔밥", 0.8))),
+                        new FoodImageClient.Item(new FoodImageClient.Box(0.5, 0.1, 0.4, 0.3),
+                                List.of(new Candidate("김밥", 0.95), new Candidate("비빔밥", 0.03))),
+                        new FoodImageClient.Item(new FoodImageClient.Box(0.3, 0.6, 0.3, 0.3),
+                                List.of(new Candidate("김치", 0.4))))));   // 확신 낮음 → 이 음식만 이름으로 적기
+
+        analyze(PHOTO)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.fallback").value(false))
+                .andExpect(jsonPath("$.data.candidates[0].name").value("김밥"))   // 1등 확신도가 가장 높은 음식
+                .andExpect(jsonPath("$.data.items", hasSize(3)))
+                .andExpect(jsonPath("$.data.items[0].box.x").value(0.05))
+                .andExpect(jsonPath("$.data.items[0].box.width").value(0.4))
+                .andExpect(jsonPath("$.data.items[0].candidates[0].name").value("비빔밥"))
+                .andExpect(jsonPath("$.data.items[0].candidates[0].foods", not(empty())))
+                .andExpect(jsonPath("$.data.items[1].candidates[0].name").value("김밥"))
+                .andExpect(jsonPath("$.data.items[2].fallback").value(true))
+                .andExpect(jsonPath("$.data.items[2].candidates", hasSize(0)))
+                .andExpect(jsonPath("$.data.items[2].box.y").value(0.6));
+    }
+
+    @Test
+    void 위치가_틀리면_위치만_빼고_음식은_6개까지() throws Exception {
+        List<FoodImageClient.Item> many = new java.util.ArrayList<>();
+        many.add(new FoodImageClient.Item(new FoodImageClient.Box(0.8, 0.1, 0.5, 0.2), List.of(new Candidate("김밥", 0.9))));   // 오른쪽으로 넘침
+        many.add(new FoodImageClient.Item(new FoodImageClient.Box(Double.NaN, 0.0, 0.1, 0.1), List.of(new Candidate("김밥", 0.9))));
+        for (int i = 0; i < 6; i++) {
+            many.add(new FoodImageClient.Item(new FoodImageClient.Box(0.0, 0.0, 0.1, 0.1), List.of(new Candidate("김밥", 0.9))));
+        }
+        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(List.of(), many));
+
+        analyze(PHOTO)
+                .andExpect(jsonPath("$.data.items", hasSize(6)))
+                .andExpect(jsonPath("$.data.items[0].box").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.data.items[1].box").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.data.items[2].box.width").value(0.1));
+    }
+
+    @Test
+    void 위치가_있으면_가운데_점도_준다_좌표가_비면_위치만_뺀다() throws Exception {
+        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(List.of(),
+                List.of(new FoodImageClient.Item(new FoodImageClient.Box(0.2, 0.4, 0.4, 0.2), List.of(new Candidate("김밥", 0.9))),
+                        new FoodImageClient.Item(new FoodImageClient.Box(null, 0.1, 0.1, 0.1), List.of(new Candidate("김밥", 0.9))))));
+
+        analyze(PHOTO)
+                .andExpect(jsonPath("$.data.items[0].point.x").value(0.4))     // 0.2 + 0.4 / 2
+                .andExpect(jsonPath("$.data.items[0].point.y").value(0.5))     // 0.4 + 0.2 / 2
+                .andExpect(jsonPath("$.data.items[1].box").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.data.items[1].point").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.data.items[1].fallback").value(false));   // 위치만 빠지고 후보는 그대로
+    }
+
+    @Test
+    void 위치도_후보도_없는_빈_음식만_오면_예전_candidates로_처리한다() throws Exception {
+        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(
+                List.of(new Candidate("김밥", 0.95)), List.of(new FoodImageClient.Item(null, List.of()))));   // {}
+
+        analyze(PHOTO)
+                .andExpect(jsonPath("$.data.fallback").value(false))
+                .andExpect(jsonPath("$.data.candidates[0].name").value("김밥"))
+                .andExpect(jsonPath("$.data.items", hasSize(1)));
+    }
+
+    @Test
+    void 끝이_1을_살짝_넘는_위치는_사진_경계에_맞게_줄인다() throws Exception {
+        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(List.of(),
+                List.of(new FoodImageClient.Item(new FoodImageClient.Box(0.6, 0.7, 0.4005, 0.3), List.of(new Candidate("김밥", 0.9))))));
+
+        analyze(PHOTO)
+                .andExpect(jsonPath("$.data.items[0].box.x").value(0.6))
+                .andExpect(jsonPath("$.data.items[0].box.width").value(org.hamcrest.Matchers.closeTo(0.4, 1e-9)))   // 1 - 0.6
+                .andExpect(jsonPath("$.data.items[0].box.height").value(org.hamcrest.Matchers.closeTo(0.3, 1e-9)));
+    }
+
+    @Test
+    void 이름_없는_후보의_높은_점수로는_6개_안에_못_든다() throws Exception {
+        List<FoodImageClient.Item> seven = new java.util.ArrayList<>();
+        seven.add(new FoodImageClient.Item(new FoodImageClient.Box(0.0, 0.0, 0.1, 0.1), List.of(new Candidate(" ", 0.99))));   // 이름 없음
+        for (int i = 1; i < 7; i++) {
+            seven.add(new FoodImageClient.Item(new FoodImageClient.Box(0.1 * i, 0.0, 0.1, 0.1), List.of(new Candidate("비빔밥", 0.8))));
+        }
+        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(List.of(), seven));
+
+        analyze(PHOTO)
+                .andExpect(jsonPath("$.data.items", hasSize(6)))
+                .andExpect(jsonPath("$.data.items[*].fallback", org.hamcrest.Matchers.everyItem(org.hamcrest.Matchers.is(false))));
+    }
+
+    @Test
+    void items가_빈_값뿐이면_예전_candidates로_처리한다() throws Exception {
+        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(
+                List.of(new Candidate("김밥", 0.95)), java.util.Arrays.asList((FoodImageClient.Item) null)));
+
+        analyze(PHOTO)
+                .andExpect(jsonPath("$.data.fallback").value(false))
+                .andExpect(jsonPath("$.data.candidates[0].name").value("김밥"))
+                .andExpect(jsonPath("$.data.items", hasSize(1)));
+    }
+
+    @Test
+    void 음식이_6개보다_많으면_확신_높은_6개를_남기고_순서는_그대로() throws Exception {
+        List<FoodImageClient.Item> seven = new java.util.ArrayList<>();
+        for (int i = 0; i < 6; i++) {
+            seven.add(new FoodImageClient.Item(new FoodImageClient.Box(0.1 * i, 0.0, 0.1, 0.1), List.of(new Candidate("비빔밥", 0.5))));
+        }
+        seven.add(new FoodImageClient.Item(new FoodImageClient.Box(0.9, 0.9, 0.1, 0.1), List.of(new Candidate("김밥", 0.95))));   // 맨 뒤지만 확신 가장 높음
+        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(List.of(), seven));
+
+        analyze(PHOTO)
+                .andExpect(jsonPath("$.data.items", hasSize(6)))
+                .andExpect(jsonPath("$.data.items[5].candidates[0].name").value("김밥"))   // 남았고, 원래 순서대로 맨 뒤
+                .andExpect(jsonPath("$.data.fallback").value(false))
+                .andExpect(jsonPath("$.data.candidates[0].name").value("김밥"));
+    }
+
+    @Test
+    void 한상_사진의_음식이_전부_확신_낮으면_전체_이름으로_적기지만_위치는_준다() throws Exception {
+        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(List.of(),
+                List.of(new FoodImageClient.Item(new FoodImageClient.Box(0.0, 0.0, 0.5, 0.5), List.of(new Candidate("김밥", 0.3))))));
+
+        analyze(PHOTO)
+                .andExpect(jsonPath("$.data.fallback").value(true))
+                .andExpect(jsonPath("$.data.candidates", hasSize(0)))
+                .andExpect(jsonPath("$.data.items", hasSize(1)))
+                .andExpect(jsonPath("$.data.items[0].fallback").value(true));
+    }
+
+    @Test
+    void 음식마다_확신이_낮아도_사진_전체_후보가_높으면_예전_칸은_사진_전체_후보로() throws Exception {
+        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(
+                List.of(new Candidate("비빔밥", 0.95)),
+                List.of(new FoodImageClient.Item(new FoodImageClient.Box(0.0, 0.0, 0.4, 0.4), List.of(new Candidate("김밥", 0.3))),
+                        new FoodImageClient.Item(new FoodImageClient.Box(0.5, 0.5, 0.4, 0.4), List.of()))));
+
+        analyze(PHOTO)
+                .andExpect(jsonPath("$.data.fallback").value(false))
+                .andExpect(jsonPath("$.data.candidates[0].name").value("비빔밥"))
+                .andExpect(jsonPath("$.data.candidates[0].foods", not(empty())))
+                .andExpect(jsonPath("$.data.items", hasSize(2)))
+                .andExpect(jsonPath("$.data.items[0].fallback").value(true))   // 음식마다 판단은 그대로
+                .andExpect(jsonPath("$.data.items[1].fallback").value(true));
     }
 
     @Test
