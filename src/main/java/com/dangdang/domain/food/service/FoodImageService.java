@@ -122,8 +122,9 @@ public class FoodImageService {
             return FoodImageAnalysisResponse.Item.of(box, true, List.of());
         }
         return FoodImageAnalysisResponse.Item.of(box, false, candidates.stream()
+                // 식약처는 AI가 알려 준 이름(searchName)으로 찾는다 (계란찜 → 달걀찜). 화면에 보일 이름은 AI 이름 그대로
                 .map(c -> new FoodImageAnalysisResponse.Candidate(c.name(), c.confidence(),
-                        searched.computeIfAbsent(c.name(),
+                        searched.computeIfAbsent(c.nameToSearch(),
                                 name -> foodService.search(name, 0, FOODS_PER_CANDIDATE).items())))
                 .toList());
     }

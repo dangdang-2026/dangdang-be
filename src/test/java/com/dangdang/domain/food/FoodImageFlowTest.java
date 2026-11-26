@@ -90,6 +90,21 @@ class FoodImageFlowTest {
     }
 
     @Test
+    void AI가_찾을_이름을_주면_그_이름으로_식약처를_찾고_화면_이름은_AI_이름() throws Exception {
+        // dangdang-ai #44: DB엔 계란찜이 없고 달걀찜만 있음 → searchName으로 찾아야 음식이 붙음
+        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(List.of(
+                new Candidate("계란찜", 0.93, "달걀찜"), new Candidate("김밥", 0.05, " "))));   // 빈 찾을 이름은 AI 이름으로
+
+        analyze(PHOTO)
+                .andExpect(jsonPath("$.data.fallback").value(false))
+                .andExpect(jsonPath("$.data.candidates[0].name").value("계란찜"))
+                .andExpect(jsonPath("$.data.candidates[0].foods", not(empty())))
+                .andExpect(jsonPath("$.data.candidates[0].foods[0].name").value(org.hamcrest.Matchers.containsString("달걀찜")))
+                .andExpect(jsonPath("$.data.candidates[1].name").value("김밥"))
+                .andExpect(jsonPath("$.data.candidates[1].foods", not(empty())));
+    }
+
+    @Test
     void 식약처에_없는_이름이면_foods는_빈_배열() throws Exception {
         given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(List.of(
                 new Candidate("없는음식이름쀍", 0.95))));
