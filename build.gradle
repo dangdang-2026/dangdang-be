@@ -43,6 +43,8 @@ dependencies {
     implementation 'org.bouncycastle:bcprov-jdk18on:1.78.1'
     implementation 'net.javacrumbs.shedlock:shedlock-spring:7.11.0'
     implementation 'net.javacrumbs.shedlock:shedlock-provider-jdbc-template:7.11.0'
+    implementation platform('software.amazon.awssdk:bom:2.40.0')
+    implementation 'software.amazon.awssdk:s3'
 	testCompileOnly 'org.projectlombok:lombok'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 	testAnnotationProcessor 'org.projectlombok:lombok'
