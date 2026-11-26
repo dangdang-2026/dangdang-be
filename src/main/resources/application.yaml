@@ -111,6 +111,8 @@ admin:
 ai:
   base-url: ${AI_BASE_URL:http://localhost:8000}   # AI 서버 주소 (운영은 docker-compose가 http://ai:8000)
   internal-token: ${INTERNAL_TOKEN:}            # AI 서버와 같은 값 (.env)
+food-embedding:
+  fill-enabled: ${FOOD_EMBEDDING_FILL_ENABLED:false}   # 음식 이름 벡터 채우기 (서버가 뜰 때 빈 칸만). 서버만 true
 kakao:
   client-id: ${KAKAO_REST_API_KEY:}             # 카카오 REST API 키 (.env에 있는 이름 그대로)
   client-secret: ${KAKAO_CLIENT_SECRET:}        # 카카오 클라이언트 시크릿
