@@ -6,6 +6,7 @@ import com.dangdang.domain.visit.dto.response.VisitReportResponse;
 import com.dangdang.domain.visit.dto.response.VisitReportSaveResponse;
 import com.dangdang.domain.visit.service.VisitReportService;
 import com.dangdang.global.common.BaseResponse;
+import com.dangdang.global.common.QueryParams;
 import com.dangdang.global.security.AuthPrincipal;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -29,9 +30,12 @@ public class VisitReportController {
             summary = "[ 사용자 | 토큰 O | 지난 리포트 목록 ]",
             description =
                     """
-                    **Parameters** careSiteId(선택, 그 병원 리포트만), page(기본 0, 0~10000), size(기본 20, 1~100)
+                    **Parameters** careSiteId(선택, 그 병원 리포트만), until(선택, 한국 날짜 yyyy-MM-dd, 그날까지의 리포트만 — 임신 중 기록 보관함은 출산일),
+                    page(기본 0, 0~10000), size(기본 20, 1~100)
                     **Returns** items[]{id, kind, from, to, visitId, careSiteId, careSiteName, visitDate,
-                    summary{measured, inTargetRate, outOfTarget, compared}(카드 「목표 밖 n번 · 측정 n번」), createdAt}·page·size·hasNext.
+                    summary{measured, inTargetRate, outOfTarget, compared}(카드 「목표 밖 n번 · 측정 n번」), createdAt}·page·size·hasNext·totalCount·totalPages.
+                    until: 진료용은 진료 날짜가 until 이하(날짜 미정은 빠짐), 기간 직접은 끝 날짜가 until 이하. 없으면 전부.
+                    totalCount·totalPages는 같은 조건의 전체 개수·쪽 수 (보관함 「리포트 6장」은 size=1로 불러 totalCount만 씀).
                     최근 저장 순. summary는 조회할 때 다시 계산 (기준이 없던 기간이면 compared=false, inTargetRate=null).
                     진료용은 기간·병원을 지금 진료 일정으로 계산 (careSiteId 필터도 지금 일정의 병원 기준).
                     진료 날짜를 미정으로 바꾼 진료용은 from·to·visitDate·summary가 null.
@@ -42,14 +46,17 @@ public class VisitReportController {
     public ResponseEntity<BaseResponse<VisitReportPageResponse>> list(
             @AuthenticationPrincipal AuthPrincipal principal,
             @RequestParam(required = false) Long careSiteId,
+            @RequestParam(required = false) String until,
             @RequestParam(defaultValue = "0")
             @Min(value = 0, message = "page는 0~10000이에요.")
             @Max(value = 10000, message = "page는 0~10000이에요.") int page,
             @RequestParam(defaultValue = "20")
             @Min(value = 1, message = "size는 1~100이에요.")
             @Max(value = 100, message = "size는 1~100이에요.") int size) {
+        // 날짜는 글자로 받아 검사 (형식이 틀리거나 2000~2100년 밖이면 GLOBAL_40001, 다른 날짜 입력과 같음)
         return ResponseEntity.ok(BaseResponse.success(200, "지난 리포트 목록 조회에 성공했습니다.",
-                visitReportService.list(principal.userId(), careSiteId, page, size)));
+                visitReportService.list(principal.userId(), careSiteId, QueryParams.optionalDate(until, "until"),
+                        page, size)));
     }
 
     @Operation(
