@@ -15,9 +15,11 @@ public record MealUpdateRequest(
         Instant startedAt,           // 등록과 같은 형식 ("2026-11-09T12:30:00+09:00")
 
         @Size(max = 255, message = "메모는 255자까지 쓸 수 있어요.")
-        String note) {               // 메모를 비우려면 "" 로 보냄
+        String note,                 // 메모를 비우려면 "" 로 보냄
 
-    // 바꿀 값이 하나도 없는 요청인지
+        Instant expectedUpdatedAt) { // 화면을 열 때 받은 식사 updatedAt (선택, 항목 응답의 mealUpdatedAt도 됨). 그 사이 다른 곳에서 바뀌었으면 409 (#172)
+
+    // 바꿀 값이 하나도 없는 요청인지 (expectedUpdatedAt은 바꿀 값이 아님)
     public boolean isEmpty() {
         return mealSlot == null && startedAt == null && note == null;
     }

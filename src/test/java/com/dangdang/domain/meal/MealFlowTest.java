@@ -254,6 +254,34 @@ class MealFlowTest {
     }
 
     @Test
+    void 화면을_연_뒤_다른_기기에서_먼저_바꿨으면_409이고_덮어쓰지_않는다() throws Exception {   // #172
+        long id = create("LUNCH", Instant.now());
+        jdbc.update("UPDATE meals SET updated_at = '2026-01-01T00:00:00Z' WHERE id = ?", id);   // 두 수정 사이 시각 차이를 분명하게
+        String seenByA = JsonPath.read(mvc.perform(get("/api/meals/" + id).cookie(access))
+                .andReturn().getResponse().getContentAsString(), "$.data.updatedAt");
+
+        // 기기 B가 먼저 바꿈 (expectedUpdatedAt 없이 → 지금처럼 됨)
+        String afterB = JsonPath.read(mvc.perform(patch("/api/meals/" + id).cookie(access)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"note\":\"비빔밥\"}"))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(), "$.data.updatedAt");
+
+        // 기기 A가 옛 화면 값으로 바꾸면 409, 메모는 B가 바꾼 그대로
+        mvc.perform(patch("/api/meals/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"note\":\"김밥\",\"expectedUpdatedAt\":\"" + seenByA + "\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.errorCode").value("MEAL_40901"));
+        mvc.perform(get("/api/meals/" + id).cookie(access))
+                .andExpect(jsonPath("$.data.note").value("비빔밥"));
+
+        // 수정 응답의 updatedAt을 다음 수정에 그대로 쓸 수 있음
+        mvc.perform(patch("/api/meals/" + id).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"note\":\"김밥\",\"expectedUpdatedAt\":\"" + afterB + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.note").value("김밥"));
+    }
+
+    @Test
     void 바꿀_값이_없거나_미래_시각이면_400() throws Exception {
         long id = create("LUNCH", Instant.now());
         mvc.perform(patch("/api/meals/" + id).cookie(access)

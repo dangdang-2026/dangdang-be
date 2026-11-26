@@ -22,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.dangdang.global.common.KoreanTime;
 import com.dangdang.global.common.UndoWindow;
+import com.dangdang.global.common.UpdatedAtCheck;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -94,6 +95,10 @@ public class MealService {
         // 식사 줄을 잠그고 읽음 — 건너뛰기·지우기와 동시에 오면 앞 요청이 끝난 뒤의 상태(건너뜀·지움)를 보고 알림을 다시 걸지 않게.
         // 혈당 쪽 저장·수정도 같은 줄을 잠그고 시작 시각을 봐서, 아래 "식후 혈당보다 늦게" 확인과 혈당 쪽 "식사 시작보다 앞" 확인이 동시에 둘 다 통과하지 않게 함
         Meal meal = findMineForUpdate(userId, mealId);
+        // 화면을 연 뒤 다른 기기에서 먼저 바꿨으면 409 (#172). 줄을 잠근 뒤 보니까 확인과 쓰기 사이에 다른 수정이 끼지 못함
+        if (UpdatedAtCheck.isStale(req.expectedUpdatedAt(), meal.getUpdatedAt())) {
+            throw new CustomException(MealErrorCode.MEAL_CHANGED);
+        }
         boolean timingChanged = (req.mealSlot() != null && req.mealSlot() != meal.getMealSlot())
                 || (req.startedAt() != null && !req.startedAt().equals(meal.getStartedAt()));
         if (req.startedAt() != null && readingRepository
