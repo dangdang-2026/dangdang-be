@@ -422,6 +422,32 @@ class InsulinLogFlowTest {
         assertThat(jdbc.queryForObject("SELECT deleted_at FROM insulin_logs WHERE id = ?", Instant.class, others)).isNull();
     }
 
+    // ---------- 다른 기기에서 먼저 고친 기록 (#172) ----------
+
+    @Test
+    void 화면을_연_뒤_다른_기기에서_먼저_고쳤으면_409이고_덮어쓰지_않는다() throws Exception {
+        long id = createAndGetId(access, json("MEAL", "DINNER", "6", OCT_20_9AM));
+        jdbc.update("UPDATE insulin_logs SET updated_at = '2026-01-01T00:00:00Z' WHERE id = ?", id);   // 기기 A가 본 값
+        String seenByA = "2026-01-01T00:00:00Z";
+
+        // 기기 B가 먼저 고침 (expectedUpdatedAt 없이 → 지금처럼 됨)
+        String afterB = JsonPath.read(update(access, id, "{\"units\":4.5}")
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString(), "$.data.updatedAt");
+
+        // 기기 A가 옛 화면 값으로 고치면 409, 단위는 B가 고친 그대로
+        update(access, id, "{\"units\":8,\"expectedUpdatedAt\":\"" + seenByA + "\"}")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.errorCode").value("INSULIN_40901"));
+        assertThat(jdbc.queryForObject("SELECT units FROM insulin_logs WHERE id = ?", java.math.BigDecimal.class, id))
+                .isEqualByComparingTo("4.5");
+
+        // 수정 응답의 updatedAt을 다음 수정에 그대로 쓸 수 있음
+        update(access, id, "{\"units\":8,\"expectedUpdatedAt\":\"" + afterB + "\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.units").value(8));
+    }
+
     // ---------- 도우미 ----------
 
     private ResultActions delete(Cookie who, long id) throws Exception {

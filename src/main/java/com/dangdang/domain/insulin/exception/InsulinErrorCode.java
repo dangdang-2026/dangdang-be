@@ -18,7 +18,10 @@ public enum InsulinErrorCode implements BaseErrorCode {
     SNACK_NOT_ALLOWED("INSULIN_40005", "인슐린 끼니는 아침·점심·저녁 식사 중에서 골라 주세요.", HttpStatus.BAD_REQUEST),
 
     // 없음·삭제됨·남의 기록 모두 같은 404 (남의 기록이 "있다"는 것도 알려주지 않으려고)
-    INSULIN_LOG_NOT_FOUND("INSULIN_40401", "인슐린 기록을 찾을 수 없어요.", HttpStatus.NOT_FOUND);
+    INSULIN_LOG_NOT_FOUND("INSULIN_40401", "인슐린 기록을 찾을 수 없어요.", HttpStatus.NOT_FOUND),
+
+    // 화면을 연 뒤 다른 곳(다른 기기 등)에서 먼저 고침 (#172)
+    VERSION_CONFLICT("INSULIN_40901", "다른 곳에서 먼저 고쳤어요. 새로고침한 뒤 다시 시도해 주세요.", HttpStatus.CONFLICT);
 
     private final String code;
     private final String message;
