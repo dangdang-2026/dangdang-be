@@ -331,6 +331,23 @@ class MealItemFlowTest {
     }
 
     @Test
+    void 항목의_주식_여부는_고른_음식을_따르고_직접_적은_음식은_false() throws Exception {
+        add(access, mealId, "{\"foodCode\":\"" + JJOLMYEON + "\"}")                  // 쫄면 (면 및 만두류)
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.isStaple").value(true));
+        add(access, mealId, "{\"foodCode\":\"D103-150030000-0001\"}")                 // 만두_군만두 (반찬)
+                .andExpect(jsonPath("$.data.isStaple").value(false));
+        add(access, mealId, "{\"name\":\"엄마표 잡채밥\"}")                              // 직접 적은 음식은 서버가 분류를 모름
+                .andExpect(jsonPath("$.data.isStaple").value(false));
+
+        // 식사 조회의 items[]에도 같은 값 (추가한 순서)
+        mvc.perform(get("/api/meals/" + mealId).cookie(access))
+                .andExpect(jsonPath("$.data.items[0].isStaple").value(true))
+                .andExpect(jsonPath("$.data.items[1].isStaple").value(false))
+                .andExpect(jsonPath("$.data.items[2].isStaple").value(false));
+    }
+
+    @Test
     void 식사_조회의_항목에_updatedAt이_있고_내가_잰_값을_적으면_바뀐다() throws Exception {
         Object[] added = addWithMealTime("{\"foodCode\":\"" + JJOLMYEON + "\"}");
         long itemId = (long) added[0];

@@ -3,6 +3,7 @@ package com.dangdang.domain.meal.service;
 import com.dangdang.domain.food.entity.Food;
 import com.dangdang.domain.food.exception.FoodErrorCode;
 import com.dangdang.domain.food.repository.FoodRepository;
+import com.dangdang.domain.food.service.FoodStapleReader;
 import com.dangdang.domain.meal.dto.request.MealItemCreateRequest;
 import com.dangdang.domain.meal.dto.request.MealItemNutritionRequest;
 import com.dangdang.domain.meal.dto.request.MealItemUpdateRequest;
@@ -37,6 +38,7 @@ public class MealItemService {
     private final MealRepository mealRepository;
     private final MealItemRepository mealItemRepository;
     private final FoodRepository foodRepository;
+    private final FoodStapleReader foodStapleReader;
     private final Clock clock;
     private final SensitiveConsentGuard sensitiveConsentGuard;
 
@@ -65,7 +67,7 @@ public class MealItemService {
                     req.nutrition() == null ? null : req.nutrition().toNutrition());
         }
         mealItemRepository.save(item);
-        return MealItemResponse.from(item, touchMeal(mealId));
+        return MealItemResponse.from(item, touchMeal(mealId), foodStapleReader.of(item.getFoodCode()));
     }
 
     // 항목 수정 (보낸 칸만). 인분·무게, 직접 적은 음식이면 이름까지
@@ -81,7 +83,7 @@ public class MealItemService {
             throw new CustomException(MealErrorCode.ITEM_NAME_OF_FOOD);
         }
         item.update(req.getServings(), req.isWeightGSent(), req.getWeightG(), name);
-        return MealItemResponse.from(item, touchMeal(mealId));
+        return MealItemResponse.from(item, touchMeal(mealId), foodStapleReader.of(item.getFoodCode()));
     }
 
     // 영양값 직접 입력 (노션 명세). nutritionSource=USER가 되고, 적은 칸만 사용자 값으로 씀
@@ -99,7 +101,7 @@ public class MealItemService {
         }
         MealItem item = findItemOf(mealId, itemId);
         item.overrideNutrition(req.getNutritionOverride().toNutrition(), req.isWeightGSent(), req.getWeightG());
-        return MealItemResponse.from(item, touchMeal(mealId));
+        return MealItemResponse.from(item, touchMeal(mealId), foodStapleReader.of(item.getFoodCode()));
     }
 
     // 공공 영양값으로 되돌리기 (노션 명세). 직접 적은 값을 지우고 nutritionSource=DB
@@ -114,9 +116,9 @@ public class MealItemService {
         }
         if (!item.revertNutrition()) {
             // 이미 공공 값이라 바뀐 게 없음 → 식사 수정 시각도 그대로 (다른 기기가 괜히 409를 받지 않게)
-            return MealItemResponse.from(item, item.getMeal().getUpdatedAt());
+            return MealItemResponse.from(item, item.getMeal().getUpdatedAt(), foodStapleReader.of(item.getFoodCode()));
         }
-        return MealItemResponse.from(item, touchMeal(mealId));
+        return MealItemResponse.from(item, touchMeal(mealId), foodStapleReader.of(item.getFoodCode()));
     }
 
     // 항목 삭제 (soft delete). 이미 지운 항목을 또 지우면 404
@@ -132,9 +134,13 @@ public class MealItemService {
         if (mealIds.isEmpty()) {
             return Map.of();
         }
-        return mealItemRepository.findAllByMealIdInAndDeletedAtIsNullOrderByIdAsc(mealIds).stream()
+        List<MealItem> items = mealItemRepository.findAllByMealIdInAndDeletedAtIsNullOrderByIdAsc(mealIds);
+        // 주식 여부는 음식을 한 번에 읽어서 붙임 (항목마다 음식을 따로 조회하지 않게)
+        Map<String, Boolean> staple = foodStapleReader.byCodes(items.stream().map(MealItem::getFoodCode).toList());
+        return items.stream()
                 .collect(Collectors.groupingBy(i -> i.getMeal().getId(),
-                        Collectors.mapping(MealItemSummaryResponse::from, Collectors.toList())));
+                        Collectors.mapping(i -> MealItemSummaryResponse.from(i,
+                                staple.getOrDefault(i.getFoodCode(), false)), Collectors.toList())));
     }
 
     // 식사 하나의 항목

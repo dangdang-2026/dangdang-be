@@ -80,7 +80,7 @@ public class Food {
     private static final String BREAD_CATEGORY = "빵 및 과자류";
     private static final Set<String> STAPLE_BREADS = Set.of(
             "피자", "버거", "햄버거", "식빵", "토스트", "토스트(식빵)", "베이글", "바게트", "번", "모닝빵", "롤빵",
-            "또띠아", "치아바타", "호밀빵", "핫도그");
+            "또띠아", "치아바타", "호밀빵", "핫도그", "시리얼");   // 시리얼은 아침 끼니로 먹음 (프론트 요청)
 
     // 주식 여부 (분류·대표식품명이 없으면 false). 식약처 동기화로 분류 값이 늘면 위 목록에 더함
     public boolean isStaple() {

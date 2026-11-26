@@ -32,6 +32,7 @@ public class FoodHistoryService {
     private final MealItemRepository mealItemRepository;
     private final ReadingRepository readingRepository;
     private final ExpectedTimeResolver expectedTimeResolver;
+    private final FoodStapleReader foodStapleReader;
 
     // foods에 그 코드가 있는지는 보지 않음
     // 식사 항목은 고른 그때의 값을 복사해 두므로, 식약처 데이터를 새로 넣어 코드가 사라져도 지난 기록은 보여 줌
@@ -44,10 +45,12 @@ public class FoodHistoryService {
         }
 
         // 식사마다 따로 조회하지 않고 항목·혈당을 한 번에 읽어서 식사 id별로 나눔
+        // 항목이 전부 같은 음식이라 주식 여부는 한 번만 봄
+        boolean staple = foodStapleReader.of(foodCode);
         Map<Long, List<MealItemSummaryResponse>> itemsByMeal = mealItemRepository
                 .findAllByMealIdInAndFoodCodeAndDeletedAtIsNullOrderByIdAsc(mealIds, foodCode).stream()
                 .collect(Collectors.groupingBy(i -> i.getMeal().getId(),
-                        Collectors.mapping(MealItemSummaryResponse::from, Collectors.toList())));
+                        Collectors.mapping(i -> MealItemSummaryResponse.from(i, staple), Collectors.toList())));
         List<Reading> readings = readingRepository
                 .findAllByUserIdAndMealIdInAndDeletedAtIsNullOrderByMeasuredAtAscIdAsc(userId, mealIds);
         // 이 페이지 식사는 이미 읽었으니 넘겨서 또 조회하지 않게
