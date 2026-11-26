@@ -30,6 +30,8 @@ public record AdminReportDetailResponse(
                              Instant createdAt) {
     }
 
-    public record ActionLine(String action, String reason, String memo, Long adminId, Instant occurredAt) {
+    public record ActionLine(String action, String reason, String memo, Long adminId,
+                             @Schema(description = "처리한 운영자 이름. 운영자 계정이 지워졌으면 null", example = "다현") String adminName,
+                             Instant occurredAt) {
     }
 }
