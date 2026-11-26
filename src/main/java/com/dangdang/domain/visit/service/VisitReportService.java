@@ -43,6 +43,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Page;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -197,7 +198,9 @@ public class VisitReportService {
     // 카드 숫자(측정·목표 안 비율)는 리포트마다 DB에서 개수만 셈 (기록을 메모리에 올리지 않음)
     // 진료용 기간은 내 진료 시각 전부를 한 번 읽어 리포트마다 계산 (진료 리포트 조회와 같은 규칙)
     // until: 그날(한국 날짜)까지의 리포트만 (임신 중 기록 보관함, until = 출산일). null이면 전부
-    @Transactional(readOnly = true)
+    // REPEATABLE READ: 목록·개수·진료 일정을 같은 시점 데이터로 읽어 items와 totalCount가 어긋나지 않게
+    // (읽기만 하는 트랜잭션이라 Postgres에서 직렬화 실패가 나지 않음)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public VisitReportPageResponse list(Long userId, Long careSiteId, LocalDate until, int page, int size) {
         Instant untilEnd = until == null ? null : KoreanTime.endOfDay(until);   // until 다음 날 0시 (그 앞까지)
         Page<SavedReport> result = savedReportRepository.findPage(userId, careSiteId, until, untilEnd,
