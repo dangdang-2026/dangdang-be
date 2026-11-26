@@ -1,12 +1,16 @@
 package com.dangdang.domain.community.service;
 
+import com.dangdang.domain.admin.enums.AdminLogAction;
+import com.dangdang.domain.admin.service.AdminLogService;
 import com.dangdang.domain.community.dto.request.SanctionCreateRequest;
 import com.dangdang.domain.community.dto.response.AppealResponse;
 import com.dangdang.domain.community.dto.response.RestrictionResponse;
 import com.dangdang.domain.community.dto.response.SanctionResponse;
+import com.dangdang.domain.community.entity.CommunityProfile;
 import com.dangdang.domain.community.entity.SanctionAppeal;
 import com.dangdang.domain.community.entity.UserSanction;
 import com.dangdang.domain.community.exception.CommunityErrorCode;
+import com.dangdang.domain.community.repository.CommunityProfileRepository;
 import com.dangdang.domain.community.repository.SanctionAppealRepository;
 import com.dangdang.domain.community.repository.UserSanctionRepository;
 import com.dangdang.domain.user.entity.User;
@@ -32,6 +36,8 @@ public class SanctionService {
     private final UserSanctionRepository userSanctionRepository;
     private final SanctionAppealRepository sanctionAppealRepository;
     private final UserRepository userRepository;
+    private final CommunityProfileRepository communityProfileRepository;
+    private final AdminLogService adminLogService;
     private final Clock clock;
 
     // 글·댓글 쓰기 전에 부른다
@@ -93,6 +99,8 @@ public class SanctionService {
         UserSanction saved = userSanctionRepository.save(
                 UserSanction.of(target, req.reason().strip(), now, endsAt, adminId));
         log.info("[이용 제한] 걸림 - 대상: {}, 운영자: {}, 기간: {}일", target.getId(), adminId, req.days());
+        adminLogService.record(adminId, AdminLogAction.SANCTION_CREATE, saved.getId(), nameOf(target),
+                saved.getReason(), req.days() == null ? "풀 때까지" : req.days() + "일");
         return SanctionResponse.from(saved);
     }
 
@@ -102,6 +110,15 @@ public class SanctionService {
                 .orElseThrow(() -> new CustomException(CommunityErrorCode.SANCTION_NOT_FOUND));
         sanction.lift(clock.instant());
         log.info("[이용 제한] 풀림 - 제한: {}, 운영자: {}", sanctionId, adminId);
+        adminLogService.record(adminId, AdminLogAction.SANCTION_LIFT, sanctionId, nameOf(sanction.getUser()),
+                sanction.getReason(), null);
         return SanctionResponse.from(sanction);
+    }
+
+    // 처리 기록에 보일 이름 — 커뮤니티 닉네임, 프로필이 없으면 앱에서 부르는 이름
+    private String nameOf(User user) {
+        return communityProfileRepository.findByUserId(user.getId())
+                .map(CommunityProfile::getNickname)
+                .orElse(user.getDisplayName());
     }
 }
