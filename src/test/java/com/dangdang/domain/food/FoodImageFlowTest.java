@@ -281,9 +281,9 @@ class FoodImageFlowTest {
     void 위치가_틀리면_위치만_빼고_음식은_6개까지() throws Exception {
         List<FoodImageClient.Item> many = new java.util.ArrayList<>();
         many.add(new FoodImageClient.Item(new FoodImageClient.Box(0.8, 0.1, 0.5, 0.2), List.of(new Candidate("김밥", 0.9))));   // 오른쪽으로 넘침
-        many.add(new FoodImageClient.Item(new FoodImageClient.Box(Double.NaN, 0, 0.1, 0.1), List.of(new Candidate("김밥", 0.9))));
+        many.add(new FoodImageClient.Item(new FoodImageClient.Box(Double.NaN, 0.0, 0.1, 0.1), List.of(new Candidate("김밥", 0.9))));
         for (int i = 0; i < 6; i++) {
-            many.add(new FoodImageClient.Item(new FoodImageClient.Box(0, 0, 0.1, 0.1), List.of(new Candidate("김밥", 0.9))));
+            many.add(new FoodImageClient.Item(new FoodImageClient.Box(0.0, 0.0, 0.1, 0.1), List.of(new Candidate("김밥", 0.9))));
         }
         given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(List.of(), many));
 
@@ -295,9 +295,50 @@ class FoodImageFlowTest {
     }
 
     @Test
+    void 위치가_있으면_가운데_점도_준다_좌표가_비면_위치만_뺀다() throws Exception {
+        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(List.of(),
+                List.of(new FoodImageClient.Item(new FoodImageClient.Box(0.2, 0.4, 0.4, 0.2), List.of(new Candidate("김밥", 0.9))),
+                        new FoodImageClient.Item(new FoodImageClient.Box(null, 0.1, 0.1, 0.1), List.of(new Candidate("김밥", 0.9))))));
+
+        analyze(PHOTO)
+                .andExpect(jsonPath("$.data.items[0].point.x").value(0.4))     // 0.2 + 0.4 / 2
+                .andExpect(jsonPath("$.data.items[0].point.y").value(0.5))     // 0.4 + 0.2 / 2
+                .andExpect(jsonPath("$.data.items[1].box").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.data.items[1].point").value(org.hamcrest.Matchers.nullValue()))
+                .andExpect(jsonPath("$.data.items[1].fallback").value(false));   // 위치만 빠지고 후보는 그대로
+    }
+
+    @Test
+    void items가_빈_값뿐이면_예전_candidates로_처리한다() throws Exception {
+        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(
+                List.of(new Candidate("김밥", 0.95)), java.util.Arrays.asList((FoodImageClient.Item) null)));
+
+        analyze(PHOTO)
+                .andExpect(jsonPath("$.data.fallback").value(false))
+                .andExpect(jsonPath("$.data.candidates[0].name").value("김밥"))
+                .andExpect(jsonPath("$.data.items", hasSize(1)));
+    }
+
+    @Test
+    void 음식이_6개보다_많으면_확신_높은_6개를_남기고_순서는_그대로() throws Exception {
+        List<FoodImageClient.Item> seven = new java.util.ArrayList<>();
+        for (int i = 0; i < 6; i++) {
+            seven.add(new FoodImageClient.Item(new FoodImageClient.Box(0.1 * i, 0.0, 0.1, 0.1), List.of(new Candidate("비빔밥", 0.5))));
+        }
+        seven.add(new FoodImageClient.Item(new FoodImageClient.Box(0.9, 0.9, 0.1, 0.1), List.of(new Candidate("김밥", 0.95))));   // 맨 뒤지만 확신 가장 높음
+        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(List.of(), seven));
+
+        analyze(PHOTO)
+                .andExpect(jsonPath("$.data.items", hasSize(6)))
+                .andExpect(jsonPath("$.data.items[5].candidates[0].name").value("김밥"))   // 남았고, 원래 순서대로 맨 뒤
+                .andExpect(jsonPath("$.data.fallback").value(false))
+                .andExpect(jsonPath("$.data.candidates[0].name").value("김밥"));
+    }
+
+    @Test
     void 한상_사진의_음식이_전부_확신_낮으면_전체_이름으로_적기지만_위치는_준다() throws Exception {
         given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(List.of(),
-                List.of(new FoodImageClient.Item(new FoodImageClient.Box(0, 0, 0.5, 0.5), List.of(new Candidate("김밥", 0.3))))));
+                List.of(new FoodImageClient.Item(new FoodImageClient.Box(0.0, 0.0, 0.5, 0.5), List.of(new Candidate("김밥", 0.3))))));
 
         analyze(PHOTO)
                 .andExpect(jsonPath("$.data.fallback").value(true))

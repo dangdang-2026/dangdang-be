@@ -24,5 +24,6 @@ public interface FoodImageClient {
     record Item(Box box, List<Candidate> candidates) {}
 
     // 사진 기준 0~1 비율. x·y는 왼쪽 위 모서리
-    record Box(double x, double y, double width, double height) {}
+    // Double(빈 값 허용): AI가 좌표 하나를 null로 보내도 응답 전체를 못 읽는 일 없이, 그 위치만 빼게 (FoodImageService.cleanBox)
+    record Box(Double x, Double y, Double width, Double height) {}
 }

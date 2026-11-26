@@ -14,12 +14,22 @@ public record FoodImageAnalysisResponse(
     // name·confidence는 AI가 준 그대로, foods는 그 이름으로 음식 검색한 앞쪽 결과 (못 찾으면 [])
     public record Candidate(String name, double confidence, List<FoodResponse> foods) {}
 
-    // 사진 속 음식 하나. box가 null이면 위치를 모름 (AI가 사진 전체를 음식 하나로 봄)
+    // 사진 속 음식 하나. box·point가 null이면 위치를 모름 (AI가 사진 전체를 음식 하나로 봄)
+    // point = box의 가운데 (프론트 DetectedFood.point에 그대로 씀, 사진 위 번호 표시)
     // fallback = true 면 이 음식만 「이름으로 적기」 (candidates = [])
-    public record Item(Box box, boolean fallback, List<Candidate> candidates) {}
+    public record Item(Box box, Point point, boolean fallback, List<Candidate> candidates) {
+
+        public static Item of(Box box, boolean fallback, List<Candidate> candidates) {
+            Point point = box == null ? null : new Point(box.x() + box.width() / 2, box.y() + box.height() / 2);
+            return new Item(box, point, fallback, candidates);
+        }
+    }
 
     // 사진 기준 0~1 비율. x·y는 왼쪽 위 모서리
     public record Box(double x, double y, double width, double height) {}
+
+    // 사진 기준 0~1 비율의 한 점
+    public record Point(double x, double y) {}
 
     public static FoodImageAnalysisResponse fallbackToName() {
         return new FoodImageAnalysisResponse(true, List.of(), List.of());

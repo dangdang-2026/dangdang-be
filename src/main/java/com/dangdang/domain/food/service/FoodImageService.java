@@ -1,6 +1,7 @@
 package com.dangdang.domain.food.service;
 
 import com.dangdang.domain.food.dto.response.FoodImageAnalysisResponse;
+import com.dangdang.domain.food.dto.response.FoodResponse;
 import com.dangdang.domain.food.exception.FoodErrorCode;
 import com.dangdang.domain.food.infra.FoodImageClient;
 import com.dangdang.domain.user.enums.ConsentType;
@@ -18,9 +19,14 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.IntStream;
 
 // 음식 사진 AI 분석: AI 서버에서 후보를 받고, 후보 이름을 식약처 음식(foods)과 맞춤
 // DB에 쓰지 않아서 @Transactional 이 필요 없음
@@ -80,11 +86,17 @@ public class FoodImageService {
         }
 
         // 한상 사진(F-13): AI가 음식마다 위치를 줬으면 그걸 쓰고, 아직 안 줬으면(예전 계약) 사진 전체를 음식 하나로 봄
-        List<FoodImageClient.Item> aiItems = result != null && result.items() != null && !result.items().isEmpty()
-                ? result.items().stream().filter(Objects::nonNull).limit(MAX_ITEMS).toList()
-                : List.of(new FoodImageClient.Item(null, result == null ? null : result.candidates()));
+        // 빈 값을 먼저 걸러 낸 뒤 판단 → items가 [null]뿐이어도 예전 candidates로 처리
+        List<FoodImageClient.Item> aiItems = result == null || result.items() == null
+                ? List.of()
+                : topItems(result.items().stream().filter(Objects::nonNull).toList());
+        if (aiItems.isEmpty()) {
+            aiItems = List.of(new FoodImageClient.Item(null, result == null ? null : result.candidates()));
+        }
 
-        List<FoodImageAnalysisResponse.Item> items = aiItems.stream().map(this::toItem).toList();
+        // 같은 이름은 한 번만 검색 (한상이면 음식 6개 × 후보 3개라 겹치는 이름이 많음)
+        Map<String, List<FoodResponse>> searched = new HashMap<>();
+        List<FoodImageAnalysisResponse.Item> items = aiItems.stream().map(i -> toItem(i, searched)).toList();
         FoodImageAnalysisResponse response = FoodImageAnalysisResponse.of(items);
         if (response.fallback()) {
             log.info("[FoodImage] 사용자: {}, 확신 낮음 - 이름으로 적기 requestId={}", userId, requestId);
@@ -96,21 +108,47 @@ public class FoodImageService {
 
     // 사진 속 음식 하나 → 후보를 정리하고, 1등 확신도가 낮으면 이 음식만 「이름으로 적기」
     // AI 이름(AI Hub)으로 음식 검색을 그대로 씀 → 이름이 똑같은 음식이 맨 앞, 그다음 가정식·외식 순
-    private FoodImageAnalysisResponse.Item toItem(FoodImageClient.Item aiItem) {
+    private FoodImageAnalysisResponse.Item toItem(FoodImageClient.Item aiItem, Map<String, List<FoodResponse>> searched) {
         FoodImageAnalysisResponse.Box box = cleanBox(aiItem.box());
         List<FoodImageClient.Candidate> candidates = cleanUp(aiItem.candidates());
         if (candidates.isEmpty() || candidates.get(0).confidence() < MIN_CONFIDENCE) {
-            return new FoodImageAnalysisResponse.Item(box, true, List.of());
+            return FoodImageAnalysisResponse.Item.of(box, true, List.of());
         }
-        return new FoodImageAnalysisResponse.Item(box, false, candidates.stream()
+        return FoodImageAnalysisResponse.Item.of(box, false, candidates.stream()
                 .map(c -> new FoodImageAnalysisResponse.Candidate(c.name(), c.confidence(),
-                        foodService.search(c.name(), 0, FOODS_PER_CANDIDATE).items()))
+                        searched.computeIfAbsent(c.name(),
+                                name -> foodService.search(name, 0, FOODS_PER_CANDIDATE).items())))
                 .toList());
     }
 
-    // 위치도 그대로 믿지 않음: 숫자가 아니거나 0~1 밖이거나 넓이가 0이면 위치 없음(null)으로 → 화면은 표시만 안 함
+    // 음식이 6개보다 많으면 1등 확신도가 높은 6개를 남김 (AI가 보낸 순서대로 자르면 확신 높은 음식이 빠질 수 있어서)
+    // 남긴 음식은 AI가 보낸 순서 그대로 둠 (화면의 번호가 사진 위치 순서와 맞게)
+    private static List<FoodImageClient.Item> topItems(List<FoodImageClient.Item> items) {
+        if (items.size() <= MAX_ITEMS) {
+            return items;
+        }
+        // 순서 번호로 고름 (위치·후보가 똑같은 음식이 여러 개면 값으로 비교할 때 같은 것으로 취급돼서)
+        Set<Integer> keep = new HashSet<>(IntStream.range(0, items.size()).boxed()
+                .sorted(Comparator.comparingDouble((Integer i) -> topConfidence(items.get(i))).reversed())
+                .limit(MAX_ITEMS)
+                .toList());
+        return IntStream.range(0, items.size()).filter(keep::contains).mapToObj(items::get).toList();
+    }
+
+    // 이 음식의 1등 확신도 (후보가 없거나 이상하면 0)
+    private static double topConfidence(FoodImageClient.Item item) {
+        if (item.candidates() == null) {
+            return 0;
+        }
+        return item.candidates().stream()
+                .filter(c -> c != null && Double.isFinite(c.confidence()) && c.confidence() >= 0 && c.confidence() <= 1)
+                .mapToDouble(FoodImageClient.Candidate::confidence)
+                .max().orElse(0);
+    }
+
+    // 위치도 그대로 믿지 않음: 빈 값이거나 숫자가 아니거나 0~1 밖이거나 넓이가 0이면 위치 없음(null)으로 → 화면은 표시만 안 함
     private static FoodImageAnalysisResponse.Box cleanBox(FoodImageClient.Box b) {
-        if (b == null) {
+        if (b == null || b.x() == null || b.y() == null || b.width() == null || b.height() == null) {
             return null;
         }
         double[] v = {b.x(), b.y(), b.width(), b.height()};
