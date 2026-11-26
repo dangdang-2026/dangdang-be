@@ -5,6 +5,7 @@ import com.dangdang.domain.meal.entity.MealNutrition;
 import com.dangdang.domain.meal.enums.NutritionSource;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 
 // 식사 안에 같이 보여 주는 음식 항목 (식사 상세·목록·오늘 화면·기록 통합 조회)
 // 항목 API 응답(MealItemResponse)에서 식사 id·시각 칸을 뺀 모양
@@ -17,11 +18,12 @@ public record MealItemSummaryResponse(
         String unit,                     // g / ml
         NutritionSource nutritionSource, // DB 공공 값 / USER 직접 적은 값
         MealNutrition nutrition,         // 먹은 양 전체의 영양값 (모르는 값은 null)
-        MealNutrition nutritionOverride) {   // 직접 적은 값만, 없으면 null
+        MealNutrition nutritionOverride, // 직접 적은 값만, 없으면 null
+        Instant updatedAt) {             // 이 항목을 마지막으로 고친 시각 (다른 기기에서 고친 「내가 잰 값」 구분용)
 
     public static MealItemSummaryResponse from(MealItem i) {
         return new MealItemSummaryResponse(
                 i.getId(), i.getFoodCode(), i.getName(), i.getServings(), i.getWeight(), i.getUnit(),
-                i.getNutritionSource(), i.eatenNutrition(), i.getNutritionOverride());
+                i.getNutritionSource(), i.eatenNutrition(), i.getNutritionOverride(), i.getUpdatedAt());
     }
 }
