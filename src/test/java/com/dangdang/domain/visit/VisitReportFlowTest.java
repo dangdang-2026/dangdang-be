@@ -767,6 +767,73 @@ class VisitReportFlowTest {
     }
 
     @Test
+    void 목록은_전체_개수와_쪽_수를_준다() throws Exception {
+        saveAndGetId(access, custom("2026-10-01", "2026-10-01", null), 201);
+        saveAndGetId(access, custom("2026-10-02", "2026-10-02", null), 201);
+        saveAndGetId(access, custom("2026-10-03", "2026-10-03", null), 201);
+        list(access, "?size=2&page=1")
+                .andExpect(jsonPath("$.data.totalCount").value(3))
+                .andExpect(jsonPath("$.data.totalPages").value(2));
+        list(access, "?size=1")   // 보관함 「리포트 n장」은 size=1로 개수만
+                .andExpect(jsonPath("$.data.totalCount").value(3));
+    }
+
+    @Test
+    void until을_주면_그날까지의_리포트만_진료용은_진료_날짜_기간_직접은_끝_날짜로_거른다() throws Exception {
+        long visitReport = saveAndGetId(access, visit(visitId), 201);                                     // 진료 10/14
+        long lateNight = saveAndGetId(access, visit(createVisitAt(access, "2026-10-20T23:30:00+09:00", careSiteId)), 201);
+        saveAndGetId(access, visit(createVisitAt(access, "2026-10-21T00:30:00+09:00", careSiteId)), 201);   // 한국 10/21 (UTC로는 10/20) → 빠짐
+        long undated = createVisitAt(access, "2026-10-18T10:00:00+09:00", careSiteId);
+        saveAndGetId(access, visit(undated), 201);
+        mvc.perform(patch("/api/visits/" + undated).cookie(access).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"visitAt\":null}"))
+                .andExpect(status().isOk());                                                                  // 날짜 미정으로 → 빠짐
+        long customIn = saveAndGetId(access, custom("2026-10-10", "2026-10-20", null), 201);              // 끝 날짜 10/20 → 들어감
+        saveAndGetId(access, custom("2026-10-15", "2026-10-21", null), 201);                               // 끝 날짜 10/21 → 빠짐
+
+        list(access, "?until=2026-10-20&size=4")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.totalCount").value(3))
+                .andExpect(jsonPath("$.data.totalPages").value(1))
+                .andExpect(jsonPath("$.data.items[*].id",
+                        org.hamcrest.Matchers.containsInAnyOrder((int) visitReport, (int) lateNight, (int) customIn)));
+        list(access, "?until=2026-10-20&size=2")
+                .andExpect(jsonPath("$.data.items", hasSize(2)))
+                .andExpect(jsonPath("$.data.totalPages").value(2))
+                .andExpect(jsonPath("$.data.hasNext").value(true));
+        list(access, "")   // until이 없으면 지금처럼 전부 (C-24)
+                .andExpect(jsonPath("$.data.totalCount").value(6));
+    }
+
+    @Test
+    void careSiteId와_until을_같이_주면_두_조건을_다_맞춘_것만_세고_totalCount가_items와_같다() throws Exception {
+        long otherSite = createCareSite(access);
+        long visitReport = saveAndGetId(access, visit(createVisitAt(access, "2026-10-14T10:00:00+09:00", careSiteId)), 201);   // 이 병원, 진료 10/14 → 들어감
+        saveAndGetId(access, visit(visitId), 201);                                                              // 병원 없는 진료 → 빠짐
+        saveAndGetId(access, visit(createVisitAt(access, "2026-10-25T10:00:00+09:00", careSiteId)), 201);       // 이 병원인데 until 뒤 → 빠짐
+        saveAndGetId(access, visit(createVisitAt(access, "2026-10-15T10:00:00+09:00", otherSite)), 201);        // until 안인데 다른 병원 → 빠짐
+        long customIn = saveAndGetId(access, custom("2026-10-01", "2026-10-20", careSiteId), 201);          // 이 병원, 끝 10/20 → 들어감
+        saveAndGetId(access, custom("2026-10-01", "2026-10-20", otherSite), 201);                              // 다른 병원 → 빠짐
+        saveAndGetId(access, custom("2026-10-01", "2026-10-21", careSiteId), 201);                             // 끝 10/21 → 빠짐
+
+        list(access, "?careSiteId=" + careSiteId + "&until=2026-10-20")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items", hasSize(2)))
+                .andExpect(jsonPath("$.data.totalCount").value(2))   // 목록 쿼리와 count 쿼리의 where절이 같은지
+                .andExpect(jsonPath("$.data.totalPages").value(1))
+                .andExpect(jsonPath("$.data.items[*].id",
+                        org.hamcrest.Matchers.containsInAnyOrder((int) visitReport, (int) customIn)));
+    }
+
+    @Test
+    void until_형식이_틀리면_400() throws Exception {
+        list(access, "?until=2026/10/20")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errorCode").value("GLOBAL_40001"));
+        list(access, "?until=1999-12-31").andExpect(status().isBadRequest());
+    }
+
+    @Test
     void 남의_리포트와_일정을_지운_진료용_리포트는_목록에_없고_지운_병원은_이름만_빠진다() throws Exception {
         saveAndGetId(other, custom("2026-10-01", "2026-10-14", null), 201);
         long custom = saveAndGetId(access, custom("2026-10-01", "2026-10-14", careSiteId), 201);
