@@ -196,15 +196,15 @@ public class VisitReportService {
     // 지난 리포트 목록 (C-24). 최근 저장 순, careSiteId를 주면 그 병원 것만
     // 카드 숫자(측정·목표 안 비율)는 리포트마다 DB에서 개수만 셈 (기록을 메모리에 올리지 않음)
     // 진료용 기간은 내 진료 시각 전부를 한 번 읽어 리포트마다 계산 (진료 리포트 조회와 같은 규칙)
-    @Transactional(readOnly = true)
     // until: 그날(한국 날짜)까지의 리포트만 (임신 중 기록 보관함, until = 출산일). null이면 전부
+    @Transactional(readOnly = true)
     public VisitReportPageResponse list(Long userId, Long careSiteId, LocalDate until, int page, int size) {
         Instant untilEnd = until == null ? null : KoreanTime.endOfDay(until);   // until 다음 날 0시 (그 앞까지)
-        Page<SavedReport> slice = savedReportRepository.findPage(userId, careSiteId, until, untilEnd,
+        Page<SavedReport> result = savedReportRepository.findPage(userId, careSiteId, until, untilEnd,
                 PageRequest.of(page, size));
-        List<SavedReport> reports = slice.getContent();
+        List<SavedReport> reports = result.getContent();
         if (reports.isEmpty()) {
-            return VisitReportPageResponse.of(List.of(), slice);
+            return VisitReportPageResponse.of(List.of(), result);
         }
 
         List<Long> visitIds = reports.stream().map(SavedReport::getVisitId).filter(Objects::nonNull).distinct().toList();
@@ -244,7 +244,7 @@ public class VisitReportService {
                     period == null ? null : listSummary(userId, period),
                     r.getCreatedAt()));
         }
-        return VisitReportPageResponse.of(items, slice);
+        return VisitReportPageResponse.of(items, result);
     }
 
     // 리포트의 병원: 진료용은 지금 진료 일정의 병원, 기간 직접은 저장한 병원
