@@ -414,6 +414,22 @@ class FoodImageFlowTest {
     }
 
     @Test
+    void 음식마다_확신이_낮아도_사진_전체_후보가_높으면_예전_칸은_사진_전체_후보로() throws Exception {
+        given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(
+                List.of(new Candidate("비빔밥", 0.95)),
+                List.of(new FoodImageClient.Item(new FoodImageClient.Box(0.0, 0.0, 0.4, 0.4), List.of(new Candidate("김밥", 0.3))),
+                        new FoodImageClient.Item(new FoodImageClient.Box(0.5, 0.5, 0.4, 0.4), List.of()))));
+
+        analyze(PHOTO)
+                .andExpect(jsonPath("$.data.fallback").value(false))
+                .andExpect(jsonPath("$.data.candidates[0].name").value("비빔밥"))
+                .andExpect(jsonPath("$.data.candidates[0].foods", not(empty())))
+                .andExpect(jsonPath("$.data.items", hasSize(2)))
+                .andExpect(jsonPath("$.data.items[0].fallback").value(true))   // 음식마다 판단은 그대로
+                .andExpect(jsonPath("$.data.items[1].fallback").value(true));
+    }
+
+    @Test
     void AI_후보를_확신도_순으로_다시_세우고_3개까지만() throws Exception {
         given(foodImageClient.candidates(any(), any(), any())).willReturn(new FoodImageClient.Result(List.of(
                 new Candidate("비빔밥", 0.01), new Candidate("김밥", 0.9), new Candidate("라면", 0.02),

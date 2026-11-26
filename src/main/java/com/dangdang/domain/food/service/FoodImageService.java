@@ -97,6 +97,14 @@ public class FoodImageService {
         Map<String, List<FoodResponse>> searched = new HashMap<>();
         List<FoodImageAnalysisResponse.Item> items = aiItems.stream().map(i -> toItem(i, searched)).toList();
         FoodImageAnalysisResponse response = FoodImageAnalysisResponse.of(items);
+        // 음식마다 확신이 다 낮아도 사진 전체 후보 1등이 기준 이상이면 예전 칸(fallback·candidates)은 그걸로 채움
+        // (잘라 낸 그릇보다 사진 전체 분류가 더 잘 맞는 편 — dangdang-ai #40. items는 음식마다 판단 그대로)
+        if (response.fallback() && result != null) {
+            FoodImageAnalysisResponse.Item whole = toItem(new FoodImageClient.Item(null, result.candidates()), searched);
+            if (!whole.fallback()) {
+                response = new FoodImageAnalysisResponse(false, whole.candidates(), items);
+            }
+        }
         if (response.fallback()) {
             log.info("[FoodImage] 사용자: {}, 확신 낮음 - 이름으로 적기 requestId={}", userId, requestId);
         } else {

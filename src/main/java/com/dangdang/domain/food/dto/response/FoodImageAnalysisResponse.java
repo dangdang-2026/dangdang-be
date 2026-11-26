@@ -38,7 +38,7 @@ public record FoodImageAnalysisResponse(
     // 예전 칸(fallback·candidates)은 음식 중 1등 확신도가 가장 높은 것으로 채움 → 지금 화면이 그대로 동작
     public static FoodImageAnalysisResponse of(List<Item> items) {
         Item best = items.stream()
-                .filter(i -> !i.fallback())
+                .filter(i -> !i.fallback() && !i.candidates().isEmpty())   // 후보가 빈 Item이 와도 get(0)에서 터지지 않게
                 .max(Comparator.comparingDouble(i -> i.candidates().get(0).confidence()))
                 .orElse(null);
         return best == null
