@@ -95,4 +95,21 @@ class AdminCardFlowTest extends ReminderTestBase {
                 .andExpect(jsonPath("$.errorCode").value("CARD_40401"));
         mvc.perform(get("/api/admin/cards/1").cookie(login("jisu@x.com"))).andExpect(status().isForbidden());
     }
+
+    // PR #171 리뷰: 운영자 쓰기 응답도 상세와 같게 (실제 상태, 내린 카드도 내용까지)
+    @Test
+    void 운영자_쓰기_응답도_실제_상태와_내용을_준다() throws Exception {
+        int id = create();
+        mvc.perform(post("/api/admin/cards/" + id + "/publish").cookie(admin)).andExpect(status().isOk());
+        jdbc.update("UPDATE content_cards SET status = 'RECHECK' WHERE id = ?", id);
+
+        postJson("/api/admin/cards/" + id + "/review", "{\"reviewer\":\"다현\",\"reviewedOn\":\"2026-11-15\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("RECHECK"));
+        mvc.perform(post("/api/admin/cards/" + id + "/withdraw").cookie(admin))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("WITHDRAWN"))
+                .andExpect(jsonPath("$.data.slides[0].alt").value("식후 혈당은 정해 준 시간에 잽니다."))
+                .andExpect(jsonPath("$.data.reviewer").value("다현"));
+    }
 }

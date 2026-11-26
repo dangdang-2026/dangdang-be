@@ -109,6 +109,7 @@ public class CardService {
     }
 
     // 운영자 상세 — 정정할 때 지금 슬라이드를 불러와 고친 장만 바꿔 보낸다
+    @Transactional(readOnly = true)
     public CardDetailResponse adminDetail(Long cardId) {
         return CardDetailResponse.forAdmin(contentCardRepository.findById(cardId)
                 .orElseThrow(() -> new CustomException(CardErrorCode.CARD_NOT_FOUND)));
@@ -119,7 +120,7 @@ public class CardService {
         ContentCard card = contentCardRepository.save(ContentCard.draft(req.title().strip(), req.series(),
                 req.body(), req.sources(), strip(req.questions()), req.checkedOn(), clock.instant()));
         adminLogService.record(adminId, AdminLogAction.CARD_CREATE, card.getId(), card.getTitle(), null, card.getBody().size() + "장");
-        return CardDetailResponse.of(card);
+        return CardDetailResponse.forAdmin(card);
     }
 
     @Transactional
@@ -130,7 +131,7 @@ public class CardService {
         }
         card.publish(clock.instant());
         adminLogService.record(adminId, AdminLogAction.CARD_PUBLISH, cardId, card.getTitle(), null, null);
-        return CardDetailResponse.of(card);
+        return CardDetailResponse.forAdmin(card);
     }
 
     @Transactional
@@ -142,7 +143,7 @@ public class CardService {
         card.correct(req.body(), strip(req.questions()), req.summary().strip(),
                 req.note() == null || req.note().isBlank() ? null : req.note().strip(), req.checkedOn(), clock.instant());
         adminLogService.record(adminId, AdminLogAction.CARD_CORRECT, cardId, card.getTitle(), req.summary().strip(), null);
-        return CardDetailResponse.of(card);
+        return CardDetailResponse.forAdmin(card);
     }
 
     @Transactional
@@ -161,7 +162,7 @@ public class CardService {
         // 엔티티 변경(card.withdraw 등)은 이 호출 전에 한다. 벌크 UPDATE가 영속성 컨텍스트를 비워서, 뒤에 card를
         // 고치면 detached라 저장되지 않는다 (아래 응답 만들기처럼 읽기만은 괜찮다)
         announcementService.endAllForCard(cardId, now);
-        return CardDetailResponse.of(card);
+        return CardDetailResponse.forAdmin(card);
     }
 
     // 검수자 적기 (U-26 「검수자 · 검수일」) — 내려간 카드는 안 됨
@@ -174,7 +175,7 @@ public class CardService {
         card.review(req.reviewer().strip(), req.reviewedOn(), clock.instant());
         adminLogService.record(adminId, AdminLogAction.CARD_REVIEW, cardId, card.getTitle(), null,
                 "검수 " + req.reviewer().strip() + " · " + req.reviewedOn());
-        return CardDetailResponse.of(card);
+        return CardDetailResponse.forAdmin(card);
     }
 
     private static List<String> strip(List<String> questions) {

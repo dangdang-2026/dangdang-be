@@ -22,7 +22,6 @@ public record CardSummaryResponse(Long id, String title, String series,
         return of(c, status, saved, status == CardStatus.WITHDRAWN);
     }
 
-
     private static CardSummaryResponse of(ContentCard c, CardStatus status, boolean saved, boolean gone) {
         return new CardSummaryResponse(c.getId(), c.getTitle(), c.getSeries(), CardSeries.labelOf(c.getSeries()),
                 status, c.getCheckedOn(), gone ? 0 : c.getSources().size(), gone ? 0 : c.getBody().size(),
