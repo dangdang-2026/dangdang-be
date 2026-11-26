@@ -24,6 +24,7 @@ public enum AuthErrorCode implements BaseErrorCode {
     ACCESS_TOKEN_EXPIRED("AUTH_40102", "로그인이 만료됐어요.", HttpStatus.UNAUTHORIZED),
     INVALID_TOKEN("AUTH_40103", "로그인 정보가 올바르지 않아요. 다시 로그인해 주세요.", HttpStatus.UNAUTHORIZED),
     ACCESS_DENIED("AUTH_40301", "접근 권한이 없어요.", HttpStatus.FORBIDDEN),
+    ADMIN_IP_NOT_ALLOWED("AUTH_40302", "허용한 네트워크에서만 운영자 화면을 쓸 수 있어요.", HttpStatus.FORBIDDEN),
     EMAIL_ALREADY_USED("AUTH_40901", "이미 가입된 이메일이에요.", HttpStatus.CONFLICT),
     EMAIL_ACCOUNT_EXISTS("AUTH_40902", "이 이메일로 가입한 계정이 있어요. 이메일로 로그인해 주세요.", HttpStatus.CONFLICT),
     KAKAO_ALREADY_LINKED("AUTH_40903", "이 카카오 계정은 다른 당당 계정에 이미 연결돼 있어요. 그 계정으로 로그인해 주세요.", HttpStatus.CONFLICT),
