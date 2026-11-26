@@ -452,6 +452,10 @@ class AdminReportFlowTest extends ReminderTestBase {
                 .andExpect(jsonPath("$.data.items[0].authorNickname").value("포근한 고구마"))
                 .andExpect(jsonPath("$.data.items[0].handledAt").value(NOW.plusSeconds(600).toString()))
                 .andExpect(jsonPath("$.data.items[0].handledByName").value("운영자"));
+        // 문제없음 탭도 마지막 처리가 붙는다 (PR #168 리뷰)
+        mvc.perform(get("/api/admin/reports?status=DISMISSED").cookie(admin))
+                .andExpect(jsonPath("$.data.items[0].handledAt").value(NOW.plusSeconds(600).toString()))
+                .andExpect(jsonPath("$.data.items[0].handledByName").value("운영자"));
         mvc.perform(get("/api/admin/reports/POST/" + b).cookie(admin))
                 .andExpect(jsonPath("$.data.actions[0].adminName").value("운영자"));
     }

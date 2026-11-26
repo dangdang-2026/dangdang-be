@@ -35,8 +35,8 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -78,12 +78,14 @@ public class AdminReportService {
                 .map(r -> new ReportLine(r.getReason().name(), r.getDetail(), r.getStatus().name(),
                         r.getSource().name(), r.getCreatedAt()))
                 .toList();
-        List<ActionLine> actions = actionRepository.findByTargetTypeAndTargetIdOrderByOccurredAtDescIdDesc(type, targetId)
-                .stream()
+        List<AdminAction> raw = actionRepository.findByTargetTypeAndTargetIdOrderByOccurredAtDescIdDesc(type, targetId);
+        // 운영자 이름을 먼저 한 번에 읽고 줄을 만든다 (PR #168 리뷰)
+        Map<Long, String> names = names(raw.stream().map(AdminAction::getAdminId).filter(Objects::nonNull)
+                .collect(Collectors.toSet()));
+        List<ActionLine> actions = raw.stream()
                 .map(a -> new ActionLine(a.getAction().name(), a.getReason() == null ? null : a.getReason().name(),
-                        a.getMemo(), a.getAdminId(), null, a.getOccurredAt()))
+                        a.getMemo(), a.getAdminId(), names.get(a.getAdminId()), a.getOccurredAt()))
                 .toList();
-        actions = withAdminNames(actions);
         CommunityProfile author = target.author();
         return new AdminReportDetailResponse(type.name(), String.valueOf(targetId), String.valueOf(target.postId()),
                 target.title(), target.content(),
@@ -199,45 +201,30 @@ public class AdminReportService {
             if (ids.isEmpty()) {
                 continue;
             }
-            String in = String.join(",", ids.stream().map(id -> "?").toList());
-            Object[] args = new Object[ids.size() + 1];
-            args[0] = type.name();
-            for (int i = 0; i < ids.size(); i++) {
-                args[i + 1] = ids.get(i);
-            }
+            // 번호 목록은 Postgres 배열 하나로 넘긴다. SQL 문자열이 매번 같다 (PR #168 리뷰)
             jdbc.query("SELECT DISTINCT ON (a.target_id) a.target_id, a.occurred_at, u.display_name"
                             + " FROM admin_actions a LEFT JOIN users u ON u.id = a.admin_id"
-                            + " WHERE a.target_type = ? AND a.target_id IN (" + in + ")"
+                            + " WHERE a.target_type = ? AND a.target_id = ANY(?)"
                             + " ORDER BY a.target_id, a.occurred_at DESC, a.id DESC",
                     rs -> {
                         Timestamp at = rs.getTimestamp("occurred_at");
                         result.put(type.name() + ":" + rs.getLong("target_id"),
                                 new Handled(at == null ? null : at.toInstant(), rs.getString("display_name")));
-                    }, args);
+                    }, type.name(), ids.toArray(Long[]::new));
         }
         return result;
     }
 
-    // 처리 기록에 운영자 이름 붙이기 (운영자 계정을 지웠으면 null)
-    private List<ActionLine> withAdminNames(List<ActionLine> actions) {
-        Set<Long> ids = actions.stream().map(ActionLine::adminId).filter(id -> id != null).collect(Collectors.toSet());
-        Map<Long, String> names = names(ids);
-        return actions.stream()
-                .map(a -> new ActionLine(a.action(), a.reason(), a.memo(), a.adminId(), names.get(a.adminId()),
-                        a.occurredAt()))
-                .toList();
-    }
 
     private Map<Long, String> names(Collection<Long> userIds) {
         Map<Long, String> names = new HashMap<>();
         if (userIds.isEmpty()) {
             return names;
         }
-        String in = String.join(",", userIds.stream().map(id -> "?").toList());
-        jdbc.query("SELECT id, display_name FROM users WHERE id IN (" + in + ")",
+        jdbc.query("SELECT id, display_name FROM users WHERE id = ANY(?)",
                 rs -> {
                     names.put(rs.getLong("id"), rs.getString("display_name"));
-                }, userIds.toArray());
+                }, (Object) userIds.toArray(Long[]::new));
         return names;
     }
 
