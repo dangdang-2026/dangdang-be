@@ -46,6 +46,7 @@ public class FoodImageService {
     private final FoodImageClient foodImageClient;
     private final FoodService foodService;
     private final ConsentService consentService;
+    private final FoodSimilarService foodSimilarService;
 
     public FoodImageAnalysisResponse analyze(Long userId, MultipartFile image) {
         // 사진 AI 분석에 동의(AI_PHOTO, 선택 동의)하지 않았으면 사진을 AI 서버로 아예 보내지 않음
@@ -128,11 +129,16 @@ public class FoodImageService {
     }
 
     // 찾을 이름으로 0건이면 AI 이름으로 한 번 더 (AI 대응표에 오타가 들어가도 빈 칸이 되지 않게, PR #179 리뷰)
-    // 같은 이름은 한 번만 검색 (searched에 이름별로 남김)
+    // 그래도 0건이면 이름 뜻이 가까운 음식 (임베딩, #185)
+    // 같은 이름은 한 번만 검색 (searched에 이름별로 남김. 뜻 검색은 글자 검색과 섞이지 않게 키 앞에 similar:)
     private List<FoodResponse> foodsFor(FoodImageClient.Candidate c, Map<String, List<FoodResponse>> searched) {
         List<FoodResponse> foods = search(c.nameToSearch(), searched);
         if (foods.isEmpty() && !c.nameToSearch().equals(c.name())) {
             foods = search(c.name(), searched);
+        }
+        if (foods.isEmpty()) {
+            foods = searched.computeIfAbsent("similar:" + c.nameToSearch(),
+                    n -> foodSimilarService.similar(c.nameToSearch(), FOODS_PER_CANDIDATE));
         }
         return foods;
     }

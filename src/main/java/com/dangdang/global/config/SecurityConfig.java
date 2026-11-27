@@ -1,6 +1,8 @@
 package com.dangdang.global.config;
 
 import com.dangdang.domain.auth.exception.AuthErrorCode;
+import com.dangdang.global.config.property.AdminIpProperties;
+import com.dangdang.global.filter.AdminIpFilter;
 import com.dangdang.global.filter.JwtAuthenticationFilter;
 import com.dangdang.global.security.AuthErrorWriter;
 import jakarta.servlet.DispatcherType;
@@ -14,6 +16,7 @@ import org.springframework.security.config.annotation.web.configurers.AbstractHt
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.web.filter.CorsFilter;
 
 
 @Configuration
@@ -22,6 +25,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 public class SecurityConfig {
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final AuthErrorWriter authErrorWriter;
+    private final AdminIpProperties adminIpProperties;
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
@@ -32,6 +36,8 @@ public class SecurityConfig {
                 .logout(AbstractHttpConfigurer::disable) // 로그아웃은 우리 API 로
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS)) // 세션 X, 토큰만
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+                // 운영자 API는 허용한 IP만 (be #181). CORS 다음에 둬야 403 응답에도 CORS 헤더가 붙어 화면이 이유를 읽는다
+                .addFilterAfter(new AdminIpFilter(adminIpProperties, authErrorWriter), CorsFilter.class)
                 .exceptionHandling(e -> e
                         .authenticationEntryPoint((req, res, ex) -> authErrorWriter.write(res, AuthErrorCode.LOGIN_REQUIRED)) // 401
                         .accessDeniedHandler((req, res, ex) -> authErrorWriter.write(res, AuthErrorCode.ACCESS_DENIED))) // 403
