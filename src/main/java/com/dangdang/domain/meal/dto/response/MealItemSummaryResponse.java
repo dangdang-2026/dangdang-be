@@ -13,6 +13,7 @@ import java.time.Instant;
 public record MealItemSummaryResponse(
         Long itemId,
         String foodCode,                 // 직접 적은 음식이면 null
+        Long productId,                  // 상점 상품을 골랐으면 그 상품, 아니면 null
         String name,                     // 보이는 이름
         BigDecimal servings,             // 먹은 양 (인분)
         BigDecimal weightG,              // 직접 잰 먹은 양 (unit 단위), 없으면 null
@@ -27,7 +28,7 @@ public record MealItemSummaryResponse(
     // isStaple·unitLabel은 음식 DB를 봐야 해서 부르는 쪽이 한 번에 읽어 넘김 (FoodStapleReader)
     public static MealItemSummaryResponse from(MealItem i, FoodStapleReader.Traits traits) {
         return new MealItemSummaryResponse(
-                i.getId(), i.getFoodCode(), i.getName(), i.getServings(), i.getWeight(), i.getUnit(),
+                i.getId(), i.getFoodCode(), i.getProductId(), i.getName(), i.getServings(), i.getWeight(), i.getUnit(),
                 i.getNutritionSource(), i.eatenNutrition(), i.getNutritionOverride(), i.getUpdatedAt(),
                 traits.isStaple(), traits.unitLabel());
     }

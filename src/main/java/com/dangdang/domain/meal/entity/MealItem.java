@@ -2,6 +2,7 @@ package com.dangdang.domain.meal.entity;
 
 import com.dangdang.domain.food.entity.Food;
 import com.dangdang.domain.meal.enums.NutritionSource;
+import com.dangdang.domain.shop.entity.Product;
 import com.dangdang.global.common.BaseTimeEntity;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
@@ -34,6 +35,8 @@ public class MealItem extends BaseTimeEntity {
 
     @Column(length = 30)
     private String foodCode;                 // 식약처 음식이면 코드, 직접 적은 음식이면 null
+
+    private Long productId;                  // 상점 상품을 골랐으면 그 상품 (후기로 모임, be #192). 아니면 null
 
     @Column(nullable = false, length = 150)
     private String name;                     // 보이는 이름. displayName은 식품명(100자)보다 길어질 수 있어 150자 (직접 적는 이름은 요청에서 100자 제한)
@@ -97,6 +100,25 @@ public class MealItem extends BaseTimeEntity {
         return i;
     }
 
+    // 상점 상품을 골라서 추가. 상품 영양값은 1개(영양 기준) 값이라 「1인분 = 100」으로 두고 그대로 복사함
+    // → 먹은 영양 = 1개 값 × 개수(servings). 지방은 상품에 없어서 null
+    public static MealItem ofProduct(Meal meal, Product product, BigDecimal servings) {
+        MealItem i = new MealItem();
+        i.meal = meal;
+        i.productId = product.getId();
+        String name = product.getBrand() + " " + product.getName();
+        i.name = name.length() > 150 ? name.substring(0, 150) : name;
+        i.servings = servings;
+        i.unit = "g";
+        i.servingAmount = HUNDRED;
+        i.kcal = product.getKcal();
+        i.carbG = product.getCarbG();
+        i.sugarG = product.getSugarG();
+        i.proteinG = product.getProteinG();
+        i.nutritionSource = NutritionSource.DB;
+        return i;
+    }
+
     // 이름을 직접 적어서 추가. 영양값은 사용자가 적은 것만 있음 (안 적으면 전부 모름)
     public static MealItem ofCustom(Meal meal, String name, BigDecimal servings, BigDecimal weight, MealNutrition nutrition) {
         MealItem i = new MealItem();
@@ -153,9 +175,9 @@ public class MealItem extends BaseTimeEntity {
         this.deletedAt = now;
     }
 
-    // 직접 적은 음식인지 (식약처 음식을 고른 게 아님)
+    // 직접 적은 음식인지 (식약처 음식도 상점 상품도 고른 게 아님)
     public boolean isCustom() {
-        return foodCode == null;
+        return foodCode == null && productId == null;
     }
 
     // 먹은 양 전체의 영양값 (소수 첫째 자리)

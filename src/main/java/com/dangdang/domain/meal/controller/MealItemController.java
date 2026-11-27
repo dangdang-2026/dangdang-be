@@ -28,15 +28,17 @@ public class MealItemController {
             summary = "[ 사용자 | 토큰 O | 식사 항목 추가 ]",
             description =
                     """
-                    **Parameters** mealId, foodCode(식약처 음식을 고를 때) 또는 name(직접 적을 때, 100자) 중 하나만,
+                    **Parameters** mealId, foodCode(식약처 음식을 고를 때) · productId(상점 상품을 고를 때) · name(직접 적을 때, 100자) 중 하나만,
                     servings(먹은 양 인분, 기본 1, 0 초과 20 이하), weightG(직접 잰 무게, 음료는 ml, 보내면 servings 대신 씀),
                     nutrition{kcal, carbG, proteinG, fatG, sugarG}(직접 적은 음식만, 지금 먹은 양 전체 기준 — 나중에 양을 바꾸면 비율만큼 바뀜, 모르는 칸은 생략)
-                    **Returns** itemId, mealId, foodCode, name, servings, weightG, unit(g·ml), nutritionSource(DB·USER),
+                    **Returns** itemId, mealId, foodCode, productId(상점 상품이 아니면 null), name, servings, weightG, unit(g·ml), nutritionSource(DB·USER),
                     nutrition(먹은 양 전체의 영양값, 모르는 값은 null), nutritionOverride(직접 적은 값만, 없으면 null), createdAt, updatedAt,
                     mealUpdatedAt(바뀐 뒤 식사 수정 시각 — 영양값 직접 입력의 expectedUpdatedAt으로 씀).
                     고른 음식은 그때의 공공 영양값을 복사해 둬서 음식 데이터가 바뀌어도 이 기록은 그대로임. name은 음식의 보이는 이름(displayName).
                     식사가 없거나 남의 것이면 MEAL_40401, 음식 코드가 없으면 FOOD_40401,
-                    foodCode·name을 둘 다 보내거나 둘 다 안 보내면 MEAL_40004, foodCode와 nutrition을 같이 보내면 MEAL_40005, 값 범위가 틀리면 GLOBAL_40001
+                    foodCode·productId·name 중 하나만 보내지 않으면 MEAL_40004, foodCode·productId와 nutrition을 같이 보내면 MEAL_40005, 값 범위가 틀리면 GLOBAL_40001
+                    상점 상품: 이름은 「브랜드 상품명」, 영양값은 상품 1개 값 × servings(개수, unitLabel 「개」). weightG를 보내면 MEAL_40009, 없거나 판매 끝난 상품이면 SHOP_40401.
+                    PRODUCT_REVIEW 동의를 켠 사람이면 이 식사의 식후 혈당이 상품 혈당 후기에 이름 없이 모인다
                     """)
     @PostMapping
     public ResponseEntity<BaseResponse<MealItemResponse>> add(
