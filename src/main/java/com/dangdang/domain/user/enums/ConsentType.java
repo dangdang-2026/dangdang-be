@@ -16,7 +16,8 @@ public enum ConsentType {
     AI_PHOTO(false, "v1"),
     AI_CHAT_RECORDS(false, "v1"),        // 챗봇이 내 기록을 보고 답하기 — 건강정보 철회 때 같이 꺼진다
     OVERSEAS_TRANSFER(false, "v1"),      // 미국 OpenAI로 보내기 — 챗봇·진료 메모 정리의 문지기 (AiFeature)
-    COMMUNITY_AI_CHECK(false, "v1");     // U-04 「확인했어요」 — 커뮤니티 글 약·용량 문장을 GPT(미국 OpenAI)로 확인 (83 H)
+    COMMUNITY_AI_CHECK(false, "v1"),     // U-04 「확인했어요」 — 커뮤니티 글 약·용량 문장을 GPT(미국 OpenAI)로 확인 (83 H)
+    PRODUCT_REVIEW(false, "v1");         // 상점 상품을 고른 식사의 식후 혈당을 그 상품 혈당 후기에 이름 없이 보태기 (be #192). 처음엔 꺼짐
 
     private final boolean required;
     private final String version;
