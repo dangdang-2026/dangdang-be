@@ -8,11 +8,15 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.Optional;
 
 public interface ProductRepository extends JpaRepository<Product, Long> {
 
     Optional<Product> findByIdAndActiveTrue(Long id);
+
+    // 판매 중인 상품 전부 (상점 메인 「산모들이 먹고 기록한 간식」·저당 추천 후보, 상품 수가 수십 개라 한 번에 읽는다)
+    List<Product> findAllByActiveTrue();
 
     // 상점 목록 (P-01). 판매 중인 것만, 운영자가 정한 순서대로 (같은 순서면 id)
     //   allCategories = true 면 category 는 안 본다 (「홈」 탭)

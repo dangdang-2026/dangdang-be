@@ -1,6 +1,7 @@
 package com.dangdang.domain.shop.service;
 
 import com.dangdang.domain.shop.dto.response.LikedProductListResponse;
+import com.dangdang.domain.shop.dto.response.ProductReviewSummary;
 import com.dangdang.domain.shop.dto.response.ProductSummaryResponse;
 import com.dangdang.domain.shop.entity.ProductLike;
 import com.dangdang.domain.shop.exception.ShopErrorCode;
@@ -13,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.util.List;
+import java.util.Map;
 
 // 찜 (하트 · M-21 찜한 상품)
 @Service
@@ -23,6 +25,7 @@ public class ProductLikeService {
 
     private final ProductService productService;
     private final ProductLikeRepository productLikeRepository;
+    private final ProductReviewQueryService productReviewQueryService;
     private final Clock clock;
 
     // 찜하기. 이미 찜했어도 200 (두 번 눌러도, 동시에 눌러도 한 줄)
@@ -52,8 +55,10 @@ public class ProductLikeService {
             ProductLike last = page.get(page.size() - 1);
             next = new TimeCursor(last.getCreatedAt(), last.getId()).encode(LIKES);
         }
+        Map<Long, ProductReviewSummary> reviews = productReviewQueryService.summaries(
+                page.stream().map(l -> l.getProduct().getId()).toList());
         List<ProductSummaryResponse> items = page.stream()
-                .map(l -> ProductSummaryResponse.of(l.getProduct(), true))
+                .map(l -> ProductSummaryResponse.of(l.getProduct(), true, reviews.get(l.getProduct().getId())))
                 .toList();
         return new LikedProductListResponse(items, next, hasNext, productLikeRepository.countMine(userId));
     }
