@@ -2,6 +2,7 @@ package com.dangdang.domain.shop.service;
 
 import com.dangdang.domain.shop.dto.response.ProductDetailResponse;
 import com.dangdang.domain.shop.dto.response.ProductPageResponse;
+import com.dangdang.domain.shop.dto.response.ProductReviewSummary;
 import com.dangdang.domain.shop.dto.response.ProductSummaryResponse;
 import com.dangdang.domain.shop.entity.Product;
 import com.dangdang.domain.shop.enums.ProductCategory;
@@ -18,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 // 상점 상품 보기 (P-01 · P-02). 상세를 열면 「최근 본 상품」에도 남긴다. 상품은 운영자가 넣고 여기선 읽기만
@@ -28,6 +30,7 @@ public class ProductService {
     private final ProductRepository productRepository;
     private final ProductLikeRepository productLikeRepository;
     private final ProductViewRepository productViewRepository;
+    private final ProductReviewQueryService productReviewQueryService;
     private final Clock clock;
 
     // category 가 null 이면 전체(「홈」), pick = true 면 산모 PICK 배너만, q 는 이름·브랜드에 들어간 말
@@ -39,8 +42,10 @@ public class ProductService {
         // 하트 칠하기 — 이번 페이지 상품만 한 번에 (빈 페이지면 IN () 이 안 되게 건너뜀)
         Set<Long> liked = slice.isEmpty() ? Set.of()
                 : productLikeRepository.findLikedProductIds(userId, slice.map(Product::getId).getContent());
+        // 혈당 후기 요약도 이번 페이지 상품만 한 번에 (be #192)
+        Map<Long, ProductReviewSummary> reviews = productReviewQueryService.summaries(slice.map(Product::getId).getContent());
         List<ProductSummaryResponse> items = slice.getContent().stream()
-                .map(p -> ProductSummaryResponse.of(p, liked.contains(p.getId())))
+                .map(p -> ProductSummaryResponse.of(p, liked.contains(p.getId()), reviews.get(p.getId())))
                 .toList();
         return new ProductPageResponse(items, page, size, slice.hasNext());
     }
@@ -50,7 +55,8 @@ public class ProductService {
     public ProductDetailResponse detail(Long userId, Long productId) {
         Product product = onSale(productId);
         productViewRepository.upsert(userId, productId, clock.instant());
-        return ProductDetailResponse.of(product, productLikeRepository.existsByUserIdAndProductId(userId, productId));
+        return ProductDetailResponse.of(product, productLikeRepository.existsByUserIdAndProductId(userId, productId),
+                productReviewQueryService.summaryOf(productId));
     }
 
     // 판매 중인 상품. 없거나 내린 상품이면 404 (찜하기·판매처로 이동도 같이 쓴다)

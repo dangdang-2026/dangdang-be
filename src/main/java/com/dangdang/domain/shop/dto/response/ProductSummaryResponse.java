@@ -15,10 +15,11 @@ public record ProductSummaryResponse(
         @Schema(description = "대표 사진 (없으면 null)") String imageUrl,
         @Schema(description = "이번 주 산모 PICK") boolean pick,
         @Schema(description = "제휴 링크 → 「제휴」 표시") boolean affiliate,
-        @Schema(description = "내가 찜했는지") boolean liked) {
+        @Schema(description = "내가 찜했는지") boolean liked,
+        @Schema(description = "혈당 후기 요약 (5명 미만이면 collecting=true, 숫자 null)") ProductReviewSummary review) {
 
-    public static ProductSummaryResponse of(Product p, boolean liked) {
+    public static ProductSummaryResponse of(Product p, boolean liked, ProductReviewSummary review) {
         return new ProductSummaryResponse(p.getId(), p.getCategory(), p.getBrand(), p.getName(), p.getSizeLabel(),
-                p.getPrice(), p.mainImageUrl(), p.isPick(), p.isAffiliate(), liked);
+                p.getPrice(), p.mainImageUrl(), p.isPick(), p.isAffiliate(), liked, review);
     }
 }
