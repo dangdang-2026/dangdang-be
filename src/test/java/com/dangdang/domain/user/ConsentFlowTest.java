@@ -67,7 +67,7 @@ class ConsentFlowTest {
         mvc.perform(post("/api/me/consents").cookie(access).contentType(MediaType.APPLICATION_JSON).content(A01))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.completed").value(true))
-                .andExpect(jsonPath("$.data.items.length()").value(9))
+                .andExpect(jsonPath("$.data.items.length()").value(10))
                 .andExpect(jsonPath("$.data.items[?(@.type=='TERMS')].version").value("v1"))
                 .andExpect(jsonPath("$.data.items[?(@.type=='AI_PHOTO')].granted").value(false));
 

@@ -1,5 +1,6 @@
 package com.dangdang.domain.shop.service;
 
+import com.dangdang.domain.shop.dto.response.ProductReviewSummary;
 import com.dangdang.domain.shop.dto.response.ProductSummaryResponse;
 import com.dangdang.domain.shop.dto.response.RecentProductListResponse;
 import com.dangdang.domain.shop.dto.response.RecentProductResponse;
@@ -17,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 // 마이 › 최근 본 상품. 남기는 건 ProductService.detail (상세를 열 때)
@@ -29,6 +31,7 @@ public class RecentProductService {
 
     private final ProductViewRepository productViewRepository;
     private final ProductLikeRepository productLikeRepository;
+    private final ProductReviewQueryService productReviewQueryService;
     private final Clock clock;
 
     // 오늘 포함 최근 7일(한국 날짜) · 판매 중인 것만 · 최근 본 것 먼저
@@ -48,9 +51,11 @@ public class RecentProductService {
         }
         Set<Long> liked = page.isEmpty() ? Set.of()
                 : productLikeRepository.findLikedProductIds(userId, page.stream().map(v -> v.getProduct().getId()).toList());
+        Map<Long, ProductReviewSummary> reviews = productReviewQueryService.summaries(
+                page.stream().map(v -> v.getProduct().getId()).toList());
         List<RecentProductResponse> items = page.stream()
-                .map(v -> new RecentProductResponse(
-                        ProductSummaryResponse.of(v.getProduct(), liked.contains(v.getProduct().getId())), v.getViewedAt()))
+                .map(v -> new RecentProductResponse(ProductSummaryResponse.of(v.getProduct(),
+                        liked.contains(v.getProduct().getId()), reviews.get(v.getProduct().getId())), v.getViewedAt()))
                 .toList();
         return new RecentProductListResponse(items, next, hasNext);
     }

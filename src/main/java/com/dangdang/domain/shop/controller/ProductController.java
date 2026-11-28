@@ -27,7 +27,8 @@ public class ProductController {
     @Operation(summary = "[ 사용자 | 토큰 O | 상점 상품 목록 (P-01) ]",
             description = """
                     **Parameters** category(SNACK·LUNCHBOX·DRINK·MEAL_SWAP, 없으면 전체) · pick(true면 산모 PICK만) · q(이름·브랜드 검색, 100자까지, % _ 는 글자 그대로) · page(0~10000, 기본 0) · size(1~50, 기본 20)
-                    **Returns** items[id, category, brand, name, sizeLabel, price, imageUrl, pick, affiliate, liked], page, size, hasNext
+                    **Returns** items[id, category, brand, name, sizeLabel, price, imageUrl, pick, affiliate, liked, review{collecting, reviewerCount, inTargetCount}], page, size, hasNext
+                    review = 혈당 후기 요약 (5명 미만이면 collecting=true, 숫자 null). 찜한 상품·최근 본 상품 카드도 같은 모양
                     판매 중인 상품만, 운영자가 정한 순서. 잘못된 category·범위 밖 값은 400 GLOBAL_40001
                     """)
     @GetMapping
@@ -48,7 +49,7 @@ public class ProductController {
 
     @Operation(summary = "[ 사용자 | 토큰 O | 상품 상세 (P-02) ]",
             description = """
-                    **Returns** id, category, brand, name, sizeLabel, price, pricePer100, contentUnit, shippingNote, nutrition[servingLabel, carbG, sugarG, proteinG, kcal], imageUrls, sellerName, pick, affiliate, liked
+                    **Returns** id, category, brand, name, sizeLabel, price, pricePer100, contentUnit, shippingNote, nutrition[servingLabel, carbG, sugarG, proteinG, kcal], imageUrls, sellerName, pick, affiliate, liked, review{collecting, reviewerCount, inTargetCount}
                     pricePer100·contentUnit 은 용량을 모르면 null, shippingNote 는 없으면 null, nutrition 은 영양을 모르면 null
                     판매처 주소는 안 줌 (「○○몰로 이동하기」 = POST /api/products/{productId}/visits)
                     화면을 실제로 열 때만 불러 주세요 (미리 불러오기 금지, 열면 최근 본 상품에 남음). 같은 상품은 한 줄, 시각만 새로

@@ -25,6 +25,7 @@ public class FoodStapleReader {
     // 음식 DB에서 읽어 응답에 붙이는 값
     public record Traits(boolean isStaple, String unitLabel) {
         public static final Traits NONE = new Traits(false, Food.DEFAULT_UNIT);
+        public static final Traits PRODUCT = new Traits(false, "개");   // 상점 상품을 고른 항목은 개수로 셈
 
         static Traits of(Food f) {
             return new Traits(f.isStaple(), f.unitLabel());

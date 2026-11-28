@@ -13,6 +13,7 @@ public record MealItemResponse(
         Long itemId,
         Long mealId,
         String foodCode,                 // 직접 적은 음식이면 null
+        Long productId,                  // 상점 상품을 골랐으면 그 상품, 아니면 null
         String name,                     // 보이는 이름
         BigDecimal servings,             // 먹은 양 (인분)
         BigDecimal weightG,              // 직접 잰 먹은 양 (unit 단위), 없으면 null
@@ -28,7 +29,7 @@ public record MealItemResponse(
 
     public static MealItemResponse from(MealItem i, Instant mealUpdatedAt, FoodStapleReader.Traits traits) {
         return new MealItemResponse(
-                i.getId(), i.getMeal().getId(), i.getFoodCode(), i.getName(),
+                i.getId(), i.getMeal().getId(), i.getFoodCode(), i.getProductId(), i.getName(),
                 i.getServings(), i.getWeight(), i.getUnit(), i.getNutritionSource(),
                 i.eatenNutrition(), i.getNutritionOverride(), i.getCreatedAt(), i.getUpdatedAt(), mealUpdatedAt,
                 traits.isStaple(), traits.unitLabel());

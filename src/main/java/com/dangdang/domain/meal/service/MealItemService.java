@@ -14,6 +14,9 @@ import com.dangdang.domain.meal.entity.MealItem;
 import com.dangdang.domain.meal.exception.MealErrorCode;
 import com.dangdang.domain.meal.repository.MealItemRepository;
 import com.dangdang.domain.meal.repository.MealRepository;
+import com.dangdang.domain.shop.entity.Product;
+import com.dangdang.domain.shop.exception.ShopErrorCode;
+import com.dangdang.domain.shop.repository.ProductRepository;
 import com.dangdang.domain.user.service.SensitiveConsentGuard;
 import com.dangdang.global.exception.CustomException;
 import lombok.RequiredArgsConstructor;
@@ -39,17 +42,20 @@ public class MealItemService {
     private final MealItemRepository mealItemRepository;
     private final FoodRepository foodRepository;
     private final FoodStapleReader foodStapleReader;
+    private final ProductRepository productRepository;
     private final Clock clock;
     private final SensitiveConsentGuard sensitiveConsentGuard;
 
-    // 항목 추가. 식약처 음식(foodCode)을 고르거나 이름(name)을 직접 적음 (둘 중 하나만)
+    // 항목 추가. 식약처 음식(foodCode)이나 상점 상품(productId)을 고르거나 이름(name)을 직접 적음 (셋 중 하나만)
     @Transactional
     public MealItemResponse add(Long userId, Long mealId, MealItemCreateRequest req) {
         sensitiveConsentGuard.require(userId);   // 건강정보 동의가 없으면 403
         Meal meal = findMyMeal(userId, mealId);
         String foodCode = req.trimmedFoodCode();
         String name = req.trimmedName();
-        if ((foodCode == null) == (name == null)) {
+        Long productId = req.productId();
+        int chosen = (foodCode != null ? 1 : 0) + (name != null ? 1 : 0) + (productId != null ? 1 : 0);
+        if (chosen != 1) {
             throw new CustomException(MealErrorCode.ITEM_FOOD_OR_NAME);
         }
 
@@ -62,12 +68,23 @@ public class MealItemService {
             Food food = foodRepository.findById(foodCode)
                     .orElseThrow(() -> new CustomException(FoodErrorCode.FOOD_NOT_FOUND));
             item = MealItem.ofFood(meal, food, req.servingsOrDefault(), req.weightG());
+        } else if (productId != null) {
+            // 상점 상품은 그 상품의 1개 영양값을 복사함. 개수로만 적음 (무게를 받으면 1개 값과 맞출 수 없음)
+            if (req.nutrition() != null) {
+                throw new CustomException(MealErrorCode.ITEM_NUTRITION_WITH_FOOD);
+            }
+            if (req.weightG() != null) {
+                throw new CustomException(MealErrorCode.ITEM_PRODUCT_WEIGHT);
+            }
+            Product product = productRepository.findByIdAndActiveTrue(productId)
+                    .orElseThrow(() -> new CustomException(ShopErrorCode.PRODUCT_NOT_FOUND));
+            item = MealItem.ofProduct(meal, product, req.servingsOrDefault());
         } else {
             item = MealItem.ofCustom(meal, name, req.servingsOrDefault(), req.weightG(),
                     req.nutrition() == null ? null : req.nutrition().toNutrition());
         }
         mealItemRepository.save(item);
-        return MealItemResponse.from(item, touchMeal(mealId), foodStapleReader.of(item.getFoodCode()));
+        return MealItemResponse.from(item, touchMeal(mealId), traits(item));
     }
 
     // 항목 수정 (보낸 칸만). 인분·무게, 직접 적은 음식이면 이름까지
@@ -82,8 +99,11 @@ public class MealItemService {
         if (name != null && !item.isCustom()) {
             throw new CustomException(MealErrorCode.ITEM_NAME_OF_FOOD);
         }
+        if (item.getProductId() != null && req.getWeightG() != null) {   // 상점 상품은 개수로만
+            throw new CustomException(MealErrorCode.ITEM_PRODUCT_WEIGHT);
+        }
         item.update(req.getServings(), req.isWeightGSent(), req.getWeightG(), name);
-        return MealItemResponse.from(item, touchMeal(mealId), foodStapleReader.of(item.getFoodCode()));
+        return MealItemResponse.from(item, touchMeal(mealId), traits(item));
     }
 
     // 영양값 직접 입력 (노션 명세). nutritionSource=USER가 되고, 적은 칸만 사용자 값으로 씀
@@ -100,8 +120,11 @@ public class MealItemService {
             throw new CustomException(MealErrorCode.MEAL_CHANGED);
         }
         MealItem item = findItemOf(mealId, itemId);
+        if (item.getProductId() != null && req.getWeightG() != null) {   // 상점 상품은 개수로만
+            throw new CustomException(MealErrorCode.ITEM_PRODUCT_WEIGHT);
+        }
         item.overrideNutrition(req.getNutritionOverride().toNutrition(), req.isWeightGSent(), req.getWeightG());
-        return MealItemResponse.from(item, touchMeal(mealId), foodStapleReader.of(item.getFoodCode()));
+        return MealItemResponse.from(item, touchMeal(mealId), traits(item));
     }
 
     // 공공 영양값으로 되돌리기 (노션 명세). 직접 적은 값을 지우고 nutritionSource=DB
@@ -116,9 +139,9 @@ public class MealItemService {
         }
         if (!item.revertNutrition()) {
             // 이미 공공 값이라 바뀐 게 없음 → 식사 수정 시각도 그대로 (다른 기기가 괜히 409를 받지 않게)
-            return MealItemResponse.from(item, item.getMeal().getUpdatedAt(), foodStapleReader.of(item.getFoodCode()));
+            return MealItemResponse.from(item, item.getMeal().getUpdatedAt(), traits(item));
         }
-        return MealItemResponse.from(item, touchMeal(mealId), foodStapleReader.of(item.getFoodCode()));
+        return MealItemResponse.from(item, touchMeal(mealId), traits(item));
     }
 
     // 항목 삭제 (soft delete). 이미 지운 항목을 또 지우면 404
@@ -139,8 +162,14 @@ public class MealItemService {
         Map<String, FoodStapleReader.Traits> staple = foodStapleReader.byCodes(items.stream().map(MealItem::getFoodCode).toList());
         return items.stream()
                 .collect(Collectors.groupingBy(i -> i.getMeal().getId(),
-                        Collectors.mapping(i -> MealItemSummaryResponse.from(i,
-                                staple.getOrDefault(i.getFoodCode(), FoodStapleReader.Traits.NONE)), Collectors.toList())));
+                        Collectors.mapping(i -> MealItemSummaryResponse.from(i, i.getProductId() != null
+                                ? FoodStapleReader.Traits.PRODUCT
+                                : staple.getOrDefault(i.getFoodCode(), FoodStapleReader.Traits.NONE)), Collectors.toList())));
+    }
+
+    // 항목 하나의 주식 여부·양 부르는 말. 상점 상품은 「개」
+    private FoodStapleReader.Traits traits(MealItem item) {
+        return item.getProductId() != null ? FoodStapleReader.Traits.PRODUCT : foodStapleReader.of(item.getFoodCode());
     }
 
     // 식사 하나의 항목

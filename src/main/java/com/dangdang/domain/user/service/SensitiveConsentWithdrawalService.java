@@ -91,9 +91,11 @@ public class SensitiveConsentWithdrawalService {
         }
         // 「AI가 내 기록을 보고 답해요」는 건강정보 동의가 있어야 의미가 있어서 같이 끈다 (다시 동의할 때 따로 켬)
         // 건강정보를 이미 철회한 뒤 이것만 다시 켰어도 끈다 — 그래서 wasGranted와 상관없이 켜져 있으면
-        if (isLatestGranted(userId, ConsentType.AI_CHAT_RECORDS)) {
-            events.add(ConsentEvent.of(user, ConsentType.AI_CHAT_RECORDS,
-                    ConsentType.AI_CHAT_RECORDS.getVersion(), false, now));
+        // 상점 혈당 후기 보태기(be #192)도 같은 이유로 같이 끈다
+        for (ConsentType type : List.of(ConsentType.AI_CHAT_RECORDS, ConsentType.PRODUCT_REVIEW)) {
+            if (isLatestGranted(userId, type)) {
+                events.add(ConsentEvent.of(user, type, type.getVersion(), false, now));
+            }
         }
         consentEventRepository.saveAll(events);
         // 숫자만 남긴다 (내용은 로그에 안 남김)
